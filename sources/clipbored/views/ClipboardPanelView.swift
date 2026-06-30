@@ -595,6 +595,14 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
           self?.viewModel.selectItem(at: selected)
           self?.viewModel.assignSelected(to: collectionName)
         }
+        card.onIgnoreSourceApp = { [weak self] selected in
+          self?.viewModel.selectItem(at: selected)
+          self?.viewModel.ignoreSelectedSourceApp()
+        }
+        card.onIgnoreKind = { [weak self] selected in
+          self?.viewModel.selectItem(at: selected)
+          self?.viewModel.ignoreSelectedKind()
+        }
         card.onDelete = { [weak self] selected in
           self?.viewModel.selectItem(at: selected)
           self?.viewModel.deleteSelected()
@@ -710,7 +718,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     if lower.hasPrefix("captured") || lower.contains("capture running") || lower.contains("capture is running") || lower.contains("capture resumed") {
       return .ready
     }
-    if lower.hasPrefix("copied") || lower.hasPrefix("pasted") || lower.hasPrefix("updated") || lower.hasPrefix("added") || lower.hasPrefix("removed") || lower.hasPrefix("cleared") {
+    if lower.hasPrefix("copied") || lower.hasPrefix("pasted") || lower.hasPrefix("updated") || lower.hasPrefix("added") || lower.hasPrefix("removed") || lower.hasPrefix("cleared") || lower.hasPrefix("ignored") {
       return .action
     }
     if lower.hasPrefix("error") || lower.contains("failed") {
@@ -1012,6 +1020,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   var debugFirstCardCollectionMenuTitles: [String] {
     cardViews.first?.debugCollectionMenuTitles ?? []
+  }
+
+  var debugFirstCardCaptureRuleMenuTitles: [String] {
+    cardViews.first?.debugCaptureRuleMenuTitles ?? []
   }
 
   var debugFirstCardVisibleActionLabels: [String] {
@@ -1388,6 +1400,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   var onReveal: (Int) -> Void = { _ in }
   var onTogglePin: (Int) -> Void = { _ in }
   var onAssignCollection: (Int, String?) -> Void = { _, _ in }
+  var onIgnoreSourceApp: (Int) -> Void = { _ in }
+  var onIgnoreKind: (Int) -> Void = { _ in }
   var onDelete: (Int) -> Void = { _ in }
 
   private let index: Int
@@ -1395,6 +1409,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private let itemIsPinned: Bool
   private let itemIsStacked: Bool
   private let stackCount: Int
+  private let itemSourceAppName: String?
+  private let itemSourceAppBundleID: String?
   private let itemCollectionName: String?
   private let collectionNames: [String]
   private let contentView = NSView()
@@ -1422,6 +1438,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     self.itemIsPinned = item.isPinned
     self.itemIsStacked = isStacked
     self.stackCount = stackCount
+    self.itemSourceAppName = Self.presentSourceText(item.sourceApp)
+    self.itemSourceAppBundleID = Self.presentSourceText(item.sourceAppBundleId)
     self.itemCollectionName = ClipboardCollectionDefaults.normalizedName(item.collectionName)
     self.collectionNames = collectionNames.compactMap { ClipboardCollectionDefaults.normalizedName($0) }
     super.init(frame: .zero)
@@ -1551,6 +1569,13 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     return collectionMenu.items.map { $0.isSeparatorItem ? "-" : $0.title }
   }
 
+  var debugCaptureRuleMenuTitles: [String] {
+    guard let rulesMenu = contextMenu().items.first(where: { $0.title == "Capture Rules" })?.submenu else {
+      return []
+    }
+    return rulesMenu.items.map { $0.isSeparatorItem ? "-" : $0.title }
+  }
+
   var debugVisibleActionLabels: [String] {
     actionRail.isHidden ? [] : actionRailButtons.map { $0.toolTip ?? "" }
   }
@@ -1598,6 +1623,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     }
     addMenuItem(itemIsPinned ? "Unpin" : "Pin", action: #selector(togglePinFromMenu), to: menu)
     addCollectionMenu(to: menu)
+    addCaptureRulesMenu(to: menu)
     menu.addItem(NSMenuItem.separator())
     let open = addMenuItem("Open", action: #selector(openFromMenu), to: menu)
     open.isEnabled = canOpen
@@ -1637,6 +1663,48 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
     menu.addItem(parent)
     menu.setSubmenu(submenu, for: parent)
+  }
+
+  private func addCaptureRulesMenu(to menu: NSMenu) {
+    let parent = NSMenuItem(title: "Capture Rules", action: nil, keyEquivalent: "")
+    let submenu = NSMenu(title: "Capture Rules")
+    submenu.autoenablesItems = false
+
+    let ignoreSource = NSMenuItem(
+      title: ignoreSourceTitle(),
+      action: #selector(ignoreSourceAppFromMenu),
+      keyEquivalent: ""
+    )
+    ignoreSource.target = self
+    ignoreSource.isEnabled = itemSourceAppName != nil || itemSourceAppBundleID != nil
+    submenu.addItem(ignoreSource)
+
+    let ignoreKind = NSMenuItem(
+      title: "Ignore \(kindLabel(for: itemKind)) Items",
+      action: #selector(ignoreKindFromMenu),
+      keyEquivalent: ""
+    )
+    ignoreKind.target = self
+    ignoreKind.isEnabled = true
+    submenu.addItem(ignoreKind)
+
+    menu.addItem(parent)
+    menu.setSubmenu(submenu, for: parent)
+  }
+
+  private func ignoreSourceTitle() -> String {
+    if let itemSourceAppName {
+      return "Ignore \(itemSourceAppName)"
+    }
+    if let itemSourceAppBundleID {
+      return "Ignore \(itemSourceAppBundleID)"
+    }
+    return "Ignore Source App"
+  }
+
+  private static func presentSourceText(_ value: String?) -> String? {
+    guard let text = value?.clipboardTrimmed, !text.isEmpty else { return nil }
+    return text
   }
 
   private func availableCollectionNames() -> [String] {
@@ -1874,6 +1942,14 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   @objc private func removeFromCollectionFromMenu() {
     onAssignCollection(index, nil)
+  }
+
+  @objc private func ignoreSourceAppFromMenu() {
+    onIgnoreSourceApp(index)
+  }
+
+  @objc private func ignoreKindFromMenu() {
+    onIgnoreKind(index)
   }
 
   @objc private func deleteFromMenu() {

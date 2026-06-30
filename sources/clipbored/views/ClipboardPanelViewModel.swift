@@ -426,6 +426,34 @@ final class ClipboardPanelViewModel {
     }
   }
 
+  func ignoreSelectedSourceApp() {
+    guard let item = selectedItem else { return }
+    guard let rule = sourceIgnoreRule(for: item) else {
+      statusMessage = "Source app unavailable"
+      return
+    }
+
+    let existing = settings.ignoredApps.map { $0.clipboardTrimmed.lowercased() }
+    guard !existing.contains(rule.value.lowercased()) else {
+      statusMessage = "\(rule.displayName) is already ignored"
+      return
+    }
+
+    settings.ignoredApps.append(rule.value)
+    statusMessage = "Ignored \(rule.displayName) for future captures"
+  }
+
+  func ignoreSelectedKind() {
+    guard let item = selectedItem else { return }
+    guard !settings.ignoredItemKindsRaw.contains(item.kind.rawValue) else {
+      statusMessage = "\(Self.statusKindName(item.kind)) items are already ignored"
+      return
+    }
+
+    settings.ignoredItemKindsRaw.append(item.kind.rawValue)
+    statusMessage = "Ignored \(Self.statusKindName(item.kind)) items for future captures"
+  }
+
   func selectCollection(named name: String) {
     guard let normalizedName = ClipboardCollectionDefaults.normalizedName(name) else { return }
     isStackFilterSelected = false
@@ -789,6 +817,25 @@ final class ClipboardPanelViewModel {
   private func minDate(_ lhs: Date?, _ rhs: Date) -> Date {
     guard let lhs else { return rhs }
     return min(lhs, rhs)
+  }
+
+  private func sourceIgnoreRule(for item: ClipboardItem) -> (value: String, displayName: String)? {
+    if let bundleID = item.sourceAppBundleId?.clipboardTrimmed, !bundleID.isEmpty {
+      let sourceApp = item.sourceApp?.clipboardTrimmed
+      let display = sourceApp?.isEmpty == false ? sourceApp ?? bundleID : bundleID
+      return (bundleID, display)
+    }
+
+    if let sourceApp = item.sourceApp?.clipboardTrimmed, !sourceApp.isEmpty {
+      return (sourceApp, sourceApp)
+    }
+
+    return nil
+  }
+
+  private static func statusKindName(_ kind: ClipboardItemKind) -> String {
+    let name = kind.displayName
+    return name == name.uppercased() ? name : name.capitalized
   }
 
   private func searchTokens(from query: String) -> [String] {

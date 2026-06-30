@@ -504,6 +504,63 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(viewModel.statusMessage, "Cleared Stack")
   }
 
+  func testIgnoreSelectedSourceAppAddsPreciseCaptureRule() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    var item = makeTextItem("source rule clip", createdAt: Date(timeIntervalSince1970: 100))
+    item.sourceApp = "Slack"
+    item.sourceAppBundleId = "com.tinyspeck.slackmacgap"
+    store.upsert(item)
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 1)
+    let initialIgnoredApps = settings.ignoredApps
+
+    viewModel.ignoreSelectedSourceApp()
+
+    XCTAssertEqual(settings.ignoredApps, initialIgnoredApps + ["com.tinyspeck.slackmacgap"])
+    XCTAssertEqual(viewModel.statusMessage, "Ignored Slack for future captures")
+
+    viewModel.ignoreSelectedSourceApp()
+    XCTAssertEqual(settings.ignoredApps, initialIgnoredApps + ["com.tinyspeck.slackmacgap"])
+    XCTAssertEqual(viewModel.statusMessage, "Slack is already ignored")
+  }
+
+  func testIgnoreSelectedKindAddsContentTypeCaptureRule() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    let item = ClipboardItem(
+      id: UUID(),
+      kind: .image,
+      displayText: "Image",
+      payload: "/tmp/image.png",
+      payloadHash: hash("image"),
+      createdAt: Date(timeIntervalSince1970: 100),
+      lastUsedAt: Date(timeIntervalSince1970: 100),
+      useCount: 0,
+      sourceApp: "Photos",
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+    store.upsert(item)
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 1)
+
+    viewModel.ignoreSelectedKind()
+
+    XCTAssertEqual(settings.ignoredItemKindsRaw, [ClipboardItemKind.image.rawValue])
+    XCTAssertEqual(viewModel.statusMessage, "Ignored Image items for future captures")
+
+    viewModel.ignoreSelectedKind()
+    XCTAssertEqual(settings.ignoredItemKindsRaw, [ClipboardItemKind.image.rawValue])
+    XCTAssertEqual(viewModel.statusMessage, "Image items are already ignored")
+  }
+
   func testSelectingStackFiltersVisibleItemsInQueueOrder() {
     let settings = makeSettings()
     let cacheService = makeCacheService()

@@ -19,7 +19,7 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
 - Custom named collections for organizing clips from the card context menu
 - Copy and paste actions with Accessibility permission fallback
 - Image thumbnail cache with byte and file-count pruning
-- Configurable history length, cache limit, polling profile, ignored apps, content kinds, launch-at-login, Dock/menu-bar presence, and clear-on-quit behavior
+- Configurable history length, cache limit, polling profile, ignored apps, content kinds, launch-at-login, Dock/menu-bar presence, and clear-on-quit behavior, with card-level capture rules for ignoring a source app or content type
 - Local-only storage, with optional sensitive-content exclusion for common secrets
 
 ## Requirements

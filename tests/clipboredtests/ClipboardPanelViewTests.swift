@@ -345,11 +345,15 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Add to Stack", "Edit", "Pin", "Add to Collection", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Add to Stack", "Edit", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
     XCTAssertEqual(
       fixture.view.debugFirstCardCollectionMenuTitles,
       ["Useful Links", "Important Notes", "Code Snippets", "Read Later", "-", "New Collection..."]
+    )
+    XCTAssertEqual(
+      fixture.view.debugFirstCardCaptureRuleMenuTitles,
+      ["Ignore Ghostty", "Ignore Text Items"]
     )
   }
 
@@ -361,7 +365,11 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Paste Plain Text", "Copy Plain Text", "Add to Stack", "Quick Look", "Pin", "Add to Collection", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Paste Plain Text", "Copy Plain Text", "Add to Stack", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+    )
+    XCTAssertEqual(
+      fixture.view.debugFirstCardCaptureRuleMenuTitles,
+      ["Ignore Ghostty", "Ignore File Items"]
     )
   }
 
@@ -377,7 +385,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Remove from Stack", "Paste Stack Next", "Copy Stack Next", "Clear Stack", "Edit", "Pin", "Add to Collection", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Remove from Stack", "Paste Stack Next", "Copy Stack Next", "Clear Stack", "Edit", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Remove from Stack", "Edit", "Delete"])
   }
