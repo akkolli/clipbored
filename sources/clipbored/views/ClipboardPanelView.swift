@@ -1338,6 +1338,14 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     cardViews.map(\.debugPreviewSummary)
   }
 
+  var debugCardTextPreviewTitles: [String] {
+    cardViews.map(\.debugTextPreviewTitle)
+  }
+
+  var debugCardTextPreviewBodies: [String] {
+    cardViews.map(\.debugTextPreviewBody)
+  }
+
   var debugCardPreviewStyles: [String] {
     cardViews.map(\.debugPreviewStyle)
   }
@@ -2680,6 +2688,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private(set) var debugHeaderTitle = ""
   private(set) var debugHeaderSubtitle = ""
   private(set) var debugHeaderColorHex = ""
+  private(set) var debugTextPreviewTitle = ""
+  private(set) var debugTextPreviewBody = ""
 
   var debugMenuTitles: [String] {
     contextMenu().items.map { $0.isSeparatorItem ? "-" : $0.title }
@@ -3517,28 +3527,39 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
     let titleString = titleText(for: item)
     let bodyString = previewBodyText(for: item, title: titleString)
+    #if DEBUG
+    debugTextPreviewTitle = titleString
+    debugTextPreviewBody = bodyString ?? ""
+    #endif
     let title = NSTextField(wrappingLabelWithString: titleString)
-    title.font = .systemFont(ofSize: 13, weight: .semibold)
+    title.font = bodyString == nil
+      ? .systemFont(ofSize: item.kind == .richText ? 15 : 14, weight: .regular)
+      : .systemFont(ofSize: 13, weight: .semibold)
     title.textColor = .labelColor
-    title.maximumNumberOfLines = 1
+    title.maximumNumberOfLines = bodyString == nil ? 5 : 1
     title.lineBreakMode = .byTruncatingTail
     title.toolTip = title.stringValue
 
-    let detail = NSTextField(wrappingLabelWithString: bodyString)
-    detail.font = .systemFont(ofSize: item.kind == .richText ? 15 : 14)
-    detail.textColor = .secondaryLabelColor
-    detail.maximumNumberOfLines = 5
-    detail.lineBreakMode = .byTruncatingTail
-    detail.toolTip = detail.stringValue
+    var textViews: [NSView] = [title]
+    if let bodyString {
+      let detail = NSTextField(wrappingLabelWithString: bodyString)
+      detail.font = .systemFont(ofSize: item.kind == .richText ? 15 : 14)
+      detail.textColor = .secondaryLabelColor
+      detail.maximumNumberOfLines = 5
+      detail.lineBreakMode = .byTruncatingTail
+      detail.toolTip = detail.stringValue
+      textViews.append(detail)
+    }
 
-    let stack = NSStackView(views: [title, detail])
+    let stack = NSStackView(views: textViews)
     stack.orientation = .vertical
     stack.alignment = .leading
-    stack.spacing = 10
+    stack.spacing = bodyString == nil ? 0 : 10
     stack.translatesAutoresizingMaskIntoConstraints = false
     container.addSubview(stack)
-    title.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-    detail.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+    for view in textViews {
+      view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+    }
     NSLayoutConstraint.activate([
       stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: layout.inset),
       stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -layout.inset),
@@ -3846,11 +3867,11 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     return label
   }
 
-  private func previewBodyText(for item: ClipboardItem, title: String) -> String {
+  private func previewBodyText(for item: ClipboardItem, title: String) -> String? {
     let preview = previewText(for: item)
     let normalizedTitle = normalized(title)
     if preview == normalizedTitle {
-      return preview
+      return nil
     }
 
     let prefix = normalizedTitle + " "
@@ -3859,6 +3880,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       if !remainder.isEmpty {
         return remainder
       }
+      return nil
     }
 
     return preview

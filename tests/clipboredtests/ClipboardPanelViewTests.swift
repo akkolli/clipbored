@@ -65,6 +65,26 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugCardRailOverflowFadeVisibility, [false, false])
   }
 
+  func testSingleLineTextCardsDoNotDuplicateTitleInBody() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Client follow-up note", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCardTextPreviewTitles, ["Client follow-up note"])
+    XCTAssertEqual(fixture.view.debugCardTextPreviewBodies, [""])
+  }
+
+  func testMultiLineTextCardsShowRemainderBelowTitle() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Address:\n399 The Embarcadero\nSan Francisco", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCardTextPreviewTitles, ["Address:"])
+    XCTAssertEqual(fixture.view.debugCardTextPreviewBodies, ["399 The Embarcadero San Francisco"])
+  }
+
   func testCompactCardsFitTwoItemsOnNarrowDockShelf() {
     let fixture = makePanelFixture()
     fixture.window.setFrame(NSRect(x: 0, y: 0, width: 620, height: 520), display: true)
