@@ -1446,6 +1446,22 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     cardViews.first?.debugHeaderBadgeFrame ?? .zero
   }
 
+  var debugStackCornerLabels: [String] {
+    cardViews.map(\.debugStackCornerLabel)
+  }
+
+  var debugStackCornerHiddenStates: [Bool] {
+    cardViews.map(\.debugStackCornerIsHidden)
+  }
+
+  var debugFirstCardStackCornerFrame: NSRect {
+    cardViews.first?.debugStackCornerFrame ?? .zero
+  }
+
+  func debugPressFirstCardStackCornerButton() {
+    cardViews.first?.debugPressStackCornerButton()
+  }
+
   var debugResultCountText: String {
     statusResultCountLabel.stringValue
   }
@@ -2412,6 +2428,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private let footerSourceLabel = NSTextField(labelWithString: "")
   private let footerDetailLabel = NSTextField(labelWithString: "")
   private let actionRail = NSStackView()
+  private let stackCornerButton = NSButton()
   private var actionRailButtons: [NSButton] = []
   private weak var headerBadgeView: NSView?
   private weak var headerPinView: NSView?
@@ -2688,6 +2705,22 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   var debugHeaderBadgeFrame: NSRect {
     guard let headerBadgeView else { return .zero }
     return headerBadgeView.convert(headerBadgeView.bounds, to: self)
+  }
+
+  var debugStackCornerLabel: String {
+    stackCornerButton.toolTip ?? ""
+  }
+
+  var debugStackCornerIsHidden: Bool {
+    stackCornerButton.isHidden
+  }
+
+  var debugStackCornerFrame: NSRect {
+    stackCornerButton.convert(stackCornerButton.bounds, to: self)
+  }
+
+  func debugPressStackCornerButton() {
+    stackCornerButton.performClick(nil)
   }
 
   var debugQuickPasteBadgeText: String? {
@@ -3018,6 +3051,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     layout.isCompact ? 36 : 42
   }
 
+  private var stackCornerButtonSize: CGFloat {
+    layout.isCompact ? 28 : 30
+  }
+
   private var actionRailHeaderTopInset: CGFloat {
     max(8, (layout.headerHeight - layout.actionRailHeight) / 2)
   }
@@ -3058,11 +3095,40 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     return button
   }
 
+  private func configureStackCornerButton() {
+    let toolTip = itemIsStacked ? "Remove from Stack" : "Add to Stack"
+    let image = NSImage(systemSymbolName: itemIsStacked ? "checkmark" : "plus", accessibilityDescription: toolTip)
+    image?.isTemplate = true
+    stackCornerButton.image = image
+    stackCornerButton.imagePosition = .imageOnly
+    stackCornerButton.imageScaling = .scaleProportionallyDown
+    stackCornerButton.isBordered = false
+    stackCornerButton.wantsLayer = true
+    stackCornerButton.layer?.cornerRadius = stackCornerButtonSize / 2
+    stackCornerButton.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.94).cgColor
+    stackCornerButton.layer?.borderWidth = 1
+    stackCornerButton.layer?.borderColor = NSColor.white.withAlphaComponent(0.82).cgColor
+    stackCornerButton.layer?.shadowColor = NSColor.black.cgColor
+    stackCornerButton.layer?.shadowOpacity = 0.22
+    stackCornerButton.layer?.shadowRadius = 7
+    stackCornerButton.layer?.shadowOffset = NSSize(width: 0, height: 3)
+    stackCornerButton.contentTintColor = .white
+    stackCornerButton.toolTip = toolTip
+    stackCornerButton.setAccessibilityLabel(toolTip)
+    stackCornerButton.target = self
+    stackCornerButton.action = #selector(toggleStackFromCornerButton)
+    stackCornerButton.translatesAutoresizingMaskIntoConstraints = false
+    stackCornerButton.setContentHuggingPriority(.required, for: .horizontal)
+    stackCornerButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+  }
+
   private func updateActionRailVisibility() {
     actionRail.isHidden = !isSelected
     headerBadgeView?.isHidden = false
     headerPinView?.isHidden = isSelected
     footerDetailLabel.isHidden = false
+    stackCornerButton.isHidden = !(itemIsStacked || isSelected || isHovered || isKeyboardFocused)
+    stackCornerButton.alphaValue = itemIsStacked ? 1.0 : 0.94
     for button in actionRailButtons {
       button.alphaValue = 1.0
     }
@@ -3093,6 +3159,11 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   }
 
   @objc private func toggleStackFromMenu() {
+    onToggleStack(index)
+  }
+
+  @objc private func toggleStackFromCornerButton() {
+    onSelect(index)
     onToggleStack(index)
   }
 
@@ -3240,6 +3311,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       body.widthAnchor.constraint(equalTo: stack.widthAnchor),
       footer.widthAnchor.constraint(equalTo: stack.widthAnchor)
     ])
+    configureStackCornerButton()
+    contentView.addSubview(stackCornerButton)
     contentView.addSubview(actionRail)
     let actionRailTrailingConstraint: NSLayoutConstraint
     if let headerBadgeView {
@@ -3251,6 +3324,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       actionRailTrailingConstraint = actionRail.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12)
     }
     NSLayoutConstraint.activate([
+      stackCornerButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+      stackCornerButton.centerYAnchor.constraint(equalTo: footer.topAnchor),
+      stackCornerButton.widthAnchor.constraint(equalToConstant: stackCornerButtonSize),
+      stackCornerButton.heightAnchor.constraint(equalToConstant: stackCornerButtonSize),
       actionRailTrailingConstraint,
       actionRail.topAnchor.constraint(equalTo: contentView.topAnchor, constant: actionRailHeaderTopInset)
     ])

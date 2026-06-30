@@ -892,6 +892,36 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Collect", "Remove from Stack", "Edit", "Preview", "Delete"])
   }
 
+  func testStackCornerButtonTogglesAndPersistsForQueuedCards() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Older stack item", store: fixture.store))
+    fixture.store.upsert(makeTextItem("Newest stack item", store: fixture.store))
+    drainMainQueue()
+    fixture.viewModel.selectItem(at: 0)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugStackCornerLabels, ["Add to Stack", "Add to Stack"])
+    XCTAssertEqual(fixture.view.debugStackCornerHiddenStates, [false, true])
+    XCTAssertGreaterThan(fixture.view.debugFirstCardStackCornerFrame.maxX, 290)
+
+    fixture.view.debugPressFirstCardStackCornerButton()
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugStatusText, "Added to Stack")
+    XCTAssertEqual(fixture.view.debugStackCornerLabels, ["Remove from Stack", "Add to Stack"])
+    XCTAssertEqual(fixture.view.debugStackCornerHiddenStates, [false, true])
+    XCTAssertTrue(fixture.view.debugStackChipIsVisible)
+    XCTAssertEqual(fixture.view.debugStackChipCount, 1)
+
+    fixture.viewModel.selectItem(at: 1)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugStackCornerHiddenStates, [false, false])
+  }
+
   func testStackChipAppearsFiltersAndClearsWithStack() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("First stack chip item", store: fixture.store))
