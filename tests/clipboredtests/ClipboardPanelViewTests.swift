@@ -203,11 +203,21 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(fixture.viewModel.statusMessage, "Added to Research Stack")
     XCTAssertEqual(fixture.view.debugCustomCollectionTitles, ["Research Stack"])
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderTitle, "Text")
+    XCTAssertEqual(fixture.view.debugFirstCardFooterDetailText, "Research Stack - 17 characters")
 
     fixture.viewModel.selectCollection(named: "Research Stack")
     drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Collect this note"])
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderTitle, "Research Stack")
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderSubtitle, "Text - Just now")
+    XCTAssertEqual(
+      fixture.view.debugFirstCardHeaderColorHex,
+      fixture.view.debugCustomCollectionColorHexes["Research Stack"] ?? ""
+    )
+    XCTAssertEqual(fixture.view.debugFirstCardFooterDetailText, "17 characters")
   }
 
   func testSelectedCardActionsRespectSelectedKind() {

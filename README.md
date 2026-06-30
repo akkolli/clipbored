@@ -17,7 +17,7 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
 - SQLite persistence with bounded history, pinned-item retention, and encrypted app-managed payloads
 - Search with independent token matching, structured filters such as `app:Safari`, `type:image`, `date:2026-06-30`, result jump-back to full history, and optional local OCR for copied images
 - Sort modes for recent, most used, images, links, text, files, audio, and pinned items
-- Custom named collections for organizing clips from the card Collect control, context menu, or by dragging cards onto collection chips
+- Custom named collections for organizing clips from the card Collect control, context menu, or by dragging cards onto collection chips, with consistent collection colors in chips and collection card headers
 - Copy and paste actions with Accessibility permission fallback
 - Image thumbnail cache with byte and file-count pruning
 - Configurable history length, cache limit, polling profile, ignored apps, content kinds, launch-at-login, Dock/menu-bar presence, and clear-on-quit behavior, with card-level capture rules for ignoring a source app or content type

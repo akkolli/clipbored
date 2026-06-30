@@ -40,6 +40,56 @@ private struct ClipboardItemCardLayout: Equatable {
   }
 }
 
+private enum ClipboardCollectionVisuals {
+  private static let customPalette: [NSColor] = [
+    NSColor(calibratedRed: 0.98, green: 0.30, blue: 0.32, alpha: 1),
+    NSColor(calibratedRed: 0.96, green: 0.64, blue: 0.00, alpha: 1),
+    NSColor(calibratedRed: 0.04, green: 0.47, blue: 0.95, alpha: 1),
+    NSColor(calibratedRed: 0.18, green: 0.72, blue: 0.34, alpha: 1),
+    NSColor(calibratedRed: 0.55, green: 0.35, blue: 0.88, alpha: 1),
+    NSColor(calibratedRed: 0.93, green: 0.12, blue: 0.34, alpha: 1),
+    NSColor(calibratedRed: 0.10, green: 0.62, blue: 0.72, alpha: 1),
+    NSColor(calibratedRed: 0.74, green: 0.42, blue: 0.16, alpha: 1)
+  ]
+
+  static func color(for mode: ClipboardSortMode) -> NSColor {
+    switch mode {
+    case .mostRecent: return .secondaryLabelColor
+    case .mostUsed: return NSColor(calibratedRed: 0.58, green: 0.42, blue: 0.92, alpha: 1)
+    case .text: return NSColor(calibratedRed: 0.96, green: 0.64, blue: 0.00, alpha: 1)
+    case .links: return NSColor(calibratedRed: 0.02, green: 0.47, blue: 0.98, alpha: 1)
+    case .images: return NSColor(calibratedRed: 1.00, green: 0.22, blue: 0.25, alpha: 1)
+    case .audio: return NSColor(calibratedRed: 0.93, green: 0.12, blue: 0.34, alpha: 1)
+    case .files: return NSColor(calibratedRed: 0.11, green: 0.68, blue: 0.36, alpha: 1)
+    case .pinned: return NSColor(calibratedRed: 0.94, green: 0.12, blue: 0.48, alpha: 1)
+    }
+  }
+
+  static func color(forCollectionNamed name: String) -> NSColor {
+    switch name {
+    case "Useful Links":
+      return customPalette[0]
+    case "Important Notes":
+      return customPalette[1]
+    case "Code Snippets":
+      return customPalette[2]
+    case "Read Later":
+      return customPalette[3]
+    default:
+      return customPalette[stablePaletteIndex(for: name)]
+    }
+  }
+
+  private static func stablePaletteIndex(for name: String) -> Int {
+    var hash: UInt64 = 1_469_598_103_934_665_603
+    for scalar in name.lowercased().unicodeScalars {
+      hash ^= UInt64(scalar.value)
+      hash &*= 1_099_511_628_211
+    }
+    return Int(hash % UInt64(customPalette.count))
+  }
+}
+
 final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private enum Metrics {
     static let actionButtonSize: CGFloat = 30
@@ -522,31 +572,11 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func collectionColor(for mode: ClipboardSortMode) -> NSColor {
-    switch mode {
-    case .mostRecent: return .secondaryLabelColor
-    case .mostUsed: return NSColor(calibratedRed: 0.58, green: 0.42, blue: 0.92, alpha: 1)
-    case .text: return NSColor(calibratedRed: 0.96, green: 0.64, blue: 0.00, alpha: 1)
-    case .links: return NSColor(calibratedRed: 0.02, green: 0.47, blue: 0.98, alpha: 1)
-    case .images: return NSColor(calibratedRed: 1.00, green: 0.22, blue: 0.25, alpha: 1)
-    case .audio: return NSColor(calibratedRed: 0.93, green: 0.12, blue: 0.34, alpha: 1)
-    case .files: return NSColor(calibratedRed: 0.11, green: 0.68, blue: 0.36, alpha: 1)
-    case .pinned: return NSColor(calibratedRed: 0.94, green: 0.12, blue: 0.48, alpha: 1)
-    }
+    ClipboardCollectionVisuals.color(for: mode)
   }
 
   private func collectionColor(forCollectionNamed name: String) -> NSColor {
-    switch name {
-    case "Useful Links":
-      return NSColor(calibratedRed: 0.98, green: 0.30, blue: 0.32, alpha: 1)
-    case "Important Notes":
-      return NSColor(calibratedRed: 0.96, green: 0.64, blue: 0.00, alpha: 1)
-    case "Code Snippets":
-      return NSColor(calibratedRed: 0.04, green: 0.47, blue: 0.95, alpha: 1)
-    case "Read Later":
-      return NSColor(calibratedRed: 0.18, green: 0.72, blue: 0.34, alpha: 1)
-    default:
-      return NSColor(calibratedRed: 0.52, green: 0.42, blue: 0.86, alpha: 1)
-    }
+    ClipboardCollectionVisuals.color(forCollectionNamed: name)
   }
 
   private func applyCardDensity() {
@@ -639,7 +669,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
           collectionNames: collectionNames,
           isStacked: viewModel.isItemStacked(at: index),
           stackCount: viewModel.stackCount,
-          canShowInClipboard: viewModel.canShowVisibleItemsInClipboard
+          canShowInClipboard: viewModel.canShowVisibleItemsInClipboard,
+          selectedCollectionName: viewModel.selectedCollectionName
         )
         card.onSelect = { [weak self] selected in
           self?.viewModel.selectItem(at: selected)
@@ -1114,6 +1145,22 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     cardViews.map(\.debugHeaderBadgeSymbol)
   }
 
+  var debugFirstCardHeaderTitle: String {
+    cardViews.first?.debugHeaderTitle ?? ""
+  }
+
+  var debugFirstCardHeaderSubtitle: String {
+    cardViews.first?.debugHeaderSubtitle ?? ""
+  }
+
+  var debugFirstCardHeaderColorHex: String {
+    cardViews.first?.debugHeaderColorHex ?? ""
+  }
+
+  var debugFirstCardFooterDetailText: String {
+    cardViews.first?.debugFooterDetailText ?? ""
+  }
+
   var debugQuickPasteBadgeTexts: [String] {
     cardViews.compactMap(\.debugQuickPasteBadgeText)
   }
@@ -1197,6 +1244,12 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   var debugCustomCollectionCounts: [Int] {
     updateCollectionButtons()
     return viewModel.collectionNames.compactMap { customCollectionButtons[$0]?.count }
+  }
+
+  var debugCustomCollectionColorHexes: [String: String] {
+    Dictionary(uniqueKeysWithValues: viewModel.collectionNames.map { name in
+      (name, ClipboardItemCardView.debugHex(ClipboardCollectionVisuals.color(forCollectionNamed: name)))
+    })
   }
 
   var debugStackChipIsVisible: Bool {
@@ -1643,6 +1696,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private let itemSourceAppName: String?
   private let itemSourceAppBundleID: String?
   private let itemCollectionName: String?
+  private let activeCollectionName: String?
+  private let activeCollectionColor: NSColor?
   private let collectionNames: [String]
   private let contentView = NSView()
   private let footerDetailLabel = NSTextField(labelWithString: "")
@@ -1664,8 +1719,12 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     collectionNames: [String] = [],
     isStacked: Bool = false,
     stackCount: Int = 0,
-    canShowInClipboard: Bool = false
+    canShowInClipboard: Bool = false,
+    selectedCollectionName: String? = nil
   ) {
+    let normalizedItemCollection = ClipboardCollectionDefaults.normalizedName(item.collectionName)
+    let normalizedSelectedCollection = ClipboardCollectionDefaults.normalizedName(selectedCollectionName)
+    let activeCollection = normalizedSelectedCollection == normalizedItemCollection ? normalizedSelectedCollection : nil
     self.index = index
     self.itemID = item.id
     self.layout = layout
@@ -1676,7 +1735,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     self.canShowInClipboard = canShowInClipboard
     self.itemSourceAppName = Self.presentSourceText(item.sourceApp)
     self.itemSourceAppBundleID = Self.presentSourceText(item.sourceAppBundleId)
-    self.itemCollectionName = ClipboardCollectionDefaults.normalizedName(item.collectionName)
+    self.itemCollectionName = normalizedItemCollection
+    self.activeCollectionName = activeCollection
+    self.activeCollectionColor = activeCollection.map(ClipboardCollectionVisuals.color(forCollectionNamed:))
     self.collectionNames = collectionNames.compactMap { ClipboardCollectionDefaults.normalizedName($0) }
     super.init(frame: .zero)
     configure(item: item, thumbnail: thumbnail)
@@ -1806,6 +1867,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private(set) var debugPreviewSummary = ""
   private(set) var debugPreviewStyle = ""
   private(set) var debugHeaderBadgeSymbol = ""
+  private(set) var debugHeaderTitle = ""
+  private(set) var debugHeaderSubtitle = ""
+  private(set) var debugHeaderColorHex = ""
 
   var debugMenuTitles: [String] {
     contextMenu().items.map { $0.isSeparatorItem ? "-" : $0.title }
@@ -1852,8 +1916,20 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     quickPasteBadgeLabel?.stringValue
   }
 
+  var debugFooterDetailText: String {
+    footerDetailLabel.stringValue
+  }
+
   var debugItemID: UUID {
     itemID
+  }
+
+  static func debugHex(_ color: NSColor) -> String {
+    let rgb = color.usingColorSpace(.deviceRGB) ?? color
+    let red = Int((rgb.redComponent * 255).rounded())
+    let green = Int((rgb.greenComponent * 255).rounded())
+    let blue = Int((rgb.blueComponent * 255).rounded())
+    return String(format: "#%02X%02X%02X", red, green, blue)
   }
   #endif
 
@@ -2242,6 +2318,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     debugPreviewSummary = "\(titleText(for: item))|\(previewText(for: item))|\(detailMetricText(for: item))"
     debugPreviewStyle = previewStyle(for: item, thumbnail: thumbnail)
     debugHeaderBadgeSymbol = headerBadgeSymbol(for: item.kind)
+    debugHeaderTitle = headerTitle(for: item)
+    debugHeaderSubtitle = headerSubtitle(for: item)
+    debugHeaderColorHex = Self.debugHex(headerColor(for: item))
     #endif
 
     wantsLayer = true
@@ -2302,17 +2381,17 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private func headerView(for item: ClipboardItem) -> NSView {
     let header = NSView()
     header.wantsLayer = true
-    header.layer?.backgroundColor = accentColor(for: item.kind).cgColor
+    header.layer?.backgroundColor = headerColor(for: item).cgColor
     header.heightAnchor.constraint(equalToConstant: layout.headerHeight).isActive = true
 
-    let kind = NSTextField(labelWithString: kindLabel(for: item.kind))
+    let kind = NSTextField(labelWithString: headerTitle(for: item))
     kind.font = .systemFont(ofSize: layout.isCompact ? 15 : 16, weight: .bold)
     kind.textColor = .white
     kind.lineBreakMode = .byTruncatingTail
     kind.maximumNumberOfLines = 1
     kind.toolTip = kind.stringValue
 
-    let source = NSTextField(labelWithString: Self.relativeDateText(for: item.createdAt))
+    let source = NSTextField(labelWithString: headerSubtitle(for: item))
     source.font = .systemFont(ofSize: layout.isCompact ? 10 : 11, weight: .regular)
     source.textColor = NSColor.white.withAlphaComponent(0.72)
     source.lineBreakMode = .byTruncatingTail
@@ -2380,6 +2459,20 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
     NSLayoutConstraint.activate(constraints)
     return header
+  }
+
+  private func headerTitle(for item: ClipboardItem) -> String {
+    activeCollectionName ?? kindLabel(for: item.kind)
+  }
+
+  private func headerSubtitle(for item: ClipboardItem) -> String {
+    let relativeDate = Self.relativeDateText(for: item.createdAt)
+    guard activeCollectionName != nil else { return relativeDate }
+    return "\(kindLabel(for: item.kind)) - \(relativeDate)"
+  }
+
+  private func headerColor(for item: ClipboardItem) -> NSColor {
+    activeCollectionColor ?? accentColor(for: item.kind)
   }
 
   private func quickPasteBadge() -> NSTextField? {
@@ -2839,7 +2932,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     source.toolTip = source.stringValue
 
     let detailText = detailMetricText(for: item)
-    if let collectionName = item.collectionName?.clipboardTrimmed, !collectionName.isEmpty {
+    if activeCollectionName == nil,
+       let collectionName = item.collectionName?.clipboardTrimmed,
+       !collectionName.isEmpty {
       footerDetailLabel.stringValue = "\(collectionName) - \(detailText)"
     } else {
       footerDetailLabel.stringValue = detailText
