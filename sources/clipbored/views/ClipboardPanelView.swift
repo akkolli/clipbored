@@ -2983,7 +2983,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
     specs.append(ActionRailButtonSpec(itemIsPinned ? "pin.slash" : "pin", toolTip: pinTitle, action: #selector(togglePinFromMenu), overflowPriority: 30))
     specs.append(ActionRailButtonSpec("plus", toolTip: "Collect", action: #selector(showCollectionMenuFromAction(_:))))
-    specs.append(ActionRailButtonSpec("square.stack.3d.up", toolTip: itemIsStacked ? "Remove from Stack" : "Add to Stack", action: #selector(toggleStackFromMenu)))
 
     if canEditText {
       specs.append(ActionRailButtonSpec("pencil", toolTip: "Edit", action: #selector(editTextFromMenu), overflowPriority: 50))

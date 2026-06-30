@@ -57,7 +57,7 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 24. Select a file, rich text, or URL card and confirm the selected-card rail exposes `Paste Plain Text`, the corner source/kind badge remains visible, and on a narrow shelf secondary actions collapse behind `More` instead of overflowing the card.
 25. Confirm card footers do not show `Unknown` for clips without a source app, and confirm used clips show their usage count beside the source app.
 26. Confirm card headers use readable relative ages such as `3 minutes ago` or `2 hours ago`, including when viewing a named collection.
-27. Confirm the selected card shows a green corner Stack control, and that clips added to Stack keep a visible corner indicator when selection moves away.
+27. Confirm the selected card shows a green corner Stack control, the action rail does not duplicate Stack, and clips added to Stack keep a visible corner indicator when selection moves away.
 
 ## Copy And Paste
 
