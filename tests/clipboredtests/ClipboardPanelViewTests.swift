@@ -349,6 +349,26 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugFirstCardFooterDetailText, "17 characters")
   }
 
+  func testCardHeaderUsesReadableRelativeAgeText() {
+    let fixture = makePanelFixture()
+    var item = makeTextItem("Readable age", store: fixture.store)
+    item.createdAt = Date().addingTimeInterval(-3 * 60)
+
+    fixture.store.upsert(item)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderSubtitle, "3 minutes ago")
+
+    fixture.viewModel.createCollection(named: "Age Stack", colorHex: "#FF3B30", selectAfterCreate: false)
+    fixture.viewModel.assignSelected(to: "Age Stack")
+    fixture.viewModel.selectCollection(named: "Age Stack")
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderSubtitle, "Text - 3 minutes ago")
+  }
+
   func testCollectionChipsExposeManagementMenuActions() {
     let fixture = makePanelFixture()
     fixture.viewModel.createCollection(named: "Research Stack", colorHex: "#0A9EB8")

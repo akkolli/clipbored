@@ -4268,9 +4268,19 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private static func relativeDateText(for date: Date) -> String {
     let seconds = max(0, Int(Date().timeIntervalSince(date)))
     if seconds < 60 { return "Just now" }
-    if seconds < 3600 { return "\(seconds / 60)m ago" }
-    if seconds < 86400 { return "\(seconds / 3600)h ago" }
-    if seconds < 604800 { return "\(seconds / 86400)d ago" }
-    return "\(seconds / 604800)w ago"
+    if seconds < 3600 {
+      let minutes = seconds / 60
+      return "\(minutes) \(minutes == 1 ? "minute" : "minutes") ago"
+    }
+    if seconds < 86400 {
+      let hours = seconds / 3600
+      return "\(hours) \(hours == 1 ? "hour" : "hours") ago"
+    }
+    if seconds < 604800 {
+      let days = seconds / 86400
+      return "\(days) \(days == 1 ? "day" : "days") ago"
+    }
+    let weeks = seconds / 604800
+    return "\(weeks) \(weeks == 1 ? "week" : "weeks") ago"
   }
 }
