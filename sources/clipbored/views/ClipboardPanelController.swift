@@ -12,6 +12,12 @@ struct ClipboardPanelReflowPlan {
   let bottomSafeInset: CGFloat
 }
 
+enum ClipboardPanelShortcutAction: Equatable {
+  case copy
+  case open
+  case reveal
+}
+
 final class ClipboardPanelController: NSObject, NSWindowDelegate {
   private enum Animation {
     static let showDuration: TimeInterval = 0.16
@@ -317,6 +323,11 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate {
         self.viewModel.sortMode = mode
         return nil
       }
+      if self.shouldHandlePanelKeyEvent(event, allowSearchFieldEditing: true),
+         let action = Self.commandShortcutAction(forKeyCode: event.keyCode, modifiers: event.modifierFlags) {
+        self.performShortcutAction(action)
+        return nil
+      }
       guard self.shouldHandlePanelKeyEvent(event) else { return event }
       switch event.keyCode {
       case 53:
@@ -340,6 +351,17 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate {
       default:
         return event
       }
+    }
+  }
+
+  private func performShortcutAction(_ action: ClipboardPanelShortcutAction) {
+    switch action {
+    case .copy:
+      viewModel.copySelected()
+    case .open:
+      viewModel.openSelected()
+    case .reveal:
+      viewModel.revealSelected()
     }
   }
 
@@ -367,6 +389,21 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate {
     let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
     guard relevantModifiers == .command else { return nil }
     return collectionShortcuts[keyCode]
+  }
+
+  static func commandShortcutAction(forKeyCode keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> ClipboardPanelShortcutAction? {
+    let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
+    guard relevantModifiers == .command else { return nil }
+    switch keyCode {
+    case 8:
+      return .copy
+    case 31:
+      return .open
+    case 15:
+      return .reveal
+    default:
+      return nil
+    }
   }
 
   #if DEBUG

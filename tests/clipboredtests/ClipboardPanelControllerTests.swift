@@ -144,4 +144,16 @@ final class ClipboardPanelControllerTests: XCTestCase {
     XCTAssertNil(ClipboardPanelController.collectionShortcutMode(forKeyCode: 18, modifiers: [.command, .shift]))
     XCTAssertNil(ClipboardPanelController.collectionShortcutMode(forKeyCode: 29, modifiers: .command))
   }
+
+  func testCommandActionShortcutsMapToSelectedClipActions() {
+    XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 8, modifiers: .command), .copy)
+    XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 31, modifiers: .command), .open)
+    XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 15, modifiers: .command), .reveal)
+  }
+
+  func testCommandActionShortcutsRequireCommandOnlySoSearchTypingIsUntouched() {
+    XCTAssertNil(ClipboardPanelController.commandShortcutAction(forKeyCode: 8, modifiers: []))
+    XCTAssertNil(ClipboardPanelController.commandShortcutAction(forKeyCode: 8, modifiers: [.command, .shift]))
+    XCTAssertNil(ClipboardPanelController.commandShortcutAction(forKeyCode: 9, modifiers: .command))
+  }
 }
