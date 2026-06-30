@@ -373,10 +373,27 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     fixture.viewModel.selectFirstItem()
     XCTAssertEqual(fixture.viewModel.visibleItems.first?.kind, .file)
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Collect", "Add to Stack", "Preview", "Open", "Reveal", "Delete"])
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 266)
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Paste Plain Text", "Pin", "Collect", "Add to Stack", "Preview", "Open", "Reveal", "More"])
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 294)
     XCTAssertFalse(fixture.view.debugFirstCardFooterDetailIsHidden)
     XCTAssertTrue(fixture.view.debugFirstCardHeaderBadgeIsHidden)
+  }
+
+  func testCompactFileCardActionsFitInsideShelfWithOverflowMenu() {
+    let fixture = makePanelFixture()
+    fixture.window.setFrame(NSRect(x: 0, y: 0, width: 620, height: 520), display: true)
+    fixture.store.upsert(makeItem(kind: .file, text: "/tmp/report.txt", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCardDensity, "compact")
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Paste Plain Text", "Collect", "Add to Stack", "Preview", "Open", "More"])
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 222)
+    XCTAssertLessThanOrEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 240)
+    XCTAssertEqual(
+      fixture.view.debugFirstCardMenuTitles,
+      ["Paste", "Copy", "Paste Plain Text", "Copy Plain Text", "Rename...", "Add to Stack", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+    )
   }
 
   func testCardsAreKeyboardFocusableAndReturnPastesFocusedCard() {

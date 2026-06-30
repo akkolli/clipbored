@@ -54,6 +54,7 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 21. Right-click a card, use Capture Rules to ignore its source app, copy from that app again, and confirm the new item is skipped.
 22. Drag an unassigned card onto the renamed collection chip and confirm the chip count increases and the card appears when that collection is selected.
 23. Resize or test on a narrow display and confirm the bottom shelf switches to compact cards that still show two recent clips cleanly.
+24. Select a file, rich text, or URL card and confirm the selected-card rail exposes `Paste Plain Text`; on a narrow shelf, confirm secondary actions collapse behind `More` instead of overflowing the card.
 
 ## Copy And Paste
 

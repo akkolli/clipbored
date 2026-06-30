@@ -2320,6 +2320,7 @@ private final class AspectFillImageView: NSView {
 private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private enum Metrics {
     static let dragThreshold: CGFloat = 4
+    static let actionRailHorizontalMargin: CGFloat = 12
   }
   private enum Palette {
     static let border = NSColor.separatorColor.withAlphaComponent(0.20).cgColor
@@ -2329,6 +2330,28 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     static let bodyBackground = NSColor.windowBackgroundColor.cgColor
     static let footerBackground = NSColor.windowBackgroundColor.withAlphaComponent(0.96).cgColor
     static let divider = NSColor.separatorColor.withAlphaComponent(0.14).cgColor
+  }
+
+  private struct ActionRailButtonSpec {
+    let systemName: String
+    let toolTip: String
+    let action: Selector
+    let isPrimary: Bool
+    let overflowPriority: Int?
+
+    init(
+      _ systemName: String,
+      toolTip: String,
+      action: Selector,
+      isPrimary: Bool = false,
+      overflowPriority: Int? = nil
+    ) {
+      self.systemName = systemName
+      self.toolTip = toolTip
+      self.action = action
+      self.isPrimary = isPrimary
+      self.overflowPriority = overflowPriority
+    }
   }
 
   var onSelect: (Int) -> Void = { _ in }
@@ -2868,40 +2891,93 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     actionRail.setContentHuggingPriority(.required, for: .horizontal)
     actionRail.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-    let pinTitle = itemIsPinned ? "Unpin" : "Pin"
-    actionRailButtons = [
-      cardActionButton("return", toolTip: "Paste", action: #selector(pasteFromMenu), isPrimary: true),
-      cardActionButton("doc.on.doc", toolTip: "Copy", action: #selector(copyFromMenu)),
-      cardActionButton(itemIsPinned ? "pin.slash" : "pin", toolTip: pinTitle, action: #selector(togglePinFromMenu))
-    ]
-    actionRailButtons.append(cardActionButton("plus", toolTip: "Collect", action: #selector(showCollectionMenuFromAction(_:))))
-    actionRailButtons.append(cardActionButton("square.stack.3d.up", toolTip: itemIsStacked ? "Remove from Stack" : "Add to Stack", action: #selector(toggleStackFromMenu)))
-    if canEditText {
-      actionRailButtons.append(cardActionButton("pencil", toolTip: "Edit", action: #selector(editTextFromMenu)))
+    let specs = fittedActionRailButtonSpecs(from: preferredActionRailButtonSpecs())
+    actionRailButtons = specs.map { spec in
+      cardActionButton(
+        spec.systemName,
+        toolTip: spec.toolTip,
+        action: spec.action,
+        isPrimary: spec.isPrimary
+      )
     }
-    if canPreview {
-      actionRailButtons.append(cardActionButton("eye", toolTip: "Preview", action: #selector(previewFromMenu)))
-    }
-    if canOpen {
-      actionRailButtons.append(cardActionButton("arrow.up.right.square", toolTip: "Open", action: #selector(openFromMenu)))
-    }
-    if canReveal {
-      actionRailButtons.append(cardActionButton("magnifyingglass", toolTip: "Reveal", action: #selector(revealFromMenu)))
-    }
-    actionRailButtons.append(cardActionButton("trash", toolTip: "Delete", action: #selector(deleteFromMenu)))
 
     for button in actionRailButtons {
       actionRail.addArrangedSubview(button)
     }
-    let buttonCount = CGFloat(actionRailButtons.count)
-    let secondaryCount = CGFloat(max(0, actionRailButtons.count - 1))
-    let contentWidth = layout.primaryActionButtonSize
-      + secondaryCount * layout.actionButtonSize
-      + max(0, buttonCount - 1) * actionRail.spacing
-      + actionRail.edgeInsets.left
-      + actionRail.edgeInsets.right
+    let contentWidth = actionRailWidth(for: specs)
     actionRail.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
     updateActionRailVisibility()
+  }
+
+  private func preferredActionRailButtonSpecs() -> [ActionRailButtonSpec] {
+    let pinTitle = itemIsPinned ? "Unpin" : "Pin"
+    var specs: [ActionRailButtonSpec] = [
+      ActionRailButtonSpec("return", toolTip: "Paste", action: #selector(pasteFromMenu), isPrimary: true),
+      ActionRailButtonSpec("doc.on.doc", toolTip: "Copy", action: #selector(copyFromMenu))
+    ]
+
+    if canPlainText {
+      specs.append(ActionRailButtonSpec("textformat", toolTip: "Paste Plain Text", action: #selector(pastePlainTextFromMenu)))
+      specs.append(ActionRailButtonSpec("doc.plaintext", toolTip: "Copy Plain Text", action: #selector(copyPlainTextFromMenu), overflowPriority: 20))
+    }
+
+    specs.append(ActionRailButtonSpec(itemIsPinned ? "pin.slash" : "pin", toolTip: pinTitle, action: #selector(togglePinFromMenu), overflowPriority: 30))
+    specs.append(ActionRailButtonSpec("plus", toolTip: "Collect", action: #selector(showCollectionMenuFromAction(_:))))
+    specs.append(ActionRailButtonSpec("square.stack.3d.up", toolTip: itemIsStacked ? "Remove from Stack" : "Add to Stack", action: #selector(toggleStackFromMenu)))
+
+    if canEditText {
+      specs.append(ActionRailButtonSpec("pencil", toolTip: "Edit", action: #selector(editTextFromMenu), overflowPriority: 50))
+    }
+    if canPreview {
+      specs.append(ActionRailButtonSpec("eye", toolTip: "Preview", action: #selector(previewFromMenu), overflowPriority: 60))
+    }
+    if canOpen {
+      specs.append(ActionRailButtonSpec("arrow.up.right.square", toolTip: "Open", action: #selector(openFromMenu), overflowPriority: 50))
+    }
+    if canReveal {
+      specs.append(ActionRailButtonSpec("magnifyingglass", toolTip: "Reveal", action: #selector(revealFromMenu), overflowPriority: 40))
+    }
+    specs.append(ActionRailButtonSpec("trash", toolTip: "Delete", action: #selector(deleteFromMenu), overflowPriority: 10))
+    return specs
+  }
+
+  private func fittedActionRailButtonSpecs(from specs: [ActionRailButtonSpec]) -> [ActionRailButtonSpec] {
+    let maximumWidth = layout.width - (Metrics.actionRailHorizontalMargin * 2)
+    guard actionRailWidth(for: specs) > maximumWidth else { return specs }
+
+    let moreSpec = ActionRailButtonSpec("ellipsis.circle", toolTip: "More", action: #selector(showMoreActionsFromActionRail(_:)))
+    let overflowCandidates = specs.enumerated().compactMap { index, spec -> (index: Int, priority: Int)? in
+      guard let priority = spec.overflowPriority else { return nil }
+      return (index, priority)
+    }.sorted { lhs, rhs in
+      lhs.priority == rhs.priority ? lhs.index > rhs.index : lhs.priority < rhs.priority
+    }
+
+    var hiddenIndexes = Set<Int>()
+    for candidate in overflowCandidates {
+      hiddenIndexes.insert(candidate.index)
+      let visibleSpecs = specs.enumerated().compactMap { index, spec in
+        hiddenIndexes.contains(index) ? nil : spec
+      } + [moreSpec]
+      if actionRailWidth(for: visibleSpecs) <= maximumWidth {
+        return visibleSpecs
+      }
+    }
+
+    return specs.enumerated().compactMap { index, spec in
+      hiddenIndexes.contains(index) ? nil : spec
+    } + [moreSpec]
+  }
+
+  private func actionRailWidth(for specs: [ActionRailButtonSpec]) -> CGFloat {
+    guard !specs.isEmpty else { return 0 }
+    let buttonWidth = specs.reduce(CGFloat(0)) { width, spec in
+      width + (spec.isPrimary ? layout.primaryActionButtonSize : layout.actionButtonSize)
+    }
+    return buttonWidth
+      + CGFloat(max(0, specs.count - 1)) * actionRail.spacing
+      + actionRail.edgeInsets.left
+      + actionRail.edgeInsets.right
   }
 
   private func cardActionButton(
@@ -2964,6 +3040,14 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   @objc private func copyPlainTextFromMenu() {
     onCopyPlainText(index)
+  }
+
+  @objc private func showMoreActionsFromActionRail(_ sender: NSButton) {
+    contextMenu().popUp(
+      positioning: nil,
+      at: NSPoint(x: sender.bounds.minX, y: sender.bounds.minY - 4),
+      in: sender
+    )
   }
 
   @objc private func toggleStackFromMenu() {
