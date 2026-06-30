@@ -575,6 +575,24 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(NSPasteboard.general.string(forType: .string), item.payload)
   }
 
+  func testPreviewURLForSelectedTextWritesTemporaryTextPreview() throws {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    let item = makeTextItem("Preview this text\nwithout pasting", createdAt: Date(timeIntervalSince1970: 100))
+    store.upsert(item)
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 1)
+
+    let previewURL = try XCTUnwrap(viewModel.previewURLForSelected())
+    defer { try? FileManager.default.removeItem(at: previewURL) }
+
+    XCTAssertEqual(previewURL.pathExtension, "txt")
+    XCTAssertEqual(try String(contentsOf: previewURL), item.payload)
+  }
+
   func testCopySelectedWritesURLToPasteboardTypes() {
     let settings = makeSettings()
     let cacheService = makeCacheService()

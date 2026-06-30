@@ -2774,10 +2774,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   private var canPreview: Bool {
     switch itemKind {
-    case .url, .image, .richText, .file, .pdf, .audio:
+    case .text, .url, .image, .richText, .file, .pdf, .audio, .unknown:
       return true
-    case .text, .unknown:
-      return false
     }
   }
 
@@ -4045,10 +4043,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   }
 
   private func accessibilityHelpText() -> String {
-    if canPreview {
-      return "Press Return to paste. Press Space for Quick Look."
-    }
-    return "Press Return or Space to paste."
+    "Press Return to paste. Press Space for Quick Look."
   }
 
   private func row(_ views: [NSView]) -> NSStackView {

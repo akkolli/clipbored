@@ -324,8 +324,8 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.store.upsert(makeTextItem("Plain text", store: fixture.store))
     drainMainQueue()
 
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Collect", "Add to Stack", "Edit", "Delete"])
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 210)
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Collect", "Add to Stack", "Edit", "Preview", "Delete"])
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 238)
     XCTAssertFalse(fixture.view.debugFirstCardFooterDetailIsHidden)
     XCTAssertTrue(fixture.view.debugFirstCardHeaderBadgeIsHidden)
 
@@ -355,12 +355,29 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [1])
     XCTAssertEqual(fixture.view.debugCardBorderWidths[1], 2)
     XCTAssertEqual(fixture.view.debugCardAccessibilityValues[1], "Selected")
-    XCTAssertEqual(fixture.view.debugCardAccessibilityHelps[1], "Press Return or Space to paste.")
+    XCTAssertEqual(fixture.view.debugCardAccessibilityHelps[1], "Press Return to paste. Press Space for Quick Look.")
 
     fixture.view.debugPressFocusedResponderWithReturn()
     drainMainQueue()
 
     XCTAssertEqual(fixture.viewModel.statusMessage, "Copied")
+  }
+
+  func testFocusedTextCardSpaceOpensQuickLookInsteadOfPasting() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Preview this text without pasting", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.debugFocusCard(at: 0))
+    drainMainQueue()
+
+    fixture.view.debugPressFocusedResponderWithSpace()
+    drainMainQueue()
+
+    XCTAssertEqual(fixture.previewProbe.requestCount, 1)
+    XCTAssertEqual(fixture.viewModel.selectedItem?.payload, "Preview this text without pasting")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "")
   }
 
   func testFocusedPreviewableCardSpaceOpensQuickLook() {
@@ -643,7 +660,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Rename...", "Add to Stack", "Edit", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Rename...", "Add to Stack", "Edit", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
     XCTAssertEqual(
       fixture.view.debugFirstCardCollectionMenuTitles,
@@ -677,7 +694,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Show in Clipboard", "Rename...", "Add to Stack", "Edit", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Show in Clipboard", "Rename...", "Add to Stack", "Edit", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
 
     fixture.view.debugShowFirstCardInClipboard()
@@ -717,9 +734,9 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Rename...", "Remove from Stack", "Paste Stack Next", "Copy Stack Next", "Clear Stack", "Edit", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Rename...", "Remove from Stack", "Paste Stack Next", "Copy Stack Next", "Clear Stack", "Edit", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Collect", "Remove from Stack", "Edit", "Delete"])
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Collect", "Remove from Stack", "Edit", "Preview", "Delete"])
   }
 
   func testStackChipAppearsFiltersAndClearsWithStack() {
