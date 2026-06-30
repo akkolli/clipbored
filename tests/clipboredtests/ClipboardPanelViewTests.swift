@@ -632,10 +632,24 @@ final class ClipboardPanelViewTests: XCTestCase {
 
   func testCardHeaderUsesKindSymbolBadgeWhenSourceIconIsUnavailable() {
     let fixture = makePanelFixture()
-    fixture.store.upsert(makeItem(kind: .url, text: "https://example.com", store: fixture.store))
+    var item = makeItem(kind: .url, text: "https://example.com", store: fixture.store)
+    item.sourceApp = nil
+    fixture.store.upsert(item)
     drainMainQueue()
 
     XCTAssertEqual(fixture.view.debugCardHeaderBadgeSymbols, ["link"])
+    XCTAssertEqual(fixture.view.debugCardHeaderBadgeTexts, [""])
+  }
+
+  func testCardHeaderUsesSourceMonogramWhenAppIconIsUnavailable() {
+    let fixture = makePanelFixture()
+    var item = makeTextItem("Copied from a named app", store: fixture.store)
+    item.sourceApp = "Arc Browser"
+
+    fixture.store.upsert(item)
+    drainMainQueue()
+
+    XCTAssertEqual(fixture.view.debugCardHeaderBadgeTexts, ["AB"])
   }
 
   func testCollectionRailShowsLiveCounts() {

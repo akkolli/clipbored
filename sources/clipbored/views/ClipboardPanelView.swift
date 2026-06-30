@@ -1375,6 +1375,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     cardViews.map(\.debugHeaderBadgeSymbol)
   }
 
+  var debugCardHeaderBadgeTexts: [String] {
+    cardViews.map(\.debugHeaderBadgeText)
+  }
+
   var debugFirstCardHeaderTitle: String {
     cardViews.first?.debugHeaderTitle ?? ""
   }
@@ -2724,6 +2728,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private(set) var debugPreviewSummary = ""
   private(set) var debugPreviewStyle = ""
   private(set) var debugHeaderBadgeSymbol = ""
+  private(set) var debugHeaderBadgeText = ""
   private(set) var debugHeaderTitle = ""
   private(set) var debugHeaderSubtitle = ""
   private(set) var debugHeaderColorHex = ""
@@ -2939,6 +2944,16 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private static func presentSourceText(_ value: String?) -> String? {
     guard let text = value?.clipboardTrimmed, !text.isEmpty else { return nil }
     return text
+  }
+
+  private static func sourceMonogram(from value: String?) -> String? {
+    guard let text = presentSourceText(value) else { return nil }
+    let words = text
+      .components(separatedBy: CharacterSet.alphanumerics.inverted)
+      .map(\.clipboardTrimmed)
+      .filter { !$0.isEmpty }
+    let initials = words.prefix(2).compactMap(\.first).map { String($0).uppercased() }.joined()
+    return initials.isEmpty ? nil : initials
   }
 
   private func availableCollectionNames() -> [String] {
@@ -4042,6 +4057,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     badge.translatesAutoresizingMaskIntoConstraints = false
     if let bundleId = item.sourceAppBundleId,
        let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+      #if DEBUG
+      debugHeaderBadgeText = ""
+      #endif
       let icon = NSImageView(image: NSWorkspace.shared.icon(forFile: appURL.path))
       icon.imageScaling = .scaleProportionallyUpOrDown
       icon.translatesAutoresizingMaskIntoConstraints = false
@@ -4052,7 +4070,28 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
         icon.topAnchor.constraint(equalTo: badge.topAnchor, constant: headerBadgeIconInset),
         icon.bottomAnchor.constraint(equalTo: badge.bottomAnchor, constant: -headerBadgeIconInset)
       ])
+    } else if let monogram = Self.sourceMonogram(from: itemSourceAppName) {
+      #if DEBUG
+      debugHeaderBadgeText = monogram
+      #endif
+      let label = NSTextField(labelWithString: monogram)
+      label.font = .systemFont(ofSize: layout.isCompact ? 15 : 17, weight: .heavy)
+      label.textColor = accentColor(for: item.kind)
+      label.alignment = .center
+      label.lineBreakMode = .byClipping
+      label.maximumNumberOfLines = 1
+      label.setAccessibilityLabel(itemSourceAppName ?? monogram)
+      label.translatesAutoresizingMaskIntoConstraints = false
+      badge.addSubview(label)
+      NSLayoutConstraint.activate([
+        label.leadingAnchor.constraint(equalTo: badge.leadingAnchor, constant: headerBadgeIconInset),
+        label.trailingAnchor.constraint(equalTo: badge.trailingAnchor, constant: -headerBadgeIconInset),
+        label.centerYAnchor.constraint(equalTo: badge.centerYAnchor)
+      ])
     } else {
+      #if DEBUG
+      debugHeaderBadgeText = ""
+      #endif
       let image = NSImage(systemSymbolName: headerBadgeSymbol(for: item.kind), accessibilityDescription: kindLabel(for: item.kind))
         ?? NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: kindLabel(for: item.kind))
         ?? NSImage()
