@@ -1283,6 +1283,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     scrollView.documentView?.frame.width ?? 0
   }
 
+  var debugCardRailOverflowFadeVisibility: [Bool] {
+    scrollView.overflowFadeVisibility
+  }
+
   func debugScrollCardRailVertically(deltaY: CGFloat) {
     scrollView.scrollHorizontallyByVerticalDelta(deltaY)
   }
@@ -1438,6 +1442,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   var debugCollectionRailVisibleRect: NSRect {
     collectionScrollView.contentView.bounds
+  }
+
+  var debugCollectionRailOverflowFadeVisibility: [Bool] {
+    collectionScrollView.overflowFadeVisibility
   }
 
   func debugScrollCollectionRailVertically(deltaY: CGFloat) {
@@ -1690,6 +1698,20 @@ private enum ClipboardCardDragContext {
 }
 
 private final class HorizontalRailScrollView: NSScrollView {
+  private let leadingFade = RailEdgeFadeView(edge: .leading)
+  private let trailingFade = RailEdgeFadeView(edge: .trailing)
+  private let fadeWidth: CGFloat = 26
+
+  override init(frame frameRect: NSRect) {
+    super.init(frame: frameRect)
+    configureOverflowFades()
+  }
+
+  required init?(coder: NSCoder) {
+    super.init(coder: coder)
+    configureOverflowFades()
+  }
+
   override func scrollWheel(with event: NSEvent) {
     let horizontalDelta = event.scrollingDeltaX
     let verticalDelta = event.scrollingDeltaY
@@ -1701,10 +1723,45 @@ private final class HorizontalRailScrollView: NSScrollView {
     }
 
     super.scrollWheel(with: event)
+    updateOverflowFades()
+  }
+
+  override func layout() {
+    super.layout()
+    updateOverflowFades()
+  }
+
+  override func reflectScrolledClipView(_ clipView: NSClipView) {
+    super.reflectScrolledClipView(clipView)
+    updateOverflowFades()
   }
 
   func scrollHorizontallyByVerticalDelta(_ deltaY: CGFloat) {
     scrollHorizontally(by: -deltaY)
+  }
+
+  var overflowFadeVisibility: [Bool] {
+    updateOverflowFades()
+    return [!leadingFade.isHidden, !trailingFade.isHidden]
+  }
+
+  private func configureOverflowFades() {
+    leadingFade.translatesAutoresizingMaskIntoConstraints = false
+    trailingFade.translatesAutoresizingMaskIntoConstraints = false
+    leadingFade.isHidden = true
+    trailingFade.isHidden = true
+    addSubview(leadingFade)
+    addSubview(trailingFade)
+    NSLayoutConstraint.activate([
+      leadingFade.leadingAnchor.constraint(equalTo: leadingAnchor),
+      leadingFade.topAnchor.constraint(equalTo: topAnchor),
+      leadingFade.bottomAnchor.constraint(equalTo: bottomAnchor),
+      leadingFade.widthAnchor.constraint(equalToConstant: fadeWidth),
+      trailingFade.trailingAnchor.constraint(equalTo: trailingAnchor),
+      trailingFade.topAnchor.constraint(equalTo: topAnchor),
+      trailingFade.bottomAnchor.constraint(equalTo: bottomAnchor),
+      trailingFade.widthAnchor.constraint(equalToConstant: fadeWidth)
+    ])
   }
 
   private var canScrollHorizontally: Bool {
@@ -1725,6 +1782,50 @@ private final class HorizontalRailScrollView: NSScrollView {
 
     contentView.scroll(to: NSPoint(x: targetX, y: origin.y))
     reflectScrolledClipView(contentView)
+  }
+
+  private func updateOverflowFades() {
+    let maxOffset = maxHorizontalOffset
+    guard maxOffset > 0 else {
+      leadingFade.isHidden = true
+      trailingFade.isHidden = true
+      return
+    }
+
+    let currentX = contentView.bounds.minX
+    leadingFade.isHidden = currentX <= 0.5
+    trailingFade.isHidden = currentX >= maxOffset - 0.5
+  }
+}
+
+private final class RailEdgeFadeView: NSView {
+  enum Edge {
+    case leading
+    case trailing
+  }
+
+  private let edge: Edge
+
+  init(edge: Edge) {
+    self.edge = edge
+    super.init(frame: .zero)
+    wantsLayer = true
+    setAccessibilityElement(false)
+  }
+
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    nil
+  }
+
+  override func draw(_ dirtyRect: NSRect) {
+    let color = NSColor.windowBackgroundColor.withAlphaComponent(0.88)
+    let clear = color.withAlphaComponent(0)
+    let gradient = NSGradient(colors: edge == .leading ? [color, clear] : [clear, color])
+    gradient?.draw(in: bounds, angle: 0)
   }
 }
 

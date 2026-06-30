@@ -62,6 +62,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertGreaterThanOrEqual(fixture.view.debugDocumentViewFrame.width, 292)
     XCTAssertGreaterThanOrEqual(fixture.view.debugDocumentViewFrame.height, 244)
     XCTAssertEqual(fixture.view.debugCardPreviewStyles, ["text-preview"])
+    XCTAssertEqual(fixture.view.debugCardRailOverflowFadeVisibility, [false, false])
   }
 
   func testCompactCardsFitTwoItemsOnNarrowDockShelf() {
@@ -448,15 +449,18 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertTrue(fixture.view.debugCustomCollectionTitles.contains("Product References"))
 
     XCTAssertEqual(fixture.view.debugCollectionRailVisibleRect.minX, 0, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugCollectionRailOverflowFadeVisibility, [false, true])
     fixture.view.debugScrollCollectionRailVertically(deltaY: -220)
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertGreaterThan(fixture.view.debugCollectionRailVisibleRect.minX, 0)
+    XCTAssertEqual(fixture.view.debugCollectionRailOverflowFadeVisibility, [true, true])
 
     fixture.view.debugScrollCollectionRailVertically(deltaY: 10_000)
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(fixture.view.debugCollectionRailVisibleRect.minX, 0, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugCollectionRailOverflowFadeVisibility, [false, true])
   }
 
   func testSelectionScrollsCardRailToKeepSelectedCardVisible() {
@@ -509,22 +513,26 @@ final class ClipboardPanelViewTests: XCTestCase {
       fixture.view.debugCardRailVisibleRect.width + 1
     )
     XCTAssertEqual(fixture.view.debugCardRailVisibleRect.minX, 0, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugCardRailOverflowFadeVisibility, [false, true])
 
     fixture.view.debugScrollCardRailVertically(deltaY: -240)
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertGreaterThan(fixture.view.debugCardRailVisibleRect.minX, 0)
+    XCTAssertEqual(fixture.view.debugCardRailOverflowFadeVisibility, [true, true])
 
     fixture.view.debugScrollCardRailVertically(deltaY: -10_000)
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     let maxOffset = fixture.view.debugCardRailDocumentWidth - fixture.view.debugCardRailVisibleRect.width
     XCTAssertEqual(fixture.view.debugCardRailVisibleRect.minX, maxOffset, accuracy: 1)
+    XCTAssertEqual(fixture.view.debugCardRailOverflowFadeVisibility, [true, false])
 
     fixture.view.debugScrollCardRailVertically(deltaY: 10_000)
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(fixture.view.debugCardRailVisibleRect.minX, 0, accuracy: 1)
+    XCTAssertEqual(fixture.view.debugCardRailOverflowFadeVisibility, [false, true])
   }
 
   func testFilteredEmptyStateNamesCurrentCollection() {

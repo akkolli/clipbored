@@ -38,7 +38,7 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 5. Use arrow keys to move selection while the search field is focused.
 6. Tab to collection chips and press `Space` or `Return`; confirm the focused chip is selected and the visible focus state is clear.
 7. Tab to cards; confirm the focused card gets a clear focus border, `Return` pastes or copies it, and `Space` opens Quick Look for previewable clips.
-8. Use a mouse wheel or two-finger vertical scroll over the card shelf and a crowded collection rail; confirm each pans horizontally and clamps at both ends.
+8. Use a mouse wheel or two-finger vertical scroll over the card shelf and a crowded collection rail; confirm each pans horizontally, clamps at both ends, and shows subtle edge fades only where more content is hidden.
 9. Right-click a filtered result and choose Show in Clipboard, or press `Command + G`, and confirm search clears while the same card stays selected in Most Recent.
 10. Press `Esc` once with a non-empty search field and confirm search clears.
 11. Press `Esc` again and confirm the panel closes.
