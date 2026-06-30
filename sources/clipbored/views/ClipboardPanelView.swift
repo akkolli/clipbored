@@ -566,9 +566,30 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func updateSelection() {
+    var selectedCard: ClipboardItemCardView?
     for (index, card) in cardViews.enumerated() {
-      card.setSelected(index == viewModel.selectedIndex)
+      let selected = index == viewModel.selectedIndex
+      card.setSelected(selected)
+      if selected {
+        selectedCard = card
+      }
     }
+
+    if let selectedCard {
+      scrollCardIntoView(selectedCard)
+    }
+  }
+
+  private func scrollCardIntoView(_ card: NSView) {
+    guard scrollView.documentView === itemsStack else { return }
+    guard card.window != nil else { return }
+    scrollView.layoutSubtreeIfNeeded()
+    itemsStack.layoutSubtreeIfNeeded()
+
+    let frame = card.convert(card.bounds, to: itemsStack)
+    let paddedFrame = frame.insetBy(dx: -Metrics.cardSpacing, dy: 0)
+    itemsStack.scrollToVisible(paddedFrame)
+    scrollView.reflectScrolledClipView(scrollView.contentView)
   }
 
   private func updateStatus(_ message: String) {
@@ -844,6 +865,18 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   var debugCardHeaderBadgeSymbols: [String] {
     cardViews.map(\.debugHeaderBadgeSymbol)
+  }
+
+  var debugSelectedCardFrameInDocument: NSRect {
+    guard viewModel.selectedIndex >= 0, viewModel.selectedIndex < cardViews.count else {
+      return .zero
+    }
+    let card = cardViews[viewModel.selectedIndex]
+    return card.convert(card.bounds, to: itemsStack)
+  }
+
+  var debugCardRailVisibleRect: NSRect {
+    scrollView.contentView.bounds
   }
 
   var debugFirstCardMenuTitles: [String] {

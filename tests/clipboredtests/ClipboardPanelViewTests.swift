@@ -243,6 +243,38 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertTrue(fixture.view.debugCustomCollectionTitles.contains("Product References"))
   }
 
+  func testSelectionScrollsCardRailToKeepSelectedCardVisible() {
+    let fixture = makePanelFixture()
+    fixture.window.setFrame(NSRect(x: 0, y: 0, width: 620, height: 520), display: true)
+
+    for index in 0..<8 {
+      fixture.store.upsert(makeTextItem("Scrollable clipboard item \(index)", store: fixture.store))
+      drainMainQueue()
+    }
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    fixture.viewModel.selectFirstItem()
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+    XCTAssertLessThanOrEqual(fixture.view.debugCardRailVisibleRect.minX, 1)
+
+    fixture.viewModel.selectItem(at: fixture.viewModel.visibleItems.count - 1)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    let visibleRect = fixture.view.debugCardRailVisibleRect
+    let selectedFrame = fixture.view.debugSelectedCardFrameInDocument
+    XCTAssertGreaterThan(visibleRect.minX, 0)
+    XCTAssertLessThanOrEqual(selectedFrame.minX, visibleRect.maxX)
+    XCTAssertGreaterThanOrEqual(visibleRect.maxX + 1, selectedFrame.maxX)
+
+    fixture.viewModel.selectItem(at: 0)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertLessThanOrEqual(fixture.view.debugCardRailVisibleRect.minX, 1)
+  }
+
   func testFilteredEmptyStateNamesCurrentCollection() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Only text exists", store: fixture.store))
