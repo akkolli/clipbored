@@ -304,6 +304,69 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(store.items.first?.useCount, 1)
   }
 
+  func testStackPastesQueuedItemsInOrderAndConsumesThem() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    let first = makeTextItem("first stacked clip", createdAt: Date(timeIntervalSince1970: 100))
+    let second = makeTextItem("second stacked clip", createdAt: Date(timeIntervalSince1970: 200))
+    store.upsert(first)
+    store.upsert(second)
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 2)
+
+    viewModel.selectItem(at: 1)
+    viewModel.toggleSelectedStackMembership()
+    viewModel.selectItem(at: 0)
+    viewModel.toggleSelectedStackMembership()
+
+    XCTAssertEqual(viewModel.stackCount, 2)
+    XCTAssertEqual(viewModel.statusMessage, "Added to Stack")
+
+    viewModel.pasteNextStackItem()
+    store.flushPersistenceForTesting()
+
+    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "first stacked clip")
+    XCTAssertEqual(viewModel.statusMessage, "Copied from Stack")
+    XCTAssertEqual(viewModel.stackCount, 1)
+    XCTAssertEqual(store.items.first(where: { $0.id == first.id })?.useCount, 1)
+
+    viewModel.copyNextStackItem()
+    store.flushPersistenceForTesting()
+
+    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "second stacked clip")
+    XCTAssertEqual(viewModel.statusMessage, "Copied from Stack")
+    XCTAssertEqual(viewModel.stackCount, 0)
+  }
+
+  func testStackToggleAndClearUpdateCount() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    store.upsert(makeTextItem("stack toggle clip", createdAt: Date(timeIntervalSince1970: 100)))
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 1)
+
+    viewModel.toggleSelectedStackMembership()
+    XCTAssertEqual(viewModel.stackCount, 1)
+    XCTAssertEqual(viewModel.statusMessage, "Added to Stack")
+    XCTAssertTrue(viewModel.isItemStacked(at: 0))
+
+    viewModel.toggleSelectedStackMembership()
+    XCTAssertEqual(viewModel.stackCount, 0)
+    XCTAssertEqual(viewModel.statusMessage, "Removed from Stack")
+    XCTAssertFalse(viewModel.isItemStacked(at: 0))
+
+    viewModel.toggleSelectedStackMembership()
+    viewModel.clearStack()
+    XCTAssertEqual(viewModel.stackCount, 0)
+    XCTAssertEqual(viewModel.statusMessage, "Cleared Stack")
+  }
+
   func testUpdateSelectedTextRefreshesVisibleItemAndSearch() {
     let settings = makeSettings()
     let cacheService = makeCacheService()

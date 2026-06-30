@@ -323,6 +323,11 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     viewModel.onCollectionsChanged = { [weak self] in
       self?.handleCollectionsChanged()
     }
+    viewModel.onStackChanged = { [weak self] in
+      self?.reloadItems()
+      self?.updateSelection()
+      self?.updateStatus(self?.viewModel.statusMessage ?? "")
+    }
     viewModel.onCaptureStatusChanged = { [weak self] in
       self?.updateStatus(self?.viewModel.statusMessage ?? "")
     }
@@ -515,7 +520,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
           item: item,
           thumbnail: viewModel.thumbnail(for: item),
           index: index,
-          collectionNames: collectionNames
+          collectionNames: collectionNames,
+          isStacked: viewModel.isItemStacked(at: index),
+          stackCount: viewModel.stackCount
         )
         card.onSelect = { [weak self] selected in
           self?.viewModel.selectItem(at: selected)
@@ -535,6 +542,19 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
         card.onCopyPlainText = { [weak self] selected in
           self?.viewModel.selectItem(at: selected)
           self?.viewModel.copySelectedPlainText()
+        }
+        card.onToggleStack = { [weak self] selected in
+          self?.viewModel.selectItem(at: selected)
+          self?.viewModel.toggleSelectedStackMembership()
+        }
+        card.onPasteStackNext = { [weak self] in
+          self?.viewModel.pasteNextStackItem()
+        }
+        card.onCopyStackNext = { [weak self] in
+          self?.viewModel.copyNextStackItem()
+        }
+        card.onClearStack = { [weak self] in
+          self?.viewModel.clearStack()
         }
         card.onEditText = { [weak self] selected in
           self?.editText(at: selected)
@@ -677,7 +697,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     if lower.hasPrefix("captured") || lower.contains("capture running") || lower.contains("capture is running") || lower.contains("capture resumed") {
       return .ready
     }
-    if lower.hasPrefix("copied") || lower.hasPrefix("pasted") || lower.hasPrefix("updated") {
+    if lower.hasPrefix("copied") || lower.hasPrefix("pasted") || lower.hasPrefix("updated") || lower.hasPrefix("added") || lower.hasPrefix("removed") || lower.hasPrefix("cleared") {
       return .action
     }
     if lower.hasPrefix("error") || lower.contains("failed") {
@@ -1318,6 +1338,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   var onCopy: (Int) -> Void = { _ in }
   var onPastePlainText: (Int) -> Void = { _ in }
   var onCopyPlainText: (Int) -> Void = { _ in }
+  var onToggleStack: (Int) -> Void = { _ in }
+  var onPasteStackNext: () -> Void = {}
+  var onCopyStackNext: () -> Void = {}
+  var onClearStack: () -> Void = {}
   var onEditText: (Int) -> Void = { _ in }
   var onPreview: (Int) -> Void = { _ in }
   var onPasteboardWriters: (Int) -> [NSPasteboardWriting] = { _ in [] }
@@ -1330,6 +1354,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private let index: Int
   private let itemKind: ClipboardItemKind
   private let itemIsPinned: Bool
+  private let itemIsStacked: Bool
+  private let stackCount: Int
   private let itemCollectionName: String?
   private let collectionNames: [String]
   private let contentView = NSView()
@@ -1343,10 +1369,19 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private var mouseDownLocation: NSPoint?
   private var trackingAreaRef: NSTrackingArea?
 
-  init(item: ClipboardItem, thumbnail: NSImage?, index: Int, collectionNames: [String] = []) {
+  init(
+    item: ClipboardItem,
+    thumbnail: NSImage?,
+    index: Int,
+    collectionNames: [String] = [],
+    isStacked: Bool = false,
+    stackCount: Int = 0
+  ) {
     self.index = index
     self.itemKind = item.kind
     self.itemIsPinned = item.isPinned
+    self.itemIsStacked = isStacked
+    self.stackCount = stackCount
     self.itemCollectionName = ClipboardCollectionDefaults.normalizedName(item.collectionName)
     self.collectionNames = collectionNames.compactMap { ClipboardCollectionDefaults.normalizedName($0) }
     super.init(frame: .zero)
@@ -1505,6 +1540,12 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       addMenuItem("Paste Plain Text", action: #selector(pastePlainTextFromMenu), to: menu)
       addMenuItem("Copy Plain Text", action: #selector(copyPlainTextFromMenu), to: menu)
     }
+    addMenuItem(itemIsStacked ? "Remove from Stack" : "Add to Stack", action: #selector(toggleStackFromMenu), to: menu)
+    if stackCount > 0 {
+      addMenuItem("Paste Stack Next", action: #selector(pasteStackNextFromMenu), to: menu)
+      addMenuItem("Copy Stack Next", action: #selector(copyStackNextFromMenu), to: menu)
+      addMenuItem("Clear Stack", action: #selector(clearStackFromMenu), to: menu)
+    }
     if canEditText {
       addMenuItem("Edit", action: #selector(editTextFromMenu), to: menu)
     }
@@ -1641,6 +1682,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       cardActionButton("doc.on.doc", toolTip: "Copy", action: #selector(copyFromMenu)),
       cardActionButton(itemIsPinned ? "pin.slash" : "pin", toolTip: pinTitle, action: #selector(togglePinFromMenu))
     ]
+    actionRailButtons.append(cardActionButton("square.stack.3d.up", toolTip: itemIsStacked ? "Remove from Stack" : "Add to Stack", action: #selector(toggleStackFromMenu)))
     if canEditText {
       actionRailButtons.append(cardActionButton("pencil", toolTip: "Edit", action: #selector(editTextFromMenu)))
     }
@@ -1723,6 +1765,22 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   @objc private func copyPlainTextFromMenu() {
     onCopyPlainText(index)
+  }
+
+  @objc private func toggleStackFromMenu() {
+    onToggleStack(index)
+  }
+
+  @objc private func pasteStackNextFromMenu() {
+    onPasteStackNext()
+  }
+
+  @objc private func copyStackNextFromMenu() {
+    onCopyStackNext()
+  }
+
+  @objc private func clearStackFromMenu() {
+    onClearStack()
   }
 
   @objc private func editTextFromMenu() {

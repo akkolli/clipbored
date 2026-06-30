@@ -18,8 +18,10 @@ enum ClipboardPanelShortcutAction: Equatable {
   case copyPlainText
   case open
   case pastePlainText
+  case pasteStackNext
   case preview
   case reveal
+  case toggleStack
 }
 
 final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
@@ -378,10 +380,14 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
       viewModel.openSelected()
     case .pastePlainText:
       viewModel.pasteSelectedPlainText()
+    case .pasteStackNext:
+      viewModel.pasteNextStackItem()
     case .preview:
       previewSelected()
     case .reveal:
       viewModel.revealSelected()
+    case .toggleStack:
+      viewModel.toggleSelectedStackMembership()
     }
   }
 
@@ -445,10 +451,14 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
     guard relevantModifiers == [.command, .shift] else { return nil }
     switch keyCode {
+    case 1:
+      return .toggleStack
     case 8:
       return .copyPlainText
     case 9:
       return .pastePlainText
+    case 36:
+      return .pasteStackNext
     default:
       return nil
     }

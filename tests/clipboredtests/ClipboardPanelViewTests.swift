@@ -184,8 +184,8 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.store.upsert(makeTextItem("Plain text", store: fixture.store))
     drainMainQueue()
 
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Edit", "Delete"])
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 154)
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Add to Stack", "Edit", "Delete"])
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 182)
     XCTAssertFalse(fixture.view.debugFirstCardFooterDetailIsHidden)
     XCTAssertTrue(fixture.view.debugFirstCardHeaderBadgeIsHidden)
 
@@ -194,8 +194,8 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     fixture.viewModel.selectFirstItem()
     XCTAssertEqual(fixture.viewModel.visibleItems.first?.kind, .file)
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Preview", "Open", "Reveal", "Delete"])
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 210)
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Add to Stack", "Preview", "Open", "Reveal", "Delete"])
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 238)
     XCTAssertFalse(fixture.view.debugFirstCardFooterDetailIsHidden)
     XCTAssertTrue(fixture.view.debugFirstCardHeaderBadgeIsHidden)
   }
@@ -333,7 +333,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Edit", "Pin", "Add to Collection", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Add to Stack", "Edit", "Pin", "Add to Collection", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
     XCTAssertEqual(
       fixture.view.debugFirstCardCollectionMenuTitles,
@@ -349,8 +349,25 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Paste Plain Text", "Copy Plain Text", "Quick Look", "Pin", "Add to Collection", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Paste Plain Text", "Copy Plain Text", "Add to Stack", "Quick Look", "Pin", "Add to Collection", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
+  }
+
+  func testStackedCardsExposeStackManagementActions() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Stackable text", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    fixture.viewModel.toggleSelectedStackMembership()
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(
+      fixture.view.debugFirstCardMenuTitles,
+      ["Paste", "Copy", "Remove from Stack", "Paste Stack Next", "Copy Stack Next", "Clear Stack", "Edit", "Pin", "Add to Collection", "-", "Open", "Reveal in Finder", "-", "Delete"]
+    )
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Remove from Stack", "Edit", "Delete"])
   }
 
   func testCollectionMenuOffersExistingCustomCollections() {

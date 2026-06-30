@@ -44,6 +44,12 @@ final class ClipboardPanelViewModel {
   private let cacheService: ClipboardCacheService
   private let pasteService: PasteActionService
   private var selectedItemID: UUID?
+  private var stackItemIDs: [UUID] = [] {
+    didSet {
+      guard oldValue != stackItemIDs else { return }
+      notifyMain { self.onStackChanged?() }
+    }
+  }
   var targetApplicationProvider: () -> NSRunningApplication? = { nil }
   var willPasteToTarget: () -> Void = {}
   var onVisibleItemsChanged: (([ClipboardItem]) -> Void)?
@@ -51,6 +57,7 @@ final class ClipboardPanelViewModel {
   var onStatusMessageChanged: ((String) -> Void)?
   var onSortModeChanged: ((ClipboardSortMode) -> Void)?
   var onCollectionsChanged: (() -> Void)?
+  var onStackChanged: (() -> Void)?
   var onCaptureStatusChanged: (() -> Void)?
 
   init(store: ClipboardStore, settings: SettingsModel, cacheService: ClipboardCacheService) {
@@ -83,6 +90,10 @@ final class ClipboardPanelViewModel {
 
   var totalItemCount: Int {
     items.count
+  }
+
+  var stackCount: Int {
+    stackItemIDs.count
   }
 
   var collectionNames: [String] {
@@ -186,6 +197,55 @@ final class ClipboardPanelViewModel {
     }
     statusMessage = result.message
     settings.setPasteStatus(message: result.message)
+  }
+
+  func isItemStacked(at index: Int) -> Bool {
+    guard index >= 0 && index < visibleItems.count else { return false }
+    return stackItemIDs.contains(visibleItems[index].id)
+  }
+
+  func toggleSelectedStackMembership() {
+    guard let item = selectedItem else { return }
+    if let existingIndex = stackItemIDs.firstIndex(of: item.id) {
+      stackItemIDs.remove(at: existingIndex)
+      statusMessage = "Removed from Stack"
+      return
+    }
+
+    stackItemIDs.append(item.id)
+    statusMessage = "Added to Stack"
+  }
+
+  func clearStack() {
+    guard !stackItemIDs.isEmpty else {
+      statusMessage = "Stack is empty"
+      return
+    }
+    stackItemIDs.removeAll()
+    statusMessage = "Cleared Stack"
+  }
+
+  func copyNextStackItem() {
+    guard let item = nextStackItem() else {
+      statusMessage = "Stack is empty"
+      return
+    }
+
+    let result = pasteService.copy(item)
+    handleStackActionResult(result, item: item)
+  }
+
+  func pasteNextStackItem() {
+    guard let item = nextStackItem() else {
+      statusMessage = "Stack is empty"
+      return
+    }
+
+    let result = pasteService.paste(item, targetApp: targetApplicationProvider())
+    if case .pasted = result {
+      willPasteToTarget()
+    }
+    handleStackActionResult(result, item: item)
   }
 
   func pasteboardWriters(forItemAt index: Int) -> [NSPasteboardWriting] {
@@ -311,6 +371,7 @@ final class ClipboardPanelViewModel {
   }
 
   func recomputeVisibleItems() {
+    pruneStackItems()
     let previousSelection = selectedItemID
     let query = searchText.clipboardTrimmed.lowercased()
     visibleItems = computeVisibleItems(from: items, query: query, sortMode: sortMode, collectionName: selectedCollectionName)
@@ -329,6 +390,48 @@ final class ClipboardPanelViewModel {
 
     selectedItemID = selectedItem?.id
     onCollectionsChanged?()
+  }
+
+  private func nextStackItem() -> ClipboardItem? {
+    pruneStackItems()
+    guard let id = stackItemIDs.first else { return nil }
+    return items.first { $0.id == id }
+  }
+
+  private func handleStackActionResult(_ result: PasteActionService.PasteActionResult, item: ClipboardItem) {
+    if case .failed(let message) = result {
+      statusMessage = message
+      return
+    }
+
+    consumeStackItem(item.id)
+    store.markUsed(item.id)
+    selectedItemID = item.id
+    switch result {
+    case .copiedNeedsPermission:
+      statusMessage = "Copied from Stack. Grant Accessibility access to paste automatically."
+    case .pasted:
+      statusMessage = "Pasted from Stack"
+    case .copied:
+      statusMessage = "Copied from Stack"
+    default:
+      statusMessage = result.message
+    }
+    settings.setPasteStatus(message: statusMessage)
+  }
+
+  private func consumeStackItem(_ id: UUID) {
+    guard let index = stackItemIDs.firstIndex(of: id) else { return }
+    stackItemIDs.remove(at: index)
+  }
+
+  private func pruneStackItems() {
+    guard !stackItemIDs.isEmpty else { return }
+    let existingIDs = Set(items.map(\.id))
+    let pruned = stackItemIDs.filter { existingIDs.contains($0) }
+    if pruned != stackItemIDs {
+      stackItemIDs = pruned
+    }
   }
 
   internal func computeVisibleItems(
