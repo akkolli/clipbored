@@ -163,6 +163,11 @@ final class ClipboardPanelViewModel {
     settings.setPasteStatus(message: result.message)
   }
 
+  func pasteboardWriters(forItemAt index: Int) -> [NSPasteboardWriting] {
+    guard index >= 0 && index < visibleItems.count else { return [] }
+    return pasteService.pasteboardWriters(for: visibleItems[index])
+  }
+
   func openSelected() {
     guard let item = selectedItem else { return }
     switch item.kind {

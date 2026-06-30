@@ -32,6 +32,57 @@ final class PasteActionServiceTests: XCTestCase {
     XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Hello")
   }
 
+  func testPasteboardWritersExposeTextForDragOut() {
+    let service = PasteActionService()
+    let item = ClipboardItem(
+      id: UUID(),
+      kind: .text,
+      displayText: "Drag text",
+      payload: "Drag text",
+      payloadHash: "hash",
+      createdAt: Date(),
+      lastUsedAt: Date(),
+      useCount: 0,
+      sourceApp: nil,
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+
+    let pasteboard = NSPasteboard.withUniqueName()
+    pasteboard.clearContents()
+
+    XCTAssertTrue(pasteboard.writeObjects(service.pasteboardWriters(for: item)))
+    XCTAssertEqual(pasteboard.string(forType: .string), "Drag text")
+  }
+
+  func testPasteboardWritersExposeURLAndTitleForDragOut() {
+    let service = PasteActionService()
+    let item = ClipboardItem(
+      id: UUID(),
+      kind: .url,
+      displayText: "Apple",
+      payload: "https://apple.com",
+      payloadHash: "hash",
+      createdAt: Date(),
+      lastUsedAt: Date(),
+      useCount: 0,
+      sourceApp: nil,
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+
+    let pasteboard = NSPasteboard.withUniqueName()
+    pasteboard.clearContents()
+
+    XCTAssertTrue(pasteboard.writeObjects(service.pasteboardWriters(for: item)))
+    XCTAssertEqual(pasteboard.string(forType: .string), "https://apple.com")
+    XCTAssertEqual(pasteboard.string(forType: .URL), "https://apple.com")
+    XCTAssertEqual(
+      pasteboard.string(forType: NSPasteboard.PasteboardType(rawValue: "public.url-name")),
+      "Apple"
+    )
+  }
+
   func testPasteWithoutTargetCopiesWithoutRequestingAutomaticPaste() {
     let service = PasteActionService()
     let item = ClipboardItem(

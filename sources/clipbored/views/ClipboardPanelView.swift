@@ -492,6 +492,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
           self?.viewModel.selectItem(at: selected)
           self?.viewModel.copySelected()
         }
+        card.onPasteboardWriters = { [weak self] selected in
+          self?.viewModel.pasteboardWriters(forItemAt: selected) ?? []
+        }
         card.onOpen = { [weak self] selected in
           self?.viewModel.selectItem(at: selected)
           self?.viewModel.openSelected()
@@ -1117,7 +1120,7 @@ private final class AspectFillImageView: NSView {
   }
 }
 
-private final class ClipboardItemCardView: NSView {
+private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private enum Metrics {
     static let width: CGFloat = 320
     static let height: CGFloat = 244
@@ -1128,6 +1131,7 @@ private final class ClipboardItemCardView: NSView {
     static let actionButtonSize: CGFloat = 24
     static let primaryActionButtonSize: CGFloat = 30
     static let actionRailHeight: CGFloat = 34
+    static let dragThreshold: CGFloat = 4
   }
   private enum Palette {
     static let border = NSColor.separatorColor.withAlphaComponent(0.20).cgColor
@@ -1142,6 +1146,7 @@ private final class ClipboardItemCardView: NSView {
   var onSelect: (Int) -> Void = { _ in }
   var onPaste: (Int) -> Void = { _ in }
   var onCopy: (Int) -> Void = { _ in }
+  var onPasteboardWriters: (Int) -> [NSPasteboardWriting] = { _ in [] }
   var onOpen: (Int) -> Void = { _ in }
   var onReveal: (Int) -> Void = { _ in }
   var onTogglePin: (Int) -> Void = { _ in }
@@ -1161,6 +1166,7 @@ private final class ClipboardItemCardView: NSView {
   private weak var headerPinView: NSView?
   private var isSelected = false
   private var isHovered = false
+  private var mouseDownLocation: NSPoint?
   private var trackingAreaRef: NSTrackingArea?
 
   init(item: ClipboardItem, thumbnail: NSImage?, index: Int, collectionNames: [String] = []) {
@@ -1226,10 +1232,53 @@ private final class ClipboardItemCardView: NSView {
 
   override func mouseDown(with event: NSEvent) {
     if event.clickCount == 2 {
+      mouseDownLocation = nil
       onPaste(index)
     } else {
+      mouseDownLocation = convert(event.locationInWindow, from: nil)
       onSelect(index)
     }
+  }
+
+  override func mouseDragged(with event: NSEvent) {
+    guard let start = mouseDownLocation else { return }
+    let current = convert(event.locationInWindow, from: nil)
+    guard hypot(current.x - start.x, current.y - start.y) >= Metrics.dragThreshold else {
+      return
+    }
+
+    mouseDownLocation = nil
+    let writers = onPasteboardWriters(index)
+    guard !writers.isEmpty else { return }
+    onSelect(index)
+
+    let preview = dragPreviewImage()
+    let dragItems = writers.enumerated().map { offset, writer in
+      let draggingItem = NSDraggingItem(pasteboardWriter: writer)
+      let offsetAmount = CGFloat(offset) * 4
+      let frame = NSRect(
+        x: bounds.minX + offsetAmount,
+        y: bounds.minY - offsetAmount,
+        width: bounds.width,
+        height: bounds.height
+      )
+      draggingItem.setDraggingFrame(frame, contents: preview)
+      return draggingItem
+    }
+
+    let session = beginDraggingSession(with: dragItems, event: event, source: self)
+    session.animatesToStartingPositionsOnCancelOrFail = true
+    if dragItems.count > 1 {
+      session.draggingFormation = .pile
+    }
+  }
+
+  func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+    .copy
+  }
+
+  func ignoreModifierKeys(for session: NSDraggingSession) -> Bool {
+    true
   }
 
   override func menu(for event: NSEvent) -> NSMenu? {
@@ -1576,9 +1625,7 @@ private final class ClipboardItemCardView: NSView {
     kind.maximumNumberOfLines = 1
     kind.toolTip = kind.stringValue
 
-    let source = NSTextField(
-      labelWithString: "\(Self.relativeDateText(for: item.createdAt))  \(sourceText(for: item))"
-    )
+    let source = NSTextField(labelWithString: Self.relativeDateText(for: item.createdAt))
     source.font = .systemFont(ofSize: 11, weight: .regular)
     source.textColor = NSColor.white.withAlphaComponent(0.72)
     source.lineBreakMode = .byTruncatingTail
@@ -2117,6 +2164,18 @@ private final class ClipboardItemCardView: NSView {
       stack.centerYAnchor.constraint(equalTo: footer.centerYAnchor)
     ])
     return footer
+  }
+
+  private func dragPreviewImage() -> NSImage {
+    guard let representation = bitmapImageRepForCachingDisplay(in: bounds) else {
+      return NSImage(size: bounds.size)
+    }
+    representation.size = bounds.size
+    cacheDisplay(in: bounds, to: representation)
+
+    let image = NSImage(size: bounds.size)
+    image.addRepresentation(representation)
+    return image
   }
 
   private func iconBadge(for item: ClipboardItem) -> NSView {
