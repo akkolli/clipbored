@@ -252,6 +252,77 @@ final class SettingsModel {
     }?.value
   }
 
+  @discardableResult
+  func updateCollection(named currentName: String, to newName: String, colorHex: String? = nil) -> String? {
+    guard let normalizedCurrentName = ClipboardCollectionDefaults.normalizedName(currentName),
+          let normalizedNewName = ClipboardCollectionDefaults.normalizedName(newName) else {
+      return nil
+    }
+
+    let oldIndex = customCollectionNames.firstIndex {
+      $0.caseInsensitiveCompare(normalizedCurrentName) == .orderedSame
+    }
+    let oldCanonicalName = oldIndex.map { customCollectionNames[$0] } ?? normalizedCurrentName
+    let targetIndex = customCollectionNames.firstIndex {
+      $0.caseInsensitiveCompare(normalizedNewName) == .orderedSame
+    }
+    let targetCanonicalName: String
+    if let targetIndex, targetIndex != oldIndex {
+      targetCanonicalName = customCollectionNames[targetIndex]
+    } else {
+      targetCanonicalName = normalizedNewName
+    }
+    var changed = false
+
+    if let oldIndex {
+      if let targetIndex, targetIndex != oldIndex {
+        customCollectionNames.remove(at: oldIndex)
+        changed = true
+      } else if customCollectionNames[oldIndex] != normalizedNewName {
+        customCollectionNames[oldIndex] = normalizedNewName
+        changed = true
+      }
+    } else if targetIndex == nil {
+      customCollectionNames.append(normalizedNewName)
+      changed = true
+    }
+
+    let existingColor = collectionColorHex(forCollectionNamed: oldCanonicalName)
+    for key in collectionColorHexes.keys where key.caseInsensitiveCompare(oldCanonicalName) == .orderedSame {
+      collectionColorHexes.removeValue(forKey: key)
+      changed = true
+    }
+    let resolvedColor = Self.normalizedHexColor(colorHex) ?? existingColor
+    if let resolvedColor,
+       collectionColorHexes[targetCanonicalName] != resolvedColor {
+      collectionColorHexes[targetCanonicalName] = resolvedColor
+      changed = true
+    }
+
+    if changed {
+      storeAndNotify(.collections)
+    }
+    return targetCanonicalName
+  }
+
+  @discardableResult
+  func deleteCollection(named name: String) -> String? {
+    guard let normalizedName = ClipboardCollectionDefaults.normalizedName(name) else { return nil }
+    var changed = false
+    if let index = customCollectionNames.firstIndex(where: { $0.caseInsensitiveCompare(normalizedName) == .orderedSame }) {
+      customCollectionNames.remove(at: index)
+      changed = true
+    }
+    for key in collectionColorHexes.keys where key.caseInsensitiveCompare(normalizedName) == .orderedSame {
+      collectionColorHexes.removeValue(forKey: key)
+      changed = true
+    }
+    if changed {
+      storeAndNotify(.collections)
+    }
+    return normalizedName
+  }
+
   private static func readShortcut(from value: String?) -> ShortcutBinding? {
     guard let value else { return nil }
     return ShortcutBinding(encoded: value)

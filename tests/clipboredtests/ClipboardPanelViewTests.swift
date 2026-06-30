@@ -221,6 +221,42 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugFirstCardFooterDetailText, "17 characters")
   }
 
+  func testCollectionChipsExposeManagementMenuActions() {
+    let fixture = makePanelFixture()
+    fixture.viewModel.createCollection(named: "Research Stack", colorHex: "#0A9EB8")
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCustomCollectionMenuTitles(named: "Research Stack"), ["Edit Collection...", "-", "Delete Collection"])
+  }
+
+  func testCollectionChipManagementRenamesAndDeletesCollections() {
+    let fixture = makePanelFixture()
+    fixture.viewModel.createCollection(named: "Research Stack", colorHex: "#0A9EB8")
+    var item = makeTextItem("Collect this note", store: fixture.store)
+    item.collectionName = "Research Stack"
+    fixture.store.upsert(item)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    fixture.view.debugEditCollection(named: "Research Stack", to: "Product Research", colorHex: "#3366FF")
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCustomCollectionTitles, ["Product Research"])
+    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Product Research")
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderTitle, "Product Research")
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderColorHex, "#3366FF")
+
+    fixture.view.debugDeleteCollection(named: "Product Research")
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCustomCollectionTitles, [])
+    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), [])
+    XCTAssertEqual(fixture.store.items.map(\.payload), [])
+  }
+
   func testSelectedCardActionsRespectSelectedKind() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Plain text", store: fixture.store))

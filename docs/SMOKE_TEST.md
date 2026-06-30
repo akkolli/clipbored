@@ -41,10 +41,11 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 8. Press `Shift + Command + N` or the collection rail `+`, enter `Client Work`, choose a color, and confirm a Client Work chip appears with 0 clips and an empty collection view.
 9. Return to Clipboard, select a card, use its Collect button to choose Client Work, and confirm the Client Work chip count increases.
 10. Select the Client Work chip and confirm the rail filters to assigned items, cards use the Client Work name/color in their headers, and the collection/color/assignment persists after quitting and reopening ClipBored.
-11. Double-click an item and confirm it attempts to paste or falls back to copy without creating a duplicate history entry.
-12. Right-click a card, use Capture Rules to ignore its source app, copy from that app again, and confirm the new item is skipped.
-13. Drag an unassigned card onto the Client Work chip and confirm the chip count increases and the card appears when Client Work is selected.
-14. Resize or test on a narrow display and confirm the bottom shelf switches to compact cards that still show two recent clips cleanly.
+11. Right-click the Client Work chip, choose Edit Collection..., rename it, change its color, and confirm the chip and assigned card headers update.
+12. Double-click an item and confirm it attempts to paste or falls back to copy without creating a duplicate history entry.
+13. Right-click a card, use Capture Rules to ignore its source app, copy from that app again, and confirm the new item is skipped.
+14. Drag an unassigned card onto the renamed collection chip and confirm the chip count increases and the card appears when that collection is selected.
+15. Resize or test on a narrow display and confirm the bottom shelf switches to compact cards that still show two recent clips cleanly.
 
 ## Copy And Paste
 

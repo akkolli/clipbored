@@ -503,6 +503,39 @@ final class ClipboardPanelViewModel {
     settings.collectionColorHex(forCollectionNamed: name)
   }
 
+  func updateCollection(named currentName: String, to newName: String, colorHex: String? = nil) {
+    guard let normalizedCurrentName = ClipboardCollectionDefaults.normalizedName(currentName),
+          let normalizedNewName = settings.updateCollection(named: normalizedCurrentName, to: newName, colorHex: colorHex) else {
+      return
+    }
+
+    for item in items where item.collectionName?.caseInsensitiveCompare(normalizedCurrentName) == .orderedSame {
+      store.setCollection(item.id, name: normalizedNewName)
+    }
+    if selectedCollectionName?.caseInsensitiveCompare(normalizedCurrentName) == .orderedSame {
+      selectedCollectionName = normalizedNewName
+    } else {
+      recomputeVisibleItems()
+    }
+    statusMessage = "Updated \(normalizedNewName)"
+  }
+
+  func deleteCollection(named name: String) {
+    guard let normalizedName = settings.deleteCollection(named: name) else { return }
+    let matchingIDs = items
+      .filter { $0.collectionName?.caseInsensitiveCompare(normalizedName) == .orderedSame }
+      .map(\.id)
+    for id in matchingIDs {
+      store.remove(id)
+    }
+    if selectedCollectionName?.caseInsensitiveCompare(normalizedName) == .orderedSame {
+      selectedCollectionName = nil
+    } else {
+      recomputeVisibleItems()
+    }
+    statusMessage = "Deleted \(normalizedName)"
+  }
+
   func clearSearch() {
     searchText = ""
   }

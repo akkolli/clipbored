@@ -49,4 +49,32 @@ final class SettingsModelTests: XCTestCase {
     XCTAssertEqual(restored.customCollectionNames, ["Research Stack", "Client Work"])
     XCTAssertEqual(restored.collectionColorHex(forCollectionNamed: "Research Stack"), "#FF3355")
   }
+
+  func testCustomCollectionsCanBeUpdatedAndDeleted() {
+    let suiteName = "com.clipbored.settingsmodel.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer {
+      defaults.removePersistentDomain(forName: suiteName)
+    }
+    let settings = SettingsModel(defaults: defaults)
+
+    settings.ensureCollection(named: "Research Stack", colorHex: "#0A9EB8")
+    settings.ensureCollection(named: "Client Work", colorHex: "#FF3355")
+
+    let updatedName = settings.updateCollection(named: "research stack", to: "Product Research", colorHex: "#3366FF")
+
+    XCTAssertEqual(updatedName, "Product Research")
+    XCTAssertEqual(settings.customCollectionNames, ["Product Research", "Client Work"])
+    XCTAssertNil(settings.collectionColorHex(forCollectionNamed: "Research Stack"))
+    XCTAssertEqual(settings.collectionColorHex(forCollectionNamed: "Product Research"), "#3366FF")
+
+    settings.deleteCollection(named: "client work")
+
+    XCTAssertEqual(settings.customCollectionNames, ["Product Research"])
+    XCTAssertNil(settings.collectionColorHex(forCollectionNamed: "Client Work"))
+
+    let restored = SettingsModel(defaults: defaults)
+    XCTAssertEqual(restored.customCollectionNames, ["Product Research"])
+    XCTAssertEqual(restored.collectionColorHex(forCollectionNamed: "Product Research"), "#3366FF")
+  }
 }

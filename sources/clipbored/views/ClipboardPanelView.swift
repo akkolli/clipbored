@@ -557,6 +557,12 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       chip.onDropItem = { [weak self] itemID in
         self?.viewModel.assignItem(withID: itemID, to: collectionName)
       }
+      chip.onEdit = { [weak self] in
+        self?.editCollection(named: collectionName)
+      }
+      chip.onDelete = { [weak self] in
+        self?.deleteCollection(named: collectionName)
+      }
       customCollectionButtons[collectionName] = chip
       collectionStack.addArrangedSubview(chip)
     }
@@ -1347,6 +1353,18 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     createCollectionFromToolbar()
   }
 
+  func debugCustomCollectionMenuTitles(named collectionName: String) -> [String] {
+    customCollectionButtons[collectionName]?.debugMenuTitles ?? []
+  }
+
+  func debugEditCollection(named collectionName: String, to newName: String, colorHex: String) {
+    viewModel.updateCollection(named: collectionName, to: newName, colorHex: colorHex)
+  }
+
+  func debugDeleteCollection(named collectionName: String) {
+    viewModel.deleteCollection(named: collectionName)
+  }
+
   func debugShowFirstCardInClipboard() {
     showSelectedInClipboard(at: 0)
   }
@@ -1432,6 +1450,17 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     viewModel.createCollection(named: request.name, colorHex: request.colorHex, selectAfterCreate: true)
   }
 
+  private func editCollection(named collectionName: String) {
+    guard let request = requestCollectionEdit(named: collectionName) else { return }
+    viewModel.updateCollection(named: collectionName, to: request.name, colorHex: request.colorHex)
+  }
+
+  private func deleteCollection(named collectionName: String) {
+    let count = viewModel.collectionCount(named: collectionName)
+    guard confirmDeleteCollection(named: collectionName, count: count) else { return }
+    viewModel.deleteCollection(named: collectionName)
+  }
+
   private func requestCollectionCreation() -> CollectionCreationRequest? {
     #if DEBUG
     if let collectionNameProviderForTesting {
@@ -1445,12 +1474,38 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     }
     #endif
 
+    return requestCollectionDetails(
+      title: "New Collection",
+      message: "Name this collection and choose its color.",
+      actionTitle: "Create",
+      initialName: "",
+      initialColor: ClipboardCollectionVisuals.defaultColor(forCollectionNamed: "New Collection")
+    )
+  }
+
+  private func requestCollectionEdit(named collectionName: String) -> CollectionCreationRequest? {
+    requestCollectionDetails(
+      title: "Edit Collection",
+      message: "Update this collection's name and color.",
+      actionTitle: "Save",
+      initialName: collectionName,
+      initialColor: collectionColor(forCollectionNamed: collectionName)
+    )
+  }
+
+  private func requestCollectionDetails(
+    title: String,
+    message: String,
+    actionTitle: String,
+    initialName: String,
+    initialColor: NSColor
+  ) -> CollectionCreationRequest? {
     let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
     input.placeholderString = "Collection name"
-    input.stringValue = ""
+    input.stringValue = initialName
 
     let colorWell = NSColorWell(frame: NSRect(x: 0, y: 0, width: 48, height: 28))
-    colorWell.color = ClipboardCollectionVisuals.defaultColor(forCollectionNamed: "New Collection")
+    colorWell.color = initialColor
 
     let colorLabel = NSTextField(labelWithString: "Color")
     colorLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
@@ -1468,10 +1523,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     stack.frame = NSRect(x: 0, y: 0, width: 260, height: 64)
 
     let alert = NSAlert()
-    alert.messageText = "New Collection"
-    alert.informativeText = "Name this collection and choose its color."
+    alert.messageText = title
+    alert.informativeText = message
     alert.accessoryView = stack
-    alert.addButton(withTitle: "Create")
+    alert.addButton(withTitle: actionTitle)
     alert.addButton(withTitle: "Cancel")
     alert.window.initialFirstResponder = input
 
@@ -1483,6 +1538,19 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       name: name,
       colorHex: ClipboardCollectionVisuals.hexString(for: colorWell.color)
     )
+  }
+
+  private func confirmDeleteCollection(named collectionName: String, count: Int) -> Bool {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = "Delete \(collectionName)?"
+    let noun = count == 1 ? "clip" : "clips"
+    alert.informativeText = count > 0
+      ? "This removes \(count) \(noun) in this collection from clipboard history."
+      : "This removes the empty collection."
+    alert.addButton(withTitle: "Delete")
+    alert.addButton(withTitle: "Cancel")
+    return alert.runModal() == .alertFirstButtonReturn
   }
 }
 
@@ -1516,6 +1584,8 @@ private final class CollectionChipView: NSView {
   private var isDropTargeted = false
   var onPress: () -> Void = {}
   var onDropItem: ((UUID) -> Void)?
+  var onEdit: (() -> Void)?
+  var onDelete: (() -> Void)?
 
   init(title: String, color: NSColor) {
     self.titleText = title
@@ -1630,6 +1700,38 @@ private final class CollectionChipView: NSView {
     onPress()
   }
 
+  override func menu(for event: NSEvent) -> NSMenu? {
+    guard onEdit != nil || onDelete != nil else { return nil }
+    return contextMenu()
+  }
+
+  private func contextMenu() -> NSMenu {
+    let menu = NSMenu(title: titleText)
+    menu.autoenablesItems = false
+    if onEdit != nil {
+      let item = NSMenuItem(title: "Edit Collection...", action: #selector(editFromMenu), keyEquivalent: "")
+      item.target = self
+      menu.addItem(item)
+    }
+    if onDelete != nil {
+      if !menu.items.isEmpty {
+        menu.addItem(NSMenuItem.separator())
+      }
+      let item = NSMenuItem(title: "Delete Collection", action: #selector(deleteFromMenu), keyEquivalent: "")
+      item.target = self
+      menu.addItem(item)
+    }
+    return menu
+  }
+
+  @objc private func editFromMenu() {
+    onEdit?()
+  }
+
+  @objc private func deleteFromMenu() {
+    onDelete?()
+  }
+
   override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
     guard onDropItem != nil, draggedItemID(from: sender) != nil else { return [] }
     setDropTargeted(true)
@@ -1681,6 +1783,10 @@ private final class CollectionChipView: NSView {
 
   func debugDropItem(_ itemID: UUID) {
     onDropItem?(itemID)
+  }
+
+  var debugMenuTitles: [String] {
+    contextMenu().items.map { $0.isSeparatorItem ? "-" : $0.title }
   }
   #endif
 }

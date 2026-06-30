@@ -273,6 +273,57 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(restoredViewModel.collectionColorHex(named: "Client Work"), "#0A9EB8")
   }
 
+  func testUpdateCollectionRenamesAssignedItemsAndColor() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    var research = makeTextItem("research note", createdAt: Date(timeIntervalSince1970: 100))
+    research.collectionName = "Research Stack"
+    let outside = makeTextItem("outside note", createdAt: Date(timeIntervalSince1970: 200))
+    store.upsert(research)
+    store.upsert(outside)
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 2)
+    viewModel.createCollection(named: "Research Stack", colorHex: "#0A9EB8")
+
+    viewModel.updateCollection(named: "Research Stack", to: "Product Research", colorHex: "#3366FF")
+    store.flushPersistenceForTesting()
+
+    XCTAssertEqual(viewModel.collectionNames, ["Product Research"])
+    XCTAssertEqual(viewModel.collectionColorHex(named: "Product Research"), "#3366FF")
+    XCTAssertEqual(viewModel.selectedCollectionName, "Product Research")
+    XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["research note"])
+    XCTAssertEqual(viewModel.statusMessage, "Updated Product Research")
+    XCTAssertEqual(store.items.first(where: { $0.payload == "research note" })?.collectionName, "Product Research")
+  }
+
+  func testDeleteCollectionRemovesCollectionItemsFromHistory() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    var client = makeTextItem("client note", createdAt: Date(timeIntervalSince1970: 100))
+    client.collectionName = "Client Work"
+    let outside = makeTextItem("outside note", createdAt: Date(timeIntervalSince1970: 200))
+    store.upsert(client)
+    store.upsert(outside)
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 2)
+    viewModel.createCollection(named: "Client Work", colorHex: "#0A9EB8")
+
+    viewModel.deleteCollection(named: "Client Work")
+    store.flushPersistenceForTesting()
+
+    XCTAssertEqual(viewModel.collectionNames, [])
+    XCTAssertNil(viewModel.selectedCollectionName)
+    XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["outside note"])
+    XCTAssertEqual(store.items.map(\.payload), ["outside note"])
+    XCTAssertEqual(viewModel.statusMessage, "Deleted Client Work")
+  }
+
   func testSearchTextRecomputesVisibleItemsImmediately() {
     let settings = makeSettings()
     let cacheService = makeCacheService()
