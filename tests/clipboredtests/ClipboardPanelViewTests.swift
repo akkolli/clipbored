@@ -141,6 +141,32 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Links")
   }
 
+  func testCollectionRailAddButtonCreatesCollectionForSelectedClip() {
+    let fixture = makePanelFixture()
+
+    XCTAssertTrue(fixture.view.debugCollectionRailContainsAddButton)
+    XCTAssertFalse(fixture.view.debugAddCollectionButtonIsEnabled)
+
+    fixture.store.upsert(makeTextItem("Collect this note", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.debugAddCollectionButtonIsEnabled)
+
+    fixture.view.debugSetCollectionNameProvider { "  Research   Stack  " }
+    fixture.view.debugPressAddCollectionButton()
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Added to Research Stack")
+    XCTAssertEqual(fixture.view.debugCustomCollectionTitles, ["Research Stack"])
+
+    fixture.viewModel.selectCollection(named: "Research Stack")
+    drainMainQueue()
+
+    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Collect this note"])
+  }
+
   func testSelectedCardActionsRespectSelectedKind() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Plain text", store: fixture.store))

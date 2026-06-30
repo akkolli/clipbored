@@ -54,6 +54,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private let searchField = NSSearchField()
   private let collectionScrollView = NSScrollView()
   private let collectionStack = NSStackView()
+  private let addCollectionButton = NSButton()
   private let itemsStack = NSStackView()
   private let scrollView = NSScrollView()
   private let statusLabel = NSTextField(labelWithString: "")
@@ -71,6 +72,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private var defersVisualReloads = false
   private var pendingItemReload = false
   private var pendingCollectionReload = false
+  #if DEBUG
+  private var collectionNameProviderForTesting: (() -> String?)?
+  #endif
 
   init(viewModel: ClipboardPanelViewModel, onClose: @escaping () -> Void, onSettings: @escaping () -> Void = {}) {
     self.viewModel = viewModel
@@ -154,6 +158,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     collectionScrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     collectionScrollView.setContentHuggingPriority(.defaultLow, for: .horizontal)
     collectionScrollView.heightAnchor.constraint(equalToConstant: 30).isActive = true
+    configureAddCollectionButton()
     configureCollectionButtons()
 
     let settingsButton = iconButton("gearshape", toolTip: "Settings", action: #selector(openSettings))
@@ -373,7 +378,31 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       customCollectionButtons[collectionName] = chip
       collectionStack.addArrangedSubview(chip)
     }
+    collectionStack.addArrangedSubview(addCollectionButton)
+    updateAddCollectionButtonState()
     sizeCollectionDocument()
+  }
+
+  private func configureAddCollectionButton() {
+    let image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New collection")
+    image?.isTemplate = true
+    addCollectionButton.image = image
+    addCollectionButton.imagePosition = .imageOnly
+    addCollectionButton.imageScaling = .scaleProportionallyDown
+    addCollectionButton.isBordered = false
+    addCollectionButton.wantsLayer = true
+    addCollectionButton.layer?.cornerRadius = 13
+    addCollectionButton.layer?.borderWidth = 0.6
+    addCollectionButton.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.16).cgColor
+    addCollectionButton.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.26).cgColor
+    addCollectionButton.contentTintColor = .secondaryLabelColor
+    addCollectionButton.toolTip = "Add selected clip to a new collection"
+    addCollectionButton.setAccessibilityLabel("Add selected clip to a new collection")
+    addCollectionButton.target = self
+    addCollectionButton.action = #selector(addSelectedClipToCollection)
+    addCollectionButton.translatesAutoresizingMaskIntoConstraints = false
+    addCollectionButton.widthAnchor.constraint(equalToConstant: 30).isActive = true
+    addCollectionButton.heightAnchor.constraint(equalToConstant: 26).isActive = true
   }
 
   private func collectionTitle(for mode: ClipboardSortMode) -> String {
@@ -578,6 +607,13 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     if let selectedCard {
       scrollCardIntoView(selectedCard)
     }
+    updateAddCollectionButtonState()
+  }
+
+  private func updateAddCollectionButtonState() {
+    let hasSelectedItem = viewModel.selectedItem != nil
+    addCollectionButton.isEnabled = hasSelectedItem
+    addCollectionButton.alphaValue = hasSelectedItem ? 1.0 : 0.42
   }
 
   private func scrollCardIntoView(_ card: NSView) {
@@ -949,6 +985,22 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     emptyStateText
   }
 
+  var debugAddCollectionButtonIsEnabled: Bool {
+    addCollectionButton.isEnabled
+  }
+
+  var debugCollectionRailContainsAddButton: Bool {
+    collectionStack.arrangedSubviews.contains(addCollectionButton)
+  }
+
+  func debugSetCollectionNameProvider(_ provider: @escaping () -> String?) {
+    collectionNameProviderForTesting = provider
+  }
+
+  func debugPressAddCollectionButton() {
+    addSelectedClipToCollection()
+  }
+
   #endif
 
   func controlTextDidChange(_ notification: Notification) {
@@ -996,6 +1048,39 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   @objc private func openSettings() {
     onSettings()
+  }
+
+  @objc private func addSelectedClipToCollection() {
+    guard viewModel.selectedItem != nil,
+          let name = requestCollectionName() else {
+      return
+    }
+    viewModel.assignSelected(to: name)
+  }
+
+  private func requestCollectionName() -> String? {
+    #if DEBUG
+    if let collectionNameProviderForTesting {
+      return ClipboardCollectionDefaults.normalizedName(collectionNameProviderForTesting())
+    }
+    #endif
+
+    let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+    input.placeholderString = "Collection name"
+    input.stringValue = ""
+
+    let alert = NSAlert()
+    alert.messageText = "New Collection"
+    alert.informativeText = "Name this collection and add the selected clip to it."
+    alert.accessoryView = input
+    alert.addButton(withTitle: "Add")
+    alert.addButton(withTitle: "Cancel")
+    alert.window.initialFirstResponder = input
+
+    guard alert.runModal() == .alertFirstButtonReturn else {
+      return nil
+    }
+    return ClipboardCollectionDefaults.normalizedName(input.stringValue)
   }
 }
 
