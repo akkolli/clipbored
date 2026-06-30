@@ -407,6 +407,36 @@ final class ClipboardPanelViewTests: XCTestCase {
     )
   }
 
+  func testFilteredCardsExposeShowInClipboardContextMenuAction() {
+    let fixture = makePanelFixture()
+    var release = makeTextItem("Release needle", store: fixture.store)
+    release.createdAt = Date(timeIntervalSince1970: 100)
+    release.lastUsedAt = release.createdAt
+    var meeting = makeTextItem("Meeting note", store: fixture.store)
+    meeting.createdAt = Date(timeIntervalSince1970: 200)
+    meeting.lastUsedAt = meeting.createdAt
+    fixture.store.upsert(release)
+    fixture.store.upsert(meeting)
+    drainMainQueue()
+
+    fixture.viewModel.searchText = "release"
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(
+      fixture.view.debugFirstCardMenuTitles,
+      ["Paste", "Copy", "Show in Clipboard", "Add to Stack", "Edit", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+    )
+
+    fixture.view.debugShowFirstCardInClipboard()
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugSearchFieldText, "")
+    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Meeting note", "Release needle"])
+    XCTAssertEqual(fixture.viewModel.selectedItem?.payload, "Release needle")
+  }
+
   func testPreviewableCardsExposeQuickLookContextMenuAction() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeItem(kind: .file, text: "/tmp/report.txt", store: fixture.store))

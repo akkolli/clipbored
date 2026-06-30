@@ -21,6 +21,7 @@ enum ClipboardPanelShortcutAction: Equatable {
   case pasteStackNext
   case preview
   case reveal
+  case showInClipboard
   case toggleStack
 }
 
@@ -407,6 +408,8 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
       previewSelected()
     case .reveal:
       viewModel.revealSelected()
+    case .showInClipboard:
+      panelView.showSelectedInClipboard()
     case .toggleStack:
       viewModel.toggleSelectedStackMembership()
     }
@@ -471,6 +474,8 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
       return .copy
     case 31:
       return .open
+    case 5:
+      return .showInClipboard
     case 16:
       return .preview
     case 15:

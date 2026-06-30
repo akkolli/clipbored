@@ -34,16 +34,17 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 1. Open the panel and confirm the search field is focused.
 2. Type a query and confirm results filter immediately.
 3. Use arrow keys to move selection while the search field is focused.
-4. Press `Esc` once with a non-empty search field and confirm search clears.
-5. Press `Esc` again and confirm the panel closes.
-6. Reopen the panel, change sort segments, and confirm each segment updates results.
-7. Right-click a card, choose Add to Collection > New Collection..., enter `Client Work`, and confirm a Client Work chip appears with the item count.
-8. Select another card and confirm its Collect button offers Client Work as a reusable destination.
-9. Select the Client Work chip and confirm the rail filters to assigned items; quit and reopen ClipBored and confirm the assignment persists.
-10. Double-click an item and confirm it attempts to paste or falls back to copy without creating a duplicate history entry.
-11. Right-click a card, use Capture Rules to ignore its source app, copy from that app again, and confirm the new item is skipped.
-12. Drag an unassigned card onto the Client Work chip and confirm the chip count increases and the card appears when Client Work is selected.
-13. Resize or test on a narrow display and confirm the bottom shelf switches to compact cards that still show two recent clips cleanly.
+4. Right-click a filtered result and choose Show in Clipboard, or press `Command + G`, and confirm search clears while the same card stays selected in Most Recent.
+5. Press `Esc` once with a non-empty search field and confirm search clears.
+6. Press `Esc` again and confirm the panel closes.
+7. Reopen the panel, change sort segments, and confirm each segment updates results.
+8. Right-click a card, choose Add to Collection > New Collection..., enter `Client Work`, and confirm a Client Work chip appears with the item count.
+9. Select another card and confirm its Collect button offers Client Work as a reusable destination.
+10. Select the Client Work chip and confirm the rail filters to assigned items; quit and reopen ClipBored and confirm the assignment persists.
+11. Double-click an item and confirm it attempts to paste or falls back to copy without creating a duplicate history entry.
+12. Right-click a card, use Capture Rules to ignore its source app, copy from that app again, and confirm the new item is skipped.
+13. Drag an unassigned card onto the Client Work chip and confirm the chip count increases and the card appears when Client Work is selected.
+14. Resize or test on a narrow display and confirm the bottom shelf switches to compact cards that still show two recent clips cleanly.
 
 ## Copy And Paste
 

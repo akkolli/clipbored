@@ -166,6 +166,7 @@ final class ClipboardPanelControllerTests: XCTestCase {
 
   func testCommandActionShortcutsMapToSelectedClipActions() {
     XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 8, modifiers: .command), .copy)
+    XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 5, modifiers: .command), .showInClipboard)
     XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 16, modifiers: .command), .preview)
     XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 31, modifiers: .command), .open)
     XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 15, modifiers: .command), .reveal)

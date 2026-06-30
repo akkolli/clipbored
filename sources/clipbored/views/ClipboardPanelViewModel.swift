@@ -125,6 +125,18 @@ final class ClipboardPanelViewModel {
     return visibleItems[selectedIndex]
   }
 
+  var canShowSelectedInClipboard: Bool {
+    selectedItem != nil && canShowVisibleItemsInClipboard
+  }
+
+  var canShowVisibleItemsInClipboard: Bool {
+    !visibleItems.isEmpty
+      && (!searchText.clipboardTrimmed.isEmpty
+          || sortMode != .mostRecent
+          || selectedCollectionName != nil
+          || isStackFilterSelected)
+  }
+
   var totalItemCount: Int {
     items.count
   }
@@ -462,6 +474,30 @@ final class ClipboardPanelViewModel {
 
   func clearSearch() {
     searchText = ""
+  }
+
+  func showSelectedInClipboard() {
+    guard canShowSelectedInClipboard, let item = selectedItem else { return }
+    selectedItemID = item.id
+
+    if !searchText.isEmpty {
+      searchText = ""
+    }
+    if isStackFilterSelected {
+      isStackFilterSelected = false
+    }
+    if selectedCollectionName != nil {
+      selectedCollectionName = nil
+    }
+    if sortMode != .mostRecent {
+      sortMode = .mostRecent
+    }
+
+    if let index = visibleItems.firstIndex(where: { $0.id == item.id }) {
+      selectedIndex = index
+      selectedItemID = item.id
+    }
+    statusMessage = "Showing in Clipboard"
   }
 
   func recomputeVisibleItems() {

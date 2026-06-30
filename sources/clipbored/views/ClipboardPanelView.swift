@@ -638,7 +638,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
           layout: layout,
           collectionNames: collectionNames,
           isStacked: viewModel.isItemStacked(at: index),
-          stackCount: viewModel.stackCount
+          stackCount: viewModel.stackCount,
+          canShowInClipboard: viewModel.canShowVisibleItemsInClipboard
         )
         card.onSelect = { [weak self] selected in
           self?.viewModel.selectItem(at: selected)
@@ -671,6 +672,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
         }
         card.onClearStack = { [weak self] in
           self?.viewModel.clearStack()
+        }
+        card.onShowInClipboard = { [weak self] selected in
+          self?.showSelectedInClipboard(at: selected)
         }
         card.onEditText = { [weak self] selected in
           self?.editText(at: selected)
@@ -821,7 +825,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     if lower.hasPrefix("captured") || lower.contains("capture running") || lower.contains("capture is running") || lower.contains("capture resumed") {
       return .ready
     }
-    if lower.hasPrefix("copied") || lower.hasPrefix("pasted") || lower.hasPrefix("updated") || lower.hasPrefix("added") || lower.hasPrefix("removed") || lower.hasPrefix("cleared") || lower.hasPrefix("ignored") {
+    if lower.hasPrefix("copied") || lower.hasPrefix("pasted") || lower.hasPrefix("updated") || lower.hasPrefix("added") || lower.hasPrefix("removed") || lower.hasPrefix("cleared") || lower.hasPrefix("ignored") || lower.hasPrefix("showing") {
       return .action
     }
     if lower.hasPrefix("error") || lower.contains("failed") {
@@ -1240,6 +1244,14 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     addSelectedClipToCollection()
   }
 
+  func debugShowFirstCardInClipboard() {
+    showSelectedInClipboard(at: 0)
+  }
+
+  var debugSearchFieldText: String {
+    searchField.stringValue
+  }
+
   func debugDropFirstCard(onCollectionNamed collectionName: String) {
     guard let itemID = cardViews.first?.debugItemID else { return }
     customCollectionButtons[collectionName]?.debugDropItem(itemID)
@@ -1296,6 +1308,16 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   @objc private func openSettings() {
     onSettings()
+  }
+
+  func showSelectedInClipboard() {
+    showSelectedInClipboard(at: viewModel.selectedIndex)
+  }
+
+  private func showSelectedInClipboard(at index: Int) {
+    viewModel.selectItem(at: index)
+    viewModel.showSelectedInClipboard()
+    searchField.stringValue = viewModel.searchText
   }
 
   @objc private func addSelectedClipToCollection() {
@@ -1598,6 +1620,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   var onPasteStackNext: () -> Void = {}
   var onCopyStackNext: () -> Void = {}
   var onClearStack: () -> Void = {}
+  var onShowInClipboard: (Int) -> Void = { _ in }
   var onEditText: (Int) -> Void = { _ in }
   var onPreview: (Int) -> Void = { _ in }
   var onPasteboardWriters: (Int) -> [NSPasteboardWriting] = { _ in [] }
@@ -1616,6 +1639,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private let itemIsPinned: Bool
   private let itemIsStacked: Bool
   private let stackCount: Int
+  private let canShowInClipboard: Bool
   private let itemSourceAppName: String?
   private let itemSourceAppBundleID: String?
   private let itemCollectionName: String?
@@ -1639,7 +1663,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     layout: ClipboardItemCardLayout = .regular,
     collectionNames: [String] = [],
     isStacked: Bool = false,
-    stackCount: Int = 0
+    stackCount: Int = 0,
+    canShowInClipboard: Bool = false
   ) {
     self.index = index
     self.itemID = item.id
@@ -1648,6 +1673,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     self.itemIsPinned = item.isPinned
     self.itemIsStacked = isStacked
     self.stackCount = stackCount
+    self.canShowInClipboard = canShowInClipboard
     self.itemSourceAppName = Self.presentSourceText(item.sourceApp)
     self.itemSourceAppBundleID = Self.presentSourceText(item.sourceAppBundleId)
     self.itemCollectionName = ClipboardCollectionDefaults.normalizedName(item.collectionName)
@@ -1839,6 +1865,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     if canPlainText {
       addMenuItem("Paste Plain Text", action: #selector(pastePlainTextFromMenu), to: menu)
       addMenuItem("Copy Plain Text", action: #selector(copyPlainTextFromMenu), to: menu)
+    }
+    if canShowInClipboard {
+      addMenuItem("Show in Clipboard", action: #selector(showInClipboardFromMenu), to: menu)
     }
     addMenuItem(itemIsStacked ? "Remove from Stack" : "Add to Stack", action: #selector(toggleStackFromMenu), to: menu)
     if stackCount > 0 {
@@ -2136,6 +2165,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   @objc private func clearStackFromMenu() {
     onClearStack()
+  }
+
+  @objc private func showInClipboardFromMenu() {
+    onShowInClipboard(index)
   }
 
   @objc private func editTextFromMenu() {

@@ -256,6 +256,44 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(viewModel.selectedItem?.payload, "needle note")
   }
 
+  func testShowSelectedInClipboardClearsFiltersAndKeepsHistoryPosition() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    let older = makeTextItem("release needle", createdAt: Date(timeIntervalSince1970: 100))
+    let newer = makeTextItem("meeting note", createdAt: Date(timeIntervalSince1970: 200))
+    store.upsert(older)
+    store.upsert(newer)
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 2)
+    XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["meeting note", "release needle"])
+
+    viewModel.selectItem(at: 1)
+    viewModel.assignSelected(to: "Client Work")
+    store.flushPersistenceForTesting()
+    waitForVisibleItems(in: viewModel, count: 2)
+
+    viewModel.selectCollection(named: "Client Work")
+    viewModel.searchText = "release"
+
+    XCTAssertTrue(viewModel.canShowSelectedInClipboard)
+    XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["release needle"])
+
+    viewModel.showSelectedInClipboard()
+
+    XCTAssertEqual(viewModel.searchText, "")
+    XCTAssertNil(viewModel.selectedCollectionName)
+    XCTAssertFalse(viewModel.isStackFilterSelected)
+    XCTAssertEqual(viewModel.sortMode, .mostRecent)
+    XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["meeting note", "release needle"])
+    XCTAssertEqual(viewModel.selectedItem?.id, older.id)
+    XCTAssertEqual(viewModel.selectedIndex, 1)
+    XCTAssertFalse(viewModel.canShowSelectedInClipboard)
+    XCTAssertEqual(viewModel.statusMessage, "Showing in Clipboard")
+  }
+
   func testSelectFirstItemSelectsFirstVisibleItem() {
     let settings = makeSettings()
     let cacheService = makeCacheService()

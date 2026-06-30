@@ -12,9 +12,10 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
   - `Command + Option + V` toggles the clipboard panel
   - `Command + ,` opens settings
   - `Command + 1` through `Command + 9` paste the numbered visible card; add `Shift` to paste that card as plain text
+  - `Command + G` shows a filtered result back in the full clipboard history
 - Clipboard history for text, URLs with local preview thumbnails when available, images, audio, RTF/HTML rich text, PDFs, and file references
 - SQLite persistence with bounded history, pinned-item retention, and encrypted app-managed payloads
-- Search with independent token matching, structured filters such as `app:Safari`, `type:image`, `date:2026-06-30`, and optional local OCR for copied images
+- Search with independent token matching, structured filters such as `app:Safari`, `type:image`, `date:2026-06-30`, result jump-back to full history, and optional local OCR for copied images
 - Sort modes for recent, most used, images, links, text, files, audio, and pinned items
 - Custom named collections for organizing clips from the card Collect control, context menu, or by dragging cards onto collection chips
 - Copy and paste actions with Accessibility permission fallback
