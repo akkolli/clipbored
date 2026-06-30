@@ -191,6 +191,46 @@ final class ClipboardCacheServiceTests: XCTestCase {
     XCTAssertEqual(try posixPermissions(previewURL), 0o600)
   }
 
+  func testTemporaryPreviewURLWritesTextFile() throws {
+    let baseURL = try makeTempDirectory()
+    let cacheService = ClipboardCacheService(baseURL: baseURL, encryptionService: noOpEncryptionService())
+    let item = textItem("Quick Look text")
+
+    let previewURL = try XCTUnwrap(cacheService.temporaryPreviewURL(for: item))
+
+    XCTAssertEqual(previewURL.pathExtension, "txt")
+    XCTAssertEqual(try String(contentsOf: previewURL), "Quick Look text")
+    XCTAssertEqual(try posixPermissions(previewURL.deletingLastPathComponent()), 0o700)
+    XCTAssertEqual(try posixPermissions(previewURL), 0o600)
+  }
+
+  func testTemporaryPreviewURLWritesWebLocationFile() throws {
+    let baseURL = try makeTempDirectory()
+    let cacheService = ClipboardCacheService(baseURL: baseURL, encryptionService: noOpEncryptionService())
+    let item = urlItem("https://example.com/releases")
+
+    let previewURL = try XCTUnwrap(cacheService.temporaryPreviewURL(for: item))
+    let data = try Data(contentsOf: previewURL)
+    let plist = try XCTUnwrap(
+      PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: String]
+    )
+
+    XCTAssertEqual(previewURL.pathExtension, "webloc")
+    XCTAssertEqual(plist["URL"], "https://example.com/releases")
+    XCTAssertEqual(try posixPermissions(previewURL), 0o600)
+  }
+
+  func testTemporaryPreviewURLReturnsExistingFileURL() throws {
+    let baseURL = try makeTempDirectory()
+    let cacheService = ClipboardCacheService(baseURL: baseURL, encryptionService: noOpEncryptionService())
+    let fileURL = baseURL.appendingPathComponent("report.txt")
+    try Data("Report".utf8).write(to: fileURL)
+
+    let previewURL = try XCTUnwrap(cacheService.temporaryPreviewURL(for: fileItem(path: fileURL.path)))
+
+    XCTAssertEqual(previewURL.standardizedFileURL, fileURL.standardizedFileURL)
+  }
+
   private func makeTempDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory
       .appendingPathComponent("clipboredtests", isDirectory: true)
@@ -203,6 +243,38 @@ final class ClipboardCacheServiceTests: XCTestCase {
   private func imageCacheFileURLs(in baseURL: URL) throws -> [URL] {
     let imageDirectory = baseURL.appendingPathComponent("images", isDirectory: true)
     return try FileManager.default.contentsOfDirectory(at: imageDirectory, includingPropertiesForKeys: nil)
+  }
+
+  private func textItem(_ text: String) -> ClipboardItem {
+    ClipboardItem(
+      id: UUID(),
+      kind: .text,
+      displayText: text,
+      payload: text,
+      payloadHash: "hash",
+      createdAt: Date(),
+      lastUsedAt: Date(),
+      useCount: 0,
+      sourceApp: nil,
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+  }
+
+  private func urlItem(_ url: String) -> ClipboardItem {
+    ClipboardItem(
+      id: UUID(),
+      kind: .url,
+      displayText: url,
+      payload: url,
+      payloadHash: "hash",
+      createdAt: Date(),
+      lastUsedAt: Date(),
+      useCount: 0,
+      sourceApp: nil,
+      imagePath: nil,
+      thumbnailPath: nil
+    )
   }
 
   private func pdfItem(path: String) -> ClipboardItem {

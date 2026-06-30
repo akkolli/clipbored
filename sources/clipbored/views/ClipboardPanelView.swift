@@ -50,6 +50,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private let viewModel: ClipboardPanelViewModel
   private let onClose: () -> Void
   private let onSettings: () -> Void
+  private let onPreview: () -> Void
 
   private let searchField = NSSearchField()
   private let collectionScrollView = NSScrollView()
@@ -76,10 +77,16 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private var collectionNameProviderForTesting: (() -> String?)?
   #endif
 
-  init(viewModel: ClipboardPanelViewModel, onClose: @escaping () -> Void, onSettings: @escaping () -> Void = {}) {
+  init(
+    viewModel: ClipboardPanelViewModel,
+    onClose: @escaping () -> Void,
+    onSettings: @escaping () -> Void = {},
+    onPreview: @escaping () -> Void = {}
+  ) {
     self.viewModel = viewModel
     self.onClose = onClose
     self.onSettings = onSettings
+    self.onPreview = onPreview
     super.init(frame: .zero)
     configureView()
     bindViewModel()
@@ -520,6 +527,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
         card.onCopy = { [weak self] selected in
           self?.viewModel.selectItem(at: selected)
           self?.viewModel.copySelected()
+        }
+        card.onPreview = { [weak self] selected in
+          self?.viewModel.selectItem(at: selected)
+          self?.onPreview()
         }
         card.onPasteboardWriters = { [weak self] selected in
           self?.viewModel.pasteboardWriters(forItemAt: selected) ?? []
@@ -1264,6 +1275,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   var onSelect: (Int) -> Void = { _ in }
   var onPaste: (Int) -> Void = { _ in }
   var onCopy: (Int) -> Void = { _ in }
+  var onPreview: (Int) -> Void = { _ in }
   var onPasteboardWriters: (Int) -> [NSPasteboardWriting] = { _ in [] }
   var onOpen: (Int) -> Void = { _ in }
   var onReveal: (Int) -> Void = { _ in }
@@ -1445,6 +1457,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     menu.autoenablesItems = false
     addMenuItem("Paste", action: #selector(pasteFromMenu), to: menu)
     addMenuItem("Copy", action: #selector(copyFromMenu), to: menu)
+    if canPreview {
+      addMenuItem("Quick Look", action: #selector(previewFromMenu), to: menu)
+    }
     addMenuItem(itemIsPinned ? "Unpin" : "Pin", action: #selector(togglePinFromMenu), to: menu)
     addCollectionMenu(to: menu)
     menu.addItem(NSMenuItem.separator())
@@ -1519,6 +1534,15 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     }
   }
 
+  private var canPreview: Bool {
+    switch itemKind {
+    case .url, .image, .richText, .file, .pdf, .audio:
+      return true
+    case .text, .unknown:
+      return false
+    }
+  }
+
   private var canReveal: Bool {
     switch itemKind {
     case .file, .image, .pdf, .audio:
@@ -1553,6 +1577,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       cardActionButton("doc.on.doc", toolTip: "Copy", action: #selector(copyFromMenu)),
       cardActionButton(itemIsPinned ? "pin.slash" : "pin", toolTip: pinTitle, action: #selector(togglePinFromMenu))
     ]
+    if canPreview {
+      actionRailButtons.append(cardActionButton("eye", toolTip: "Preview", action: #selector(previewFromMenu)))
+    }
     if canOpen {
       actionRailButtons.append(cardActionButton("arrow.up.right.square", toolTip: "Open", action: #selector(openFromMenu)))
     }
@@ -1621,6 +1648,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   @objc private func copyFromMenu() {
     onCopy(index)
+  }
+
+  @objc private func previewFromMenu() {
+    onPreview(index)
   }
 
   @objc private func openFromMenu() {

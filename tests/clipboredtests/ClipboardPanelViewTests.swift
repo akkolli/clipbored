@@ -182,8 +182,8 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     fixture.viewModel.selectFirstItem()
     XCTAssertEqual(fixture.viewModel.visibleItems.first?.kind, .file)
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Open", "Reveal", "Delete"])
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 182)
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Preview", "Open", "Reveal", "Delete"])
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 210)
     XCTAssertFalse(fixture.view.debugFirstCardFooterDetailIsHidden)
     XCTAssertTrue(fixture.view.debugFirstCardHeaderBadgeIsHidden)
   }
@@ -326,6 +326,18 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(
       fixture.view.debugFirstCardCollectionMenuTitles,
       ["Useful Links", "Important Notes", "Code Snippets", "Read Later", "-", "New Collection..."]
+    )
+  }
+
+  func testPreviewableCardsExposeQuickLookContextMenuAction() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeItem(kind: .file, text: "/tmp/report.txt", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(
+      fixture.view.debugFirstCardMenuTitles,
+      ["Paste", "Copy", "Quick Look", "Pin", "Add to Collection", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
   }
 
