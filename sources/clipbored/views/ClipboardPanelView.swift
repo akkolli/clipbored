@@ -389,6 +389,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       chip.onPress = { [weak self] in
         self?.viewModel.selectCollection(named: collectionName)
       }
+      chip.onDropItem = { [weak self] itemID in
+        self?.viewModel.assignItem(withID: itemID, to: collectionName)
+      }
       customCollectionButtons[collectionName] = chip
       collectionStack.addArrangedSubview(chip)
     }
@@ -1124,6 +1127,15 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     addSelectedClipToCollection()
   }
 
+  func debugDropFirstCard(onCollectionNamed collectionName: String) {
+    guard let itemID = cardViews.first?.debugItemID else { return }
+    customCollectionButtons[collectionName]?.debugDropItem(itemID)
+  }
+
+  var debugCustomCollectionDropTargets: [String] {
+    viewModel.collectionNames.filter { customCollectionButtons[$0]?.debugAcceptsItemDrops == true }
+  }
+
   #endif
 
   func controlTextDidChange(_ notification: Notification) {
@@ -1207,6 +1219,25 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 }
 
+private enum ClipboardItemDragPasteboard {
+  static let itemIDType = NSPasteboard.PasteboardType("com.clipbored.clipboard-item-id")
+  static let acceptedTypes: [NSPasteboard.PasteboardType] = [
+    itemIDType,
+    .string,
+    .URL,
+    .fileURL,
+    .tiff,
+    .png,
+    .pdf,
+    .sound,
+    .rtf
+  ]
+}
+
+private enum ClipboardCardDragContext {
+  static var itemID: UUID?
+}
+
 private final class CollectionChipView: NSView {
   let titleText: String
   private let color: NSColor
@@ -1215,7 +1246,9 @@ private final class CollectionChipView: NSView {
   private let countLabel = NSTextField(labelWithString: "0")
   private(set) var isSelected = false
   private(set) var count = 0
+  private var isDropTargeted = false
   var onPress: () -> Void = {}
+  var onDropItem: ((UUID) -> Void)?
 
   init(title: String, color: NSColor) {
     self.titleText = title
@@ -1238,6 +1271,7 @@ private final class CollectionChipView: NSView {
     setAccessibilityRole(.button)
     setAccessibilityLabel(titleText)
     heightAnchor.constraint(equalToConstant: 26).isActive = true
+    registerForDraggedTypes(ClipboardItemDragPasteboard.acceptedTypes)
 
     dot.wantsLayer = true
     dot.layer?.cornerRadius = 4
@@ -1291,7 +1325,20 @@ private final class CollectionChipView: NSView {
       ? NSColor.controlAccentColor.withAlphaComponent(0.16)
       : NSColor.labelColor.withAlphaComponent(0.07)
     ).cgColor
-    if selected {
+    updateChrome()
+  }
+
+  private func setDropTargeted(_ targeted: Bool) {
+    guard isDropTargeted != targeted else { return }
+    isDropTargeted = targeted
+    updateChrome()
+  }
+
+  private func updateChrome() {
+    if isDropTargeted {
+      layer?.backgroundColor = color.withAlphaComponent(0.18).cgColor
+      layer?.borderColor = color.withAlphaComponent(0.68).cgColor
+    } else if isSelected {
       layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.58).cgColor
       layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.34).cgColor
     } else {
@@ -1315,6 +1362,60 @@ private final class CollectionChipView: NSView {
   override func mouseDown(with event: NSEvent) {
     onPress()
   }
+
+  override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+    guard onDropItem != nil, draggedItemID(from: sender) != nil else { return [] }
+    setDropTargeted(true)
+    return .copy
+  }
+
+  override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+    guard onDropItem != nil, draggedItemID(from: sender) != nil else {
+      setDropTargeted(false)
+      return []
+    }
+    setDropTargeted(true)
+    return .copy
+  }
+
+  override func draggingExited(_ sender: NSDraggingInfo?) {
+    setDropTargeted(false)
+  }
+
+  override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    onDropItem != nil && draggedItemID(from: sender) != nil
+  }
+
+  override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    guard let itemID = draggedItemID(from: sender), let onDropItem else { return false }
+    onDropItem(itemID)
+    setDropTargeted(false)
+    return true
+  }
+
+  override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+    setDropTargeted(false)
+  }
+
+  private func draggedItemID(from sender: NSDraggingInfo) -> UUID? {
+    if let itemID = ClipboardCardDragContext.itemID {
+      return itemID
+    }
+
+    return sender.draggingPasteboard
+      .string(forType: ClipboardItemDragPasteboard.itemIDType)
+      .flatMap(UUID.init(uuidString:))
+  }
+
+  #if DEBUG
+  var debugAcceptsItemDrops: Bool {
+    onDropItem != nil
+  }
+
+  func debugDropItem(_ itemID: UUID) {
+    onDropItem?(itemID)
+  }
+  #endif
 }
 
 private final class AspectFillImageView: NSView {
@@ -1405,6 +1506,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   var onDelete: (Int) -> Void = { _ in }
 
   private let index: Int
+  private let itemID: UUID
   private let itemKind: ClipboardItemKind
   private let itemIsPinned: Bool
   private let itemIsStacked: Bool
@@ -1434,6 +1536,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     stackCount: Int = 0
   ) {
     self.index = index
+    self.itemID = item.id
     self.itemKind = item.kind
     self.itemIsPinned = item.isPinned
     self.itemIsStacked = isStacked
@@ -1516,11 +1619,12 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
     mouseDownLocation = nil
     let writers = onPasteboardWriters(index)
-    guard !writers.isEmpty else { return }
+    let dragWriters = writers.isEmpty ? [internalDragPasteboardItem()] : writers
     onSelect(index)
+    ClipboardCardDragContext.itemID = itemID
 
     let preview = dragPreviewImage()
-    let dragItems = writers.enumerated().map { offset, writer in
+    let dragItems = dragWriters.enumerated().map { offset, writer in
       let draggingItem = NSDraggingItem(pasteboardWriter: writer)
       let offsetAmount = CGFloat(offset) * 4
       let frame = NSRect(
@@ -1540,12 +1644,24 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     }
   }
 
+  private func internalDragPasteboardItem() -> NSPasteboardItem {
+    let pasteboardItem = NSPasteboardItem()
+    pasteboardItem.setString(itemID.uuidString, forType: ClipboardItemDragPasteboard.itemIDType)
+    return pasteboardItem
+  }
+
   func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
     .copy
   }
 
   func ignoreModifierKeys(for session: NSDraggingSession) -> Bool {
     true
+  }
+
+  func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+    if ClipboardCardDragContext.itemID == itemID {
+      ClipboardCardDragContext.itemID = nil
+    }
   }
 
   override func menu(for event: NSEvent) -> NSMenu? {
@@ -1597,6 +1713,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   var debugQuickPasteBadgeText: String? {
     quickPasteBadgeLabel?.stringValue
+  }
+
+  var debugItemID: UUID {
+    itemID
   }
   #endif
 

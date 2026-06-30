@@ -263,6 +263,33 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["https://example.com/read"])
   }
 
+  func testCardsCanDropOntoCollectionChipsToOrganize() {
+    let fixture = makePanelFixture()
+    var existing = makeTextItem("Existing client note", store: fixture.store)
+    existing.collectionName = "Client Work"
+    fixture.store.upsert(existing)
+    let dropped = makeTextItem("Drop this note", store: fixture.store)
+    fixture.store.upsert(dropped)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCustomCollectionTitles, ["Client Work"])
+    XCTAssertEqual(fixture.view.debugCustomCollectionDropTargets, ["Client Work"])
+    XCTAssertEqual(fixture.viewModel.visibleItems.first?.id, dropped.id)
+
+    fixture.view.debugDropFirstCard(onCollectionNamed: "Client Work")
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Added to Client Work")
+    XCTAssertEqual(fixture.view.debugCustomCollectionCounts, [2])
+
+    fixture.viewModel.selectCollection(named: "Client Work")
+    drainMainQueue()
+
+    XCTAssertEqual(Set(fixture.viewModel.visibleItems.map(\.payload)), ["Existing client note", "Drop this note"])
+  }
+
   func testCollectionRailUsesScrollableDocumentForCrowdedCustomCollections() {
     let fixture = makePanelFixture()
     let names = [

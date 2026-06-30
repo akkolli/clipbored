@@ -417,13 +417,13 @@ final class ClipboardPanelViewModel {
   func assignSelected(to collectionName: String?) {
     guard let item = selectedItem else { return }
     selectedItemID = item.id
-    let normalizedName = ClipboardCollectionDefaults.normalizedName(collectionName)
-    store.setCollection(item.id, name: normalizedName)
-    if let normalizedName {
-      statusMessage = "Added to \(normalizedName)"
-    } else {
-      statusMessage = "Removed from collection"
-    }
+    assign(item: item, to: collectionName)
+  }
+
+  func assignItem(withID id: UUID, to collectionName: String?) {
+    guard let item = items.first(where: { $0.id == id }) else { return }
+    selectedItemID = selectedItem?.id
+    assign(item: item, to: collectionName)
   }
 
   func ignoreSelectedSourceApp() {
@@ -817,6 +817,16 @@ final class ClipboardPanelViewModel {
   private func minDate(_ lhs: Date?, _ rhs: Date) -> Date {
     guard let lhs else { return rhs }
     return min(lhs, rhs)
+  }
+
+  private func assign(item: ClipboardItem, to collectionName: String?) {
+    let normalizedName = ClipboardCollectionDefaults.normalizedName(collectionName)
+    store.setCollection(item.id, name: normalizedName)
+    if let normalizedName {
+      statusMessage = "Added to \(normalizedName)"
+    } else {
+      statusMessage = "Removed from collection"
+    }
   }
 
   private func sourceIgnoreRule(for item: ClipboardItem) -> (value: String, displayName: String)? {

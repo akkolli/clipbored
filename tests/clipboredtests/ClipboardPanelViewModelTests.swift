@@ -215,6 +215,30 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertTrue(viewModel.visibleItems.isEmpty)
   }
 
+  func testAssignItemByIDAddsCollectionWithoutChangingSelection() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    let first = makeTextItem("first clip", createdAt: Date(timeIntervalSince1970: 100))
+    let second = makeTextItem("second clip", createdAt: Date(timeIntervalSince1970: 200))
+    store.upsert(first)
+    store.upsert(second)
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 2)
+    viewModel.selectItem(at: 0)
+
+    viewModel.assignItem(withID: first.id, to: "Pinned Research")
+    store.flushPersistenceForTesting()
+    waitForVisibleItems(in: viewModel, count: 2)
+
+    XCTAssertEqual(viewModel.selectedItem?.id, second.id)
+    XCTAssertEqual(viewModel.collectionNames, ["Pinned Research"])
+    XCTAssertEqual(viewModel.collectionCount(named: "Pinned Research"), 1)
+    XCTAssertEqual(viewModel.statusMessage, "Added to Pinned Research")
+  }
+
   func testSearchTextRecomputesVisibleItemsImmediately() {
     let settings = makeSettings()
     let cacheService = makeCacheService()
