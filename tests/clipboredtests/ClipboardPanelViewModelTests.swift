@@ -77,6 +77,97 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(result.map(\.displayText), ["GitHub release token"])
   }
 
+  func testStructuredSearchFiltersBySourceTypeCollectionAndPinState() {
+    let settings = makeSettings()
+    let store = makeStore(settings: settings)
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: ClipboardCacheService())
+    let items = [
+      ClipboardItem(
+        id: UUID(),
+        kind: .url,
+        displayText: "Release notes",
+        payload: "https://example.com/releases",
+        payloadHash: hash("release"),
+        createdAt: Date(timeIntervalSince1970: 200),
+        lastUsedAt: Date(timeIntervalSince1970: 200),
+        useCount: 0,
+        sourceApp: "Safari",
+        imagePath: nil,
+        thumbnailPath: nil,
+        sourceAppBundleId: "com.apple.Safari",
+        collectionName: "Useful Links"
+      ),
+      ClipboardItem(
+        id: UUID(),
+        kind: .image,
+        displayText: "Campaign portrait",
+        payload: "/tmp/campaign.png",
+        payloadHash: hash("campaign"),
+        createdAt: Date(timeIntervalSince1970: 300),
+        lastUsedAt: Date(timeIntervalSince1970: 300),
+        useCount: 0,
+        sourceApp: "Photos",
+        imagePath: nil,
+        thumbnailPath: nil,
+        isPinned: true,
+        sourceAppBundleId: "com.apple.Photos",
+        collectionName: "Visual References"
+      ),
+      ClipboardItem(
+        id: UUID(),
+        kind: .text,
+        displayText: "Meeting note",
+        payload: "Budget follow-up",
+        payloadHash: hash("meeting"),
+        createdAt: Date(timeIntervalSince1970: 100),
+        lastUsedAt: Date(timeIntervalSince1970: 100),
+        useCount: 0,
+        sourceApp: "Notes",
+        imagePath: nil,
+        thumbnailPath: nil
+      )
+    ]
+
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: items, query: "app:safari type:link", sortMode: .mostRecent).map(\.displayText),
+      ["Release notes"]
+    )
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: items, query: "app:apple.photos type:photo pinned:on", sortMode: .mostRecent).map(\.displayText),
+      ["Campaign portrait"]
+    )
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: items, query: "collection:visual type:image", sortMode: .mostRecent).map(\.displayText),
+      ["Campaign portrait"]
+    )
+    XCTAssertTrue(
+      viewModel.computeVisibleItems(from: items, query: "app:safari type:image", sortMode: .mostRecent).isEmpty
+    )
+  }
+
+  func testStructuredSearchFiltersByCreatedDate() {
+    let settings = makeSettings()
+    let store = makeStore(settings: settings)
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: ClipboardCacheService())
+    let first = makeTextItem("June twenty nine", createdAt: isoDate("2026-06-29"))
+    let second = makeTextItem("June thirty", createdAt: isoDate("2026-06-30"))
+    let third = makeTextItem("July first", createdAt: isoDate("2026-07-01"))
+    let items = [first, second, third]
+
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: items, query: "date:2026-06-30", sortMode: .mostRecent).map(\.payload),
+      ["June thirty"]
+    )
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: items, query: "after:2026-06-30", sortMode: .mostRecent).map(\.payload),
+      ["July first", "June thirty"]
+    )
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: items, query: "before:2026-06-30", sortMode: .mostRecent).map(\.payload),
+      ["June twenty nine"]
+    )
+  }
+
   func testCollectionsFilterSearchAndPersistSelection() {
     let settings = makeSettings()
     let cacheService = makeCacheService()
@@ -728,5 +819,14 @@ final class ClipboardPanelViewModelTests: XCTestCase {
 
   private func hash(_ value: String) -> String {
     value
+  }
+
+  private func isoDate(_ value: String) -> Date {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.date(from: value)!
   }
 }

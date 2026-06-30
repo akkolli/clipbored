@@ -2,6 +2,35 @@ import Foundation
 import AppKit
 
 final class ClipboardPanelViewModel {
+  private static let searchDateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar.searchCalendar
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter
+  }()
+
+  private struct ParsedSearchQuery {
+    var textTokens: [String] = []
+    var appTokens: [String] = []
+    var collectionTokens: [String] = []
+    var typeKinds: Set<ClipboardItemKind> = []
+    var createdAfter: Date?
+    var createdBefore: Date?
+    var pinned: Bool?
+
+    var isEmpty: Bool {
+      textTokens.isEmpty
+        && appTokens.isEmpty
+        && collectionTokens.isEmpty
+        && typeKinds.isEmpty
+        && createdAfter == nil
+        && createdBefore == nil
+        && pinned == nil
+    }
+  }
+
   private(set) var visibleItems: [ClipboardItem] = [] {
     didSet { notifyMain { self.onVisibleItemsChanged?(self.visibleItems) } }
   }
@@ -470,12 +499,9 @@ final class ClipboardPanelViewModel {
   }
 
   private func computeStackVisibleItems(from items: [ClipboardItem], query: String) -> [ClipboardItem] {
-    let tokens = searchTokens(from: query.lowercased())
-    guard !tokens.isEmpty else { return items }
-    return items.filter { item in
-      let text = searchableText(for: item)
-      return tokens.allSatisfy { text.contains($0) }
-    }
+    let parsedQuery = parseSearchQuery(query)
+    guard !parsedQuery.isEmpty else { return items }
+    return items.filter { matchesSearchQuery($0, query: parsedQuery) }
   }
 
   internal func computeVisibleItems(
@@ -484,12 +510,11 @@ final class ClipboardPanelViewModel {
     sortMode: ClipboardSortMode,
     collectionName: String? = nil
   ) -> [ClipboardItem] {
-    let tokens = searchTokens(from: query.lowercased())
-    let filtered = tokens.isEmpty
+    let parsedQuery = parseSearchQuery(query)
+    let filtered = parsedQuery.isEmpty
       ? items.enumerated().map { ($0.offset, $0.element) }
       : items.enumerated().compactMap { index, item in
-      let text = searchableText(for: item)
-      return tokens.allSatisfy { text.contains($0) } ? (index, item) : nil
+      return matchesSearchQuery(item, query: parsedQuery) ? (index, item) : nil
     }
     let collectionFiltered: [(Int, ClipboardItem)]
     if let collectionName = ClipboardCollectionDefaults.normalizedName(collectionName) {
@@ -604,6 +629,156 @@ final class ClipboardPanelViewModel {
     return base
   }
 
+  private func matchesSearchQuery(_ item: ClipboardItem, query: ParsedSearchQuery) -> Bool {
+    if !query.textTokens.isEmpty {
+      let text = searchableText(for: item)
+      guard query.textTokens.allSatisfy({ text.contains($0) }) else { return false }
+    }
+
+    if !query.appTokens.isEmpty {
+      let source = [item.sourceApp, item.sourceAppBundleId]
+        .compactMap { $0?.lowercased() }
+        .joined(separator: " ")
+      guard !source.isEmpty,
+            query.appTokens.allSatisfy({ source.contains($0) }) else {
+        return false
+      }
+    }
+
+    if !query.collectionTokens.isEmpty {
+      guard let collection = item.collectionName?.lowercased(),
+            query.collectionTokens.allSatisfy({ collection.contains($0) }) else {
+        return false
+      }
+    }
+
+    if !query.typeKinds.isEmpty, !query.typeKinds.contains(item.kind) {
+      return false
+    }
+
+    if let pinned = query.pinned, item.isPinned != pinned {
+      return false
+    }
+
+    if let createdAfter = query.createdAfter, item.createdAt < createdAfter {
+      return false
+    }
+
+    if let createdBefore = query.createdBefore, item.createdAt >= createdBefore {
+      return false
+    }
+
+    return true
+  }
+
+  private func parseSearchQuery(_ query: String) -> ParsedSearchQuery {
+    var parsed = ParsedSearchQuery()
+    for part in query.split(whereSeparator: { $0.isWhitespace }).map(String.init) {
+      guard !part.isEmpty else { continue }
+      guard let delimiter = part.firstIndex(of: ":") else {
+        parsed.textTokens.append(contentsOf: searchTokens(from: part.lowercased()))
+        continue
+      }
+
+      let key = String(part[..<delimiter]).lowercased()
+      let value = String(part[part.index(after: delimiter)...]).clipboardTrimmed.lowercased()
+      guard !value.isEmpty, applyStructuredSearchToken(key: key, value: value, to: &parsed) else {
+        parsed.textTokens.append(contentsOf: searchTokens(from: part.lowercased()))
+        continue
+      }
+    }
+    return parsed
+  }
+
+  @discardableResult
+  private func applyStructuredSearchToken(key: String, value: String, to query: inout ParsedSearchQuery) -> Bool {
+    switch key {
+    case "app", "source", "from":
+      query.appTokens.append(contentsOf: searchTokens(from: value))
+      return true
+    case "collection", "folder", "list":
+      query.collectionTokens.append(contentsOf: searchTokens(from: value))
+      return true
+    case "type", "kind":
+      guard let kinds = itemKinds(matching: value), !kinds.isEmpty else { return false }
+      query.typeKinds.formUnion(kinds)
+      return true
+    case "pin", "pinned":
+      guard let pinned = booleanValue(from: value) else { return false }
+      query.pinned = pinned
+      return true
+    case "after", "since":
+      guard let start = startOfDay(from: value) else { return false }
+      query.createdAfter = maxDate(query.createdAfter, start)
+      return true
+    case "before", "until":
+      guard let start = startOfDay(from: value) else { return false }
+      query.createdBefore = minDate(query.createdBefore, start)
+      return true
+    case "on", "date":
+      guard let start = startOfDay(from: value),
+            let end = Calendar.searchCalendar.date(byAdding: .day, value: 1, to: start) else {
+        return false
+      }
+      query.createdAfter = maxDate(query.createdAfter, start)
+      query.createdBefore = minDate(query.createdBefore, end)
+      return true
+    default:
+      return false
+    }
+  }
+
+  private func itemKinds(matching value: String) -> Set<ClipboardItemKind>? {
+    switch value {
+    case "text", "plain":
+      return [.text]
+    case "richtext", "rich-text", "rtf", "html":
+      return [.richText]
+    case "note", "notes", "writing":
+      return [.text, .richText]
+    case "link", "links", "url", "urls", "web":
+      return [.url]
+    case "image", "images", "photo", "photos", "picture", "pictures":
+      return [.image]
+    case "file", "files", "finder":
+      return [.file, .pdf]
+    case "pdf", "pdfs", "document", "documents":
+      return [.pdf]
+    case "audio", "sound", "music":
+      return [.audio]
+    case "unknown", "item":
+      return [.unknown]
+    default:
+      return nil
+    }
+  }
+
+  private func booleanValue(from value: String) -> Bool? {
+    switch value {
+    case "1", "true", "yes", "y", "on":
+      return true
+    case "0", "false", "no", "n", "off":
+      return false
+    default:
+      return nil
+    }
+  }
+
+  private func startOfDay(from value: String) -> Date? {
+    guard let date = Self.searchDateFormatter.date(from: value) else { return nil }
+    return Calendar.searchCalendar.startOfDay(for: date)
+  }
+
+  private func maxDate(_ lhs: Date?, _ rhs: Date) -> Date {
+    guard let lhs else { return rhs }
+    return max(lhs, rhs)
+  }
+
+  private func minDate(_ lhs: Date?, _ rhs: Date) -> Date {
+    guard let lhs else { return rhs }
+    return min(lhs, rhs)
+  }
+
   private func searchTokens(from query: String) -> [String] {
     query
       .split { character in
@@ -619,4 +794,13 @@ final class ClipboardPanelViewModel {
       DispatchQueue.main.async(execute: block)
     }
   }
+}
+
+private extension Calendar {
+  static let searchCalendar: Calendar = {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.locale = Locale(identifier: "en_US_POSIX")
+    calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+    return calendar
+  }()
 }

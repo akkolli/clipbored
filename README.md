@@ -13,7 +13,7 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
   - `Command + ,` opens settings
 - Clipboard history for text, URLs with local preview thumbnails when available, images, audio, RTF/HTML rich text, PDFs, and file references
 - SQLite persistence with bounded history, pinned-item retention, and encrypted app-managed payloads
-- Search with independent token matching, plus optional local OCR for copied images
+- Search with independent token matching, structured filters such as `app:Safari`, `type:image`, `date:2026-06-30`, and optional local OCR for copied images
 - Sort modes for recent, most used, images, links, text, files, audio, and pinned items
 - Custom named collections for organizing clips from the card context menu
 - Copy and paste actions with Accessibility permission fallback

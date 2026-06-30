@@ -123,7 +123,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     toolbarIcon.widthAnchor.constraint(equalToConstant: 22).isActive = true
     toolbarIcon.heightAnchor.constraint(equalToConstant: 22).isActive = true
 
-    searchField.placeholderString = "Search text, URLs, source app"
+    searchField.placeholderString = "Search clips"
     searchField.setAccessibilityLabel("Search clipboard history")
     searchField.delegate = self
     searchField.target = self
@@ -132,7 +132,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     searchField.sendsWholeSearchString = false
     searchField.isBezeled = true
     searchField.placeholderAttributedString = NSAttributedString(
-      string: "Search text, URLs, source app",
+      string: "Search clips",
       attributes: [
         .foregroundColor: NSColor.tertiaryLabelColor
       ]
@@ -140,7 +140,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     searchField.bezelStyle = .roundedBezel
     searchField.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.6)
     searchField.focusRingType = .none
-    searchField.toolTip = "Search clipboard history"
+    searchField.toolTip = "Search clipboard history. Supports app:Safari, type:image, date:2026-06-30, after:2026-06-01, and pinned:on."
     searchField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     searchField.setContentHuggingPriority(.defaultLow, for: .horizontal)
     searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 280).isActive = true
