@@ -263,6 +263,28 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Quantum reference"])
   }
 
+  func testKeyboardCancelClearsSearchFromFocusedCollectionChip() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Alpha note", store: fixture.store))
+    fixture.store.upsert(makeTextItem("Quantum reference", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+    fixture.view.debugSetSearchFieldText("quantum")
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Quantum reference"])
+    XCTAssertTrue(fixture.view.debugFocusCollectionChip(.text))
+
+    XCTAssertTrue(fixture.view.clearSearchForKeyboardCancel())
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.isSearchFieldEditing)
+    XCTAssertEqual(fixture.view.debugSearchFieldText, "")
+    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Quantum reference", "Alpha note"])
+  }
+
   func testCollectionRailAddButtonCreatesEmptyCollection() {
     let fixture = makePanelFixture()
 
@@ -412,6 +434,29 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertTrue(fixture.view.isSearchFieldEditing)
     XCTAssertEqual(fixture.view.debugSearchFieldText, "q")
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Quantum card"])
+  }
+
+  func testKeyboardCancelClearsSearchFromFocusedCard() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Alpha note", store: fixture.store))
+    fixture.store.upsert(makeTextItem("Quantum card", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+    fixture.view.debugSetSearchFieldText("quantum")
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Quantum card"])
+    XCTAssertTrue(fixture.view.debugFocusCard(at: 0))
+
+    XCTAssertTrue(fixture.view.clearSearchForKeyboardCancel())
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.isSearchFieldEditing)
+    XCTAssertEqual(fixture.view.debugSearchFieldText, "")
+    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Quantum card", "Alpha note"])
+    XCTAssertFalse(fixture.view.clearSearchForKeyboardCancel())
   }
 
   func testFocusedPreviewableCardSpaceOpensQuickLook() {

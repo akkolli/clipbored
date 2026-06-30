@@ -1231,6 +1231,15 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     window?.makeFirstResponder(searchField)
   }
 
+  @discardableResult
+  func clearSearchForKeyboardCancel() -> Bool {
+    guard !searchField.stringValue.clipboardTrimmed.isEmpty else { return false }
+    searchField.stringValue = ""
+    updateSearchText()
+    focusSearchField()
+    return true
+  }
+
   private func startSearchFromShelf(_ text: String) {
     guard !text.isEmpty else { return }
     focusSearchField()
@@ -1495,6 +1504,11 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     debugPressFocusedResponder(characters: characters, keyCode: keyCode)
   }
 
+  func debugSetSearchFieldText(_ text: String) {
+    searchField.stringValue = text
+    updateSearchText()
+  }
+
   private func debugPressFocusedResponder(characters: String, keyCode: UInt16) {
     guard let window,
           let event = NSEvent.keyEvent(
@@ -1635,11 +1649,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       viewModel.pasteSelected()
       return true
     case #selector(NSResponder.cancelOperation(_:)):
-      if searchField.stringValue.clipboardTrimmed.isEmpty {
-        onClose()
+      if clearSearchForKeyboardCancel() {
+        return true
       } else {
-        searchField.stringValue = ""
-        updateSearchText()
+        onClose()
       }
       return true
     case #selector(NSResponder.moveUp(_:)):

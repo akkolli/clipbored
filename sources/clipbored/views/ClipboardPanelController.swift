@@ -390,7 +390,9 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
       }
       switch event.keyCode {
       case 53:
-        self.hide()
+        if !self.panelView.clearSearchForKeyboardCancel() {
+          self.hide()
+        }
         return nil
       case 49:
         self.previewSelected()

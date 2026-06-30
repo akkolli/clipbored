@@ -42,7 +42,7 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 9. With a card or collection chip focused, type a normal character and confirm focus returns to search with that character inserted and results filtered.
 10. Use a mouse wheel or two-finger vertical scroll over the card shelf and a crowded collection rail; confirm each pans horizontally, clamps at both ends, and shows subtle edge fades only where more content is hidden.
 11. Right-click a filtered result and choose Show in Clipboard, or press `Command + G`, and confirm search clears while the same card stays selected in Most Recent.
-12. Press `Esc` once with a non-empty search field and confirm search clears.
+12. Press `Esc` once with a non-empty search while the search field, a card, or a collection chip is focused and confirm search clears without closing the panel.
 13. Press `Esc` again and confirm the panel closes.
 14. Reopen the panel, change sort segments, and confirm each segment updates results.
 15. Press `Shift + Command + N` or the collection rail `+`, enter `Client Work`, choose a color, and confirm a Client Work chip appears with 0 clips and an empty collection view.
