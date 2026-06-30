@@ -11,6 +11,7 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
 - Global shortcuts:
   - `Command + Option + V` toggles the clipboard panel
   - `Command + ,` opens settings
+  - `Command + 1` through `Command + 9` paste the numbered visible card; add `Shift` to paste that card as plain text
 - Clipboard history for text, URLs with local preview thumbnails when available, images, audio, RTF/HTML rich text, PDFs, and file references
 - SQLite persistence with bounded history, pinned-item retention, and encrypted app-managed payloads
 - Search with independent token matching, structured filters such as `app:Safari`, `type:image`, `date:2026-06-30`, and optional local OCR for copied images

@@ -50,8 +50,9 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 4. Select an audio item and paste into an app that accepts sound pasteboard data.
 5. Select a PDF item and paste into Preview, Finder, or an app that accepts PDF pasteboard data.
 6. Select a rich text item and paste into TextEdit rich text mode or Mail. Confirm basic formatting is preserved and plain-text paste still works in a text-only field.
-7. Without Accessibility permission, confirm paste actions copy and show the permission fallback status.
-8. With Accessibility permission granted, confirm paste returns focus to the previous app and inserts the selected item.
+7. Press `Command + 1` through `Command + 9` on visible numbered cards and confirm the matching card is pasted or copied; add `Shift` and confirm URL/rich items paste as plain text only.
+8. Without Accessibility permission, confirm paste actions copy and show the permission fallback status.
+9. With Accessibility permission granted, confirm paste returns focus to the previous app and inserts the selected item.
 
 ## Settings
 

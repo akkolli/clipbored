@@ -52,6 +52,17 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
   private var isAnimating = false
   private var quickLookURL: URL?
   private var screenParametersObserver: NSObjectProtocol?
+  private static let quickPasteKeyCodes: [UInt16: Int] = [
+    18: 0,
+    19: 1,
+    20: 2,
+    21: 3,
+    23: 4,
+    22: 5,
+    26: 6,
+    28: 7,
+    25: 8
+  ]
   private static let collectionShortcuts: [UInt16: ClipboardSortMode] = [
     18: .mostRecent,
     19: .mostUsed,
@@ -327,6 +338,16 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
       guard let self else { return event }
       if self.shouldHandlePanelKeyEvent(event, allowSearchFieldEditing: true),
+         let index = Self.quickPasteIndex(forKeyCode: event.keyCode, modifiers: event.modifierFlags) {
+        self.viewModel.pasteItem(at: index)
+        return nil
+      }
+      if self.shouldHandlePanelKeyEvent(event, allowSearchFieldEditing: true),
+         let index = Self.quickPastePlainTextIndex(forKeyCode: event.keyCode, modifiers: event.modifierFlags) {
+        self.viewModel.pasteItemPlainText(at: index)
+        return nil
+      }
+      if self.shouldHandlePanelKeyEvent(event, allowSearchFieldEditing: true),
          let mode = Self.collectionShortcutMode(forKeyCode: event.keyCode, modifiers: event.modifierFlags) {
         self.viewModel.sortMode = mode
         return nil
@@ -424,9 +445,21 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
       || NSApp.window(withWindowNumber: event.windowNumber) === panel
   }
 
-  static func collectionShortcutMode(forKeyCode keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> ClipboardSortMode? {
+  static func quickPasteIndex(forKeyCode keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Int? {
     let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
     guard relevantModifiers == .command else { return nil }
+    return quickPasteKeyCodes[keyCode]
+  }
+
+  static func quickPastePlainTextIndex(forKeyCode keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Int? {
+    let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
+    guard relevantModifiers == [.command, .shift] else { return nil }
+    return quickPasteKeyCodes[keyCode]
+  }
+
+  static func collectionShortcutMode(forKeyCode keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> ClipboardSortMode? {
+    let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
+    guard relevantModifiers == [.command, .option] else { return nil }
     return collectionShortcuts[keyCode]
   }
 

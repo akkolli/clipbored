@@ -395,6 +395,52 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(store.items.first?.useCount, 1)
   }
 
+  func testQuickPasteItemByVisibleIndexWritesThatCard() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    store.upsert(makeTextItem("first visible quick paste", createdAt: Date(timeIntervalSince1970: 200)))
+    store.upsert(makeTextItem("second visible quick paste", createdAt: Date(timeIntervalSince1970: 100)))
+    store.flushPersistenceForTesting()
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 2)
+    NSPasteboard.general.clearContents()
+
+    viewModel.pasteItem(at: 1)
+
+    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "second visible quick paste")
+    XCTAssertEqual(viewModel.statusMessage, "Copied")
+  }
+
+  func testQuickPastePlainTextByVisibleIndexOmitsRichPasteboardTypes() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    let item = ClipboardItem(
+      id: UUID(),
+      kind: .url,
+      displayText: "Example",
+      payload: "https://example.com/quick",
+      payloadHash: hash("https://example.com/quick"),
+      createdAt: Date(timeIntervalSince1970: 200),
+      lastUsedAt: Date(timeIntervalSince1970: 200),
+      useCount: 0,
+      sourceApp: "Safari",
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+    store.upsert(item)
+    store.flushPersistenceForTesting()
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 1)
+    NSPasteboard.general.clearContents()
+
+    viewModel.pasteItemPlainText(at: 0)
+
+    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "https://example.com/quick")
+    XCTAssertNil(NSPasteboard.general.string(forType: .URL))
+  }
+
   func testStackPastesQueuedItemsInOrderAndConsumesThem() {
     let settings = makeSettings()
     let cacheService = makeCacheService()

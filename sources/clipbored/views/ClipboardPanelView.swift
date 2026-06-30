@@ -990,6 +990,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     cardViews.map(\.debugHeaderBadgeSymbol)
   }
 
+  var debugQuickPasteBadgeTexts: [String] {
+    cardViews.compactMap(\.debugQuickPasteBadgeText)
+  }
+
   var debugSelectedCardFrameInDocument: NSRect {
     guard viewModel.selectedIndex >= 0, viewModel.selectedIndex < cardViews.count else {
       return .zero
@@ -1399,6 +1403,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private var actionRailButtons: [NSButton] = []
   private weak var headerBadgeView: NSView?
   private weak var headerPinView: NSView?
+  private weak var quickPasteBadgeLabel: NSTextField?
   private var isSelected = false
   private var isHovered = false
   private var mouseDownLocation: NSPoint?
@@ -1563,6 +1568,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   var debugHeaderBadgeIsHidden: Bool {
     headerBadgeView?.isHidden ?? false
+  }
+
+  var debugQuickPasteBadgeText: String? {
+    quickPasteBadgeLabel?.stringValue
   }
   #endif
 
@@ -1959,11 +1968,16 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     titleAndSource.spacing = 2
     titleAndSource.translatesAutoresizingMaskIntoConstraints = false
 
-    let labelStack = NSStackView(views: [titleAndSource])
+    var labelViews: [NSView] = []
+    if let quickPasteBadge = quickPasteBadge() {
+      labelViews.append(quickPasteBadge)
+    }
+    labelViews.append(titleAndSource)
+    let labelStack = NSStackView(views: labelViews)
     labelStack.orientation = .horizontal
     labelStack.alignment = .centerY
     labelStack.distribution = .fill
-    labelStack.spacing = 1
+    labelStack.spacing = labelViews.count > 1 ? 9 : 1
     labelStack.translatesAutoresizingMaskIntoConstraints = false
 
     let badge = iconBadge(for: item)
@@ -2009,6 +2023,27 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
     NSLayoutConstraint.activate(constraints)
     return header
+  }
+
+  private func quickPasteBadge() -> NSTextField? {
+    guard index < 9 else { return nil }
+    let label = NSTextField(labelWithString: "\(index + 1)")
+    label.font = .monospacedDigitSystemFont(ofSize: 11, weight: .bold)
+    label.textColor = NSColor.white.withAlphaComponent(0.92)
+    label.alignment = .center
+    label.lineBreakMode = .byClipping
+    label.wantsLayer = true
+    label.layer?.cornerRadius = 9
+    label.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.18).cgColor
+    label.layer?.borderWidth = 0.5
+    label.layer?.borderColor = NSColor.white.withAlphaComponent(0.24).cgColor
+    label.toolTip = "Press Command-\(index + 1) to paste"
+    label.setAccessibilityLabel("Quick paste \(index + 1)")
+    label.translatesAutoresizingMaskIntoConstraints = false
+    label.widthAnchor.constraint(equalToConstant: 19).isActive = true
+    label.heightAnchor.constraint(equalToConstant: 19).isActive = true
+    quickPasteBadgeLabel = label
+    return label
   }
 
   private func bodyView(for item: ClipboardItem, thumbnail: NSImage?) -> NSView {

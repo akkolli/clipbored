@@ -59,6 +59,18 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugCardPreviewStyles, ["text-preview"])
   }
 
+  func testCardsShowQuickPasteNumberBadgesForFirstNineItems() {
+    let fixture = makePanelFixture()
+    for index in 0..<10 {
+      fixture.store.upsert(makeTextItem("Quick paste badge \(index)", store: fixture.store))
+      drainMainQueue()
+    }
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugVisibleCardCount, 10)
+    XCTAssertEqual(fixture.view.debugQuickPasteBadgeTexts, ["1", "2", "3", "4", "5", "6", "7", "8", "9"])
+  }
+
   func testFooterShowsCaptureStatusInsteadOfShortcutInstructions() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Footer status item", store: fixture.store))

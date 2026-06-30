@@ -218,6 +218,18 @@ final class ClipboardPanelViewModel {
     settings.setPasteStatus(message: result.message)
   }
 
+  func pasteItem(at index: Int) {
+    guard index >= 0 && index < visibleItems.count else { return }
+    selectItem(at: index)
+    pasteSelected()
+  }
+
+  func pasteItemPlainText(at index: Int) {
+    guard index >= 0 && index < visibleItems.count else { return }
+    selectItem(at: index)
+    pasteSelectedPlainText()
+  }
+
   func copySelected() {
     guard let item = selectedItem else { return }
     let result = pasteService.copy(item)

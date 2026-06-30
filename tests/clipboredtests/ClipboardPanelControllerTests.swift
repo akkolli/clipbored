@@ -128,20 +128,39 @@ final class ClipboardPanelControllerTests: XCTestCase {
     XCTAssertEqual(inset, 18)
   }
 
-  func testCommandNumberShortcutsMapToCollections() {
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 18, modifiers: .command), .mostRecent)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 19, modifiers: .command), .mostUsed)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 20, modifiers: .command), .text)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 21, modifiers: .command), .links)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 23, modifiers: .command), .images)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 22, modifiers: .command), .files)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 26, modifiers: .command), .pinned)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 28, modifiers: .command), .audio)
+  func testCommandNumberShortcutsMapToQuickPasteSlots() {
+    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 18, modifiers: .command), 0)
+    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 19, modifiers: .command), 1)
+    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 20, modifiers: .command), 2)
+    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 21, modifiers: .command), 3)
+    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 23, modifiers: .command), 4)
+    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 22, modifiers: .command), 5)
+    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 26, modifiers: .command), 6)
+    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 28, modifiers: .command), 7)
+    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 25, modifiers: .command), 8)
   }
 
-  func testCollectionShortcutsRequireCommandOnlySoSearchTypingIsUntouched() {
+  func testShiftCommandNumberShortcutsMapToPlainTextQuickPasteSlots() {
+    XCTAssertEqual(ClipboardPanelController.quickPastePlainTextIndex(forKeyCode: 18, modifiers: [.command, .shift]), 0)
+    XCTAssertEqual(ClipboardPanelController.quickPastePlainTextIndex(forKeyCode: 25, modifiers: [.command, .shift]), 8)
+    XCTAssertNil(ClipboardPanelController.quickPastePlainTextIndex(forKeyCode: 18, modifiers: .command))
+    XCTAssertNil(ClipboardPanelController.quickPastePlainTextIndex(forKeyCode: 18, modifiers: [.command, .option, .shift]))
+  }
+
+  func testCommandOptionNumberShortcutsMapToCollections() {
+    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 18, modifiers: [.command, .option]), .mostRecent)
+    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 19, modifiers: [.command, .option]), .mostUsed)
+    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 20, modifiers: [.command, .option]), .text)
+    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 21, modifiers: [.command, .option]), .links)
+    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 23, modifiers: [.command, .option]), .images)
+    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 22, modifiers: [.command, .option]), .files)
+    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 26, modifiers: [.command, .option]), .pinned)
+    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 28, modifiers: [.command, .option]), .audio)
+  }
+
+  func testCollectionShortcutsRequireCommandOptionSoQuickPasteKeepsCommandNumbers() {
     XCTAssertNil(ClipboardPanelController.collectionShortcutMode(forKeyCode: 18, modifiers: []))
-    XCTAssertNil(ClipboardPanelController.collectionShortcutMode(forKeyCode: 18, modifiers: [.command, .shift]))
+    XCTAssertNil(ClipboardPanelController.collectionShortcutMode(forKeyCode: 18, modifiers: .command))
     XCTAssertNil(ClipboardPanelController.collectionShortcutMode(forKeyCode: 29, modifiers: .command))
   }
 
