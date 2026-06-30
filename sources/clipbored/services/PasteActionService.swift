@@ -72,6 +72,63 @@ final class PasteActionService {
     writeToPasteboard(item) ? .copied : .failed("Could not write item to clipboard.")
   }
 
+  func pasteboardWriters(for item: ClipboardItem) -> [NSPasteboardWriting] {
+    switch item.kind {
+    case .image:
+      guard let imagePath = item.imagePath, let image = cacheService.image(for: imagePath) else { return [] }
+      return [image]
+
+    case .pdf:
+      guard let data = cacheService.data(for: item.payload) else { return [] }
+      let pasteboardItem = NSPasteboardItem()
+      pasteboardItem.setData(data, forType: .pdf)
+      pasteboardItem.setString(dragLabel(for: item), forType: .string)
+      return [pasteboardItem]
+
+    case .audio:
+      guard let data = cacheService.data(for: item.payload) else { return [] }
+      let pasteboardItem = NSPasteboardItem()
+      pasteboardItem.setData(data, forType: .sound)
+      pasteboardItem.setString(dragLabel(for: item), forType: .string)
+      return [pasteboardItem]
+
+    case .richText:
+      if let data = cacheService.data(for: item.payload) {
+        let pasteboardItem = NSPasteboardItem()
+        pasteboardItem.setData(data, forType: .rtf)
+        let text = richTextPlainString(from: data) ?? item.displayText.clipboardTrimmed
+        if !text.isEmpty {
+          pasteboardItem.setString(text, forType: .string)
+        }
+        return [pasteboardItem]
+      }
+
+      let fallbackText = richTextFallbackPlainString(for: item)
+      return fallbackText.isEmpty ? [] : [stringPasteboardItem(fallbackText)]
+
+    case .file:
+      let urls = FilePayload.urls(from: item.payload)
+      guard !urls.isEmpty, urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) else {
+        return []
+      }
+      return urls.map { $0.standardizedFileURL as NSURL }
+
+    case .url:
+      guard !item.payload.isEmpty else { return [] }
+      let pasteboardItem = NSPasteboardItem()
+      pasteboardItem.setString(item.payload, forType: .string)
+      pasteboardItem.setString(item.payload, forType: .URL)
+      if let title = urlTitleForPasteboard(item.displayText, payload: item.payload) {
+        pasteboardItem.setString(title, forType: NSPasteboard.PasteboardType(rawValue: "public.url-name"))
+      }
+      return [pasteboardItem]
+
+    case .text, .unknown:
+      guard !item.payload.isEmpty else { return [] }
+      return [stringPasteboardItem(item.payload)]
+    }
+  }
+
   @discardableResult
   func writeToPasteboard(_ item: ClipboardItem) -> Bool {
     let board = NSPasteboard.general
@@ -126,6 +183,20 @@ final class PasteActionService {
       ClipboardSelfWriteTracker.mark(changeCount: board.changeCount)
     }
     return didWrite
+  }
+
+  private func stringPasteboardItem(_ value: String) -> NSPasteboardItem {
+    let pasteboardItem = NSPasteboardItem()
+    pasteboardItem.setString(value, forType: .string)
+    return pasteboardItem
+  }
+
+  private func dragLabel(for item: ClipboardItem) -> String {
+    let display = item.displayText.clipboardTrimmed
+    if !display.isEmpty {
+      return display
+    }
+    return item.kind.displayName.capitalized
   }
 
   private func writeURL(_ payload: String, title: String?, to board: NSPasteboard) -> Bool {
