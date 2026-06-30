@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Xcode
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Local build output
+build/
+
+# Local editor and environment files
+.env
+.env.*
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Logs and diagnostics
+*.log
+*.trace
+*.xcresult/
+
+# Local planning notes (not synced)
+plan/
