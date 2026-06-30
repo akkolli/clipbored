@@ -1205,6 +1205,28 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     cardViews.compactMap { $0.accessibilityLabel() }
   }
 
+  var debugCardAccessibilityValues: [String] {
+    cardViews.compactMap { $0.accessibilityValue() as? String }
+  }
+
+  var debugCardAccessibilityHelps: [String] {
+    cardViews.compactMap { $0.accessibilityHelp() }
+  }
+
+  var debugCardAcceptsFirstResponder: [Bool] {
+    cardViews.map(\.acceptsFirstResponder)
+  }
+
+  var debugKeyboardFocusedCardIndexes: [Int] {
+    cardViews.enumerated().compactMap { index, card in
+      card.debugIsKeyboardFocused ? index : nil
+    }
+  }
+
+  var debugCardBorderWidths: [CGFloat] {
+    cardViews.map(\.debugBorderWidth)
+  }
+
   var debugCardPreviewSummaries: [String] {
     cardViews.map(\.debugPreviewSummary)
   }
@@ -1334,7 +1356,20 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     return window?.makeFirstResponder(chip) ?? false
   }
 
+  func debugFocusCard(at index: Int) -> Bool {
+    guard index >= 0, index < cardViews.count else { return false }
+    return window?.makeFirstResponder(cardViews[index]) ?? false
+  }
+
+  func debugPressFocusedResponderWithReturn() {
+    debugPressFocusedResponder(characters: "\r", keyCode: 36)
+  }
+
   func debugPressFocusedResponderWithSpace() {
+    debugPressFocusedResponder(characters: " ", keyCode: 49)
+  }
+
+  private func debugPressFocusedResponder(characters: String, keyCode: UInt16) {
     guard let window,
           let event = NSEvent.keyEvent(
             with: .keyDown,
@@ -1343,10 +1378,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
             timestamp: 0,
             windowNumber: window.windowNumber,
             context: nil,
-            characters: " ",
-            charactersIgnoringModifiers: " ",
+            characters: characters,
+            charactersIgnoringModifiers: characters,
             isARepeat: false,
-            keyCode: 49
+            keyCode: keyCode
           ) else {
       return
     }
@@ -2001,6 +2036,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private weak var quickPasteBadgeLabel: NSTextField?
   private var isSelected = false
   private var isHovered = false
+  private var isKeyboardFocused = false
   private var mouseDownLocation: NSPoint?
   private var trackingAreaRef: NSTrackingArea?
 
@@ -2045,11 +2081,15 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   func setSelected(_ selected: Bool) {
     isSelected = selected
-    contentView.layer?.borderWidth = 1
-    contentView.layer?.borderColor = selected ? Palette.selectedBorder : Palette.border
+    contentView.layer?.borderWidth = isKeyboardFocused ? 2 : 1
     if selected {
       contentView.layer?.backgroundColor = Palette.selectedSurface
-      contentView.layer?.borderColor = Palette.selectedBorder
+      contentView.layer?.borderColor = isKeyboardFocused
+        ? NSColor.controlAccentColor.withAlphaComponent(0.86).cgColor
+        : Palette.selectedBorder
+    } else if isKeyboardFocused {
+      contentView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+      contentView.layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.58).cgColor
     } else if isHovered {
       contentView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
       contentView.layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.28).cgColor
@@ -2057,11 +2097,50 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       contentView.layer?.backgroundColor = Palette.cardSurface
       contentView.layer?.borderColor = Palette.border
     }
-    layer?.shadowOpacity = selected ? 0.16 : (isHovered ? 0.12 : 0.08)
-    layer?.shadowRadius = selected ? 16 : 12
-    layer?.shadowOffset = NSSize(width: 0, height: selected ? 6 : 4)
-    layer?.transform = selected ? CATransform3DMakeTranslation(0, -4, 0) : CATransform3DIdentity
+    let emphasized = selected || isKeyboardFocused
+    layer?.shadowOpacity = emphasized ? 0.16 : (isHovered ? 0.12 : 0.08)
+    layer?.shadowRadius = emphasized ? 16 : 12
+    layer?.shadowOffset = NSSize(width: 0, height: emphasized ? 6 : 4)
+    layer?.transform = emphasized ? CATransform3DMakeTranslation(0, -4, 0) : CATransform3DIdentity
+    setAccessibilityValue(selected ? "Selected" : "Not selected")
     updateActionRailVisibility()
+  }
+
+  override var acceptsFirstResponder: Bool {
+    true
+  }
+
+  override func becomeFirstResponder() -> Bool {
+    isKeyboardFocused = true
+    onSelect(index)
+    setSelected(isSelected)
+    return true
+  }
+
+  override func resignFirstResponder() -> Bool {
+    isKeyboardFocused = false
+    setSelected(isSelected)
+    return true
+  }
+
+  override func keyDown(with event: NSEvent) {
+    switch event.keyCode {
+    case 36, 76:
+      onPaste(index)
+    case 49:
+      if canPreview {
+        onPreview(index)
+      } else {
+        onPaste(index)
+      }
+    default:
+      super.keyDown(with: event)
+    }
+  }
+
+  override func accessibilityPerformPress() -> Bool {
+    onPaste(index)
+    return true
   }
 
   override func updateTrackingAreas() {
@@ -2210,6 +2289,14 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   var debugQuickPasteBadgeText: String? {
     quickPasteBadgeLabel?.stringValue
+  }
+
+  var debugIsKeyboardFocused: Bool {
+    isKeyboardFocused
+  }
+
+  var debugBorderWidth: CGFloat {
+    contentView.layer?.borderWidth ?? 0
   }
 
   var debugFooterDetailText: String {
@@ -2630,9 +2717,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     setAccessibilityElement(true)
     setAccessibilityRole(.button)
     setAccessibilityLabel(accessibilityTitle(for: item))
-    setAccessibilityHelp("Selects this clipboard item. Double-click to paste.")
+    setAccessibilityHelp(accessibilityHelpText())
     widthAnchor.constraint(equalToConstant: layout.width).isActive = true
     heightAnchor.constraint(equalToConstant: layout.height).isActive = true
+    focusRingType = .default
 
     contentView.wantsLayer = true
     contentView.layer?.cornerRadius = 8
@@ -3641,6 +3729,13 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private func accessibilityTitle(for item: ClipboardItem) -> String {
     let summary = titleText(for: item)
     return "\(kindLabel(for: item.kind)): \(summary)"
+  }
+
+  private func accessibilityHelpText() -> String {
+    if canPreview {
+      return "Press Return to paste. Press Space for Quick Look."
+    }
+    return "Press Return or Space to paste."
   }
 
   private func row(_ views: [NSView]) -> NSStackView {

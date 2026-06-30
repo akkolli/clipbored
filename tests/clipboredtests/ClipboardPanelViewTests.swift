@@ -12,6 +12,11 @@ final class ClipboardPanelViewTests: XCTestCase {
     let settings: SettingsModel
     let store: ClipboardStore
     let cacheService: ClipboardCacheService
+    let previewProbe: PreviewProbe
+  }
+
+  private final class PreviewProbe {
+    var requestCount = 0
   }
 
   override func tearDown() {
@@ -292,6 +297,46 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 266)
     XCTAssertFalse(fixture.view.debugFirstCardFooterDetailIsHidden)
     XCTAssertTrue(fixture.view.debugFirstCardHeaderBadgeIsHidden)
+  }
+
+  func testCardsAreKeyboardFocusableAndReturnPastesFocusedCard() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Older text card", store: fixture.store))
+    fixture.store.upsert(makeTextItem("Newest text card", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCardAcceptsFirstResponder, [true, true])
+    XCTAssertTrue(fixture.view.debugFocusCard(at: 1))
+    drainMainQueue()
+
+    XCTAssertEqual(fixture.viewModel.selectedItem?.payload, "Older text card")
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [1])
+    XCTAssertEqual(fixture.view.debugCardBorderWidths[1], 2)
+    XCTAssertEqual(fixture.view.debugCardAccessibilityValues[1], "Selected")
+    XCTAssertEqual(fixture.view.debugCardAccessibilityHelps[1], "Press Return or Space to paste.")
+
+    fixture.view.debugPressFocusedResponderWithReturn()
+    drainMainQueue()
+
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Copied")
+  }
+
+  func testFocusedPreviewableCardSpaceOpensQuickLook() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeItem(kind: .url, text: "https://example.com/read", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.debugFocusCard(at: 0))
+    drainMainQueue()
+    XCTAssertEqual(fixture.view.debugCardAccessibilityHelps.first, "Press Return to paste. Press Space for Quick Look.")
+
+    fixture.view.debugPressFocusedResponderWithSpace()
+    drainMainQueue()
+
+    XCTAssertEqual(fixture.previewProbe.requestCount, 1)
+    XCTAssertEqual(fixture.viewModel.selectedItem?.payload, "https://example.com/read")
   }
 
   func testCardHeaderUsesKindSymbolBadgeWhenSourceIconIsUnavailable() {
@@ -836,11 +881,13 @@ final class ClipboardPanelViewTests: XCTestCase {
     let cacheService = ClipboardCacheService()
     let store = makeStore(settings: settings, cacheService: cacheService)
     let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    let previewProbe = PreviewProbe()
 
     let view = ClipboardPanelView(
       viewModel: viewModel,
       onClose: {},
-      onSettings: {}
+      onSettings: {},
+      onPreview: { previewProbe.requestCount += 1 }
     )
 
     let window = NSPanel(
@@ -857,7 +904,8 @@ final class ClipboardPanelViewTests: XCTestCase {
       viewModel: viewModel,
       settings: settings,
       store: store,
-      cacheService: cacheService
+      cacheService: cacheService,
+      previewProbe: previewProbe
     )
   }
 
