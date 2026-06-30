@@ -2320,7 +2320,8 @@ private final class AspectFillImageView: NSView {
 private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private enum Metrics {
     static let dragThreshold: CGFloat = 4
-    static let actionRailHorizontalMargin: CGFloat = 12
+    static let actionRailBadgeGap: CGFloat = 8
+    static let actionRailLeadingMargin: CGFloat = 10
   }
   private enum Palette {
     static let border = NSColor.separatorColor.withAlphaComponent(0.20).cgColor
@@ -2942,7 +2943,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   }
 
   private func fittedActionRailButtonSpecs(from specs: [ActionRailButtonSpec]) -> [ActionRailButtonSpec] {
-    let maximumWidth = layout.width - (Metrics.actionRailHorizontalMargin * 2)
+    let maximumWidth = maximumVisibleActionRailWidth
     guard actionRailWidth(for: specs) > maximumWidth else { return specs }
 
     let moreSpec = ActionRailButtonSpec("ellipsis.circle", toolTip: "More", action: #selector(showMoreActionsFromActionRail(_:)))
@@ -2978,6 +2979,22 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       + CGFloat(max(0, specs.count - 1)) * actionRail.spacing
       + actionRail.edgeInsets.left
       + actionRail.edgeInsets.right
+  }
+
+  private var maximumVisibleActionRailWidth: CGFloat {
+    layout.width
+      - Metrics.actionRailLeadingMargin
+      - layout.inset
+      - Metrics.actionRailBadgeGap
+      - headerBadgeSize
+  }
+
+  private var headerBadgeSize: CGFloat {
+    layout.isCompact ? 36 : 42
+  }
+
+  private var actionRailHeaderTopInset: CGFloat {
+    max(8, (layout.headerHeight - layout.actionRailHeight) / 2)
   }
 
   private func cardActionButton(
@@ -3018,7 +3035,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   private func updateActionRailVisibility() {
     actionRail.isHidden = !isSelected
-    headerBadgeView?.isHidden = isSelected
+    headerBadgeView?.isHidden = false
     headerPinView?.isHidden = isSelected
     footerDetailLabel.isHidden = false
     for button in actionRailButtons {
@@ -3199,9 +3216,18 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       footer.widthAnchor.constraint(equalTo: stack.widthAnchor)
     ])
     contentView.addSubview(actionRail)
+    let actionRailTrailingConstraint: NSLayoutConstraint
+    if let headerBadgeView {
+      actionRailTrailingConstraint = actionRail.trailingAnchor.constraint(
+        equalTo: headerBadgeView.leadingAnchor,
+        constant: -Metrics.actionRailBadgeGap
+      )
+    } else {
+      actionRailTrailingConstraint = actionRail.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12)
+    }
     NSLayoutConstraint.activate([
-      actionRail.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-      actionRail.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11)
+      actionRailTrailingConstraint,
+      actionRail.topAnchor.constraint(equalTo: contentView.topAnchor, constant: actionRailHeaderTopInset)
     ])
     setSelected(false)
   }
@@ -3264,8 +3290,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       labelStack.trailingAnchor.constraint(lessThanOrEqualTo: badge.leadingAnchor, constant: -12),
       badge.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -layout.inset),
       badge.centerYAnchor.constraint(equalTo: header.centerYAnchor),
-      badge.widthAnchor.constraint(equalToConstant: layout.isCompact ? 36 : 42),
-      badge.heightAnchor.constraint(equalToConstant: layout.isCompact ? 36 : 42),
+      badge.widthAnchor.constraint(equalToConstant: headerBadgeSize),
+      badge.heightAnchor.constraint(equalToConstant: headerBadgeSize),
       separator.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: layout.inset),
       separator.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -layout.inset),
       separator.bottomAnchor.constraint(equalTo: header.bottomAnchor),
