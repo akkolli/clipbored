@@ -239,6 +239,40 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(viewModel.statusMessage, "Added to Pinned Research")
   }
 
+  func testCreateCollectionAddsEmptySelectableCollection() {
+    let suiteName = "com.clipbored.testmodel.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer {
+      defaults.removePersistentDomain(forName: suiteName)
+    }
+    let settings = SettingsModel(defaults: defaults)
+    settings.maxHistoryItems = 10
+    settings.includeImageTextInSearch = false
+    settings.pruneDuplicates = false
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    store.upsert(makeTextItem("outside note", createdAt: Date(timeIntervalSince1970: 100)))
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 1)
+
+    viewModel.createCollection(named: "  Client   Work  ", colorHex: "#0A9EB8")
+
+    XCTAssertEqual(viewModel.collectionNames, ["Client Work"])
+    XCTAssertEqual(viewModel.collectionCount(named: "Client Work"), 0)
+    XCTAssertEqual(viewModel.selectedCollectionName, "Client Work")
+    XCTAssertTrue(viewModel.visibleItems.isEmpty)
+    XCTAssertEqual(viewModel.collectionColorHex(named: "client work"), "#0A9EB8")
+    XCTAssertEqual(viewModel.statusMessage, "Created Client Work")
+
+    let restoredSettings = SettingsModel(defaults: defaults)
+    let restoredViewModel = ClipboardPanelViewModel(store: store, settings: restoredSettings, cacheService: cacheService)
+    waitForVisibleItems(in: restoredViewModel, count: 1)
+    XCTAssertEqual(restoredViewModel.collectionNames, ["Client Work"])
+    XCTAssertEqual(restoredViewModel.collectionColorHex(named: "Client Work"), "#0A9EB8")
+  }
+
   func testSearchTextRecomputesVisibleItemsImmediately() {
     let settings = makeSettings()
     let cacheService = makeCacheService()

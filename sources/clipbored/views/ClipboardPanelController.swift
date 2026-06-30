@@ -16,6 +16,7 @@ struct ClipboardPanelReflowPlan {
 enum ClipboardPanelShortcutAction: Equatable {
   case copy
   case copyPlainText
+  case newCollection
   case open
   case pastePlainText
   case pasteStackNext
@@ -398,6 +399,8 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
       viewModel.copySelected()
     case .copyPlainText:
       viewModel.copySelectedPlainText()
+    case .newCollection:
+      panelView.createCollection()
     case .open:
       viewModel.openSelected()
     case .pastePlainText:
@@ -493,6 +496,8 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
       return .toggleStack
     case 8:
       return .copyPlainText
+    case 45:
+      return .newCollection
     case 9:
       return .pastePlainText
     case 36:

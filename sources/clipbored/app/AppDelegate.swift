@@ -437,7 +437,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       }
     case .pollProfile:
       monitor.setPaused(settings.pauseCapture)
-    case .status, .other:
+    case .status, .collections, .other:
       break
     case .captureStatus:
       break

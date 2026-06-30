@@ -65,7 +65,14 @@ private enum ClipboardCollectionVisuals {
     }
   }
 
-  static func color(forCollectionNamed name: String) -> NSColor {
+  static func color(forCollectionNamed name: String, overrideHex: String? = nil) -> NSColor {
+    if let color = color(fromHex: overrideHex) {
+      return color
+    }
+    return defaultColor(forCollectionNamed: name)
+  }
+
+  static func defaultColor(forCollectionNamed name: String) -> NSColor {
     switch name {
     case "Useful Links":
       return customPalette[0]
@@ -80,6 +87,34 @@ private enum ClipboardCollectionVisuals {
     }
   }
 
+  static func defaultColorHex(forCollectionNamed name: String) -> String {
+    hexString(for: defaultColor(forCollectionNamed: name))
+  }
+
+  static func hexString(for color: NSColor) -> String {
+    let rgb = color.usingColorSpace(.deviceRGB) ?? color
+    let red = Int((rgb.redComponent * 255).rounded())
+    let green = Int((rgb.greenComponent * 255).rounded())
+    let blue = Int((rgb.blueComponent * 255).rounded())
+    return String(format: "#%02X%02X%02X", red, green, blue)
+  }
+
+  private static func color(fromHex value: String?) -> NSColor? {
+    guard let value else { return nil }
+    var hex = value.clipboardTrimmed
+    if hex.hasPrefix("#") {
+      hex.removeFirst()
+    }
+    guard hex.count == 6,
+          let rawValue = Int(hex, radix: 16) else {
+      return nil
+    }
+    let red = CGFloat((rawValue >> 16) & 0xFF) / 255
+    let green = CGFloat((rawValue >> 8) & 0xFF) / 255
+    let blue = CGFloat(rawValue & 0xFF) / 255
+    return NSColor(deviceRed: red, green: green, blue: blue, alpha: 1)
+  }
+
   private static func stablePaletteIndex(for name: String) -> Int {
     var hash: UInt64 = 1_469_598_103_934_665_603
     for scalar in name.lowercased().unicodeScalars {
@@ -88,6 +123,11 @@ private enum ClipboardCollectionVisuals {
     }
     return Int(hash % UInt64(customPalette.count))
   }
+}
+
+private struct CollectionCreationRequest {
+  let name: String
+  let colorHex: String
 }
 
 final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
@@ -549,10 +589,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     addCollectionButton.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.16).cgColor
     addCollectionButton.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.26).cgColor
     addCollectionButton.contentTintColor = .secondaryLabelColor
-    addCollectionButton.toolTip = "Add selected clip to a new collection"
-    addCollectionButton.setAccessibilityLabel("Add selected clip to a new collection")
+    addCollectionButton.toolTip = "New collection"
+    addCollectionButton.setAccessibilityLabel("New collection")
     addCollectionButton.target = self
-    addCollectionButton.action = #selector(addSelectedClipToCollection)
+    addCollectionButton.action = #selector(createCollectionFromToolbar)
     addCollectionButton.translatesAutoresizingMaskIntoConstraints = false
     addCollectionButton.widthAnchor.constraint(equalToConstant: 30).isActive = true
     addCollectionButton.heightAnchor.constraint(equalToConstant: 26).isActive = true
@@ -576,7 +616,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func collectionColor(forCollectionNamed name: String) -> NSColor {
-    ClipboardCollectionVisuals.color(forCollectionNamed: name)
+    ClipboardCollectionVisuals.color(forCollectionNamed: name, overrideHex: viewModel.collectionColorHex(named: name))
   }
 
   private func applyCardDensity() {
@@ -670,7 +710,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
           isStacked: viewModel.isItemStacked(at: index),
           stackCount: viewModel.stackCount,
           canShowInClipboard: viewModel.canShowVisibleItemsInClipboard,
-          selectedCollectionName: viewModel.selectedCollectionName
+          selectedCollectionName: viewModel.selectedCollectionName,
+          selectedCollectionColor: viewModel.selectedCollectionName.map { collectionColor(forCollectionNamed: $0) }
         )
         card.onSelect = { [weak self] selected in
           self?.viewModel.selectItem(at: selected)
@@ -812,9 +853,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func updateAddCollectionButtonState() {
-    let hasSelectedItem = viewModel.selectedItem != nil
-    addCollectionButton.isEnabled = hasSelectedItem
-    addCollectionButton.alphaValue = hasSelectedItem ? 1.0 : 0.42
+    addCollectionButton.isEnabled = true
+    addCollectionButton.alphaValue = 1.0
   }
 
   private func scrollCardIntoView(_ card: NSView) {
@@ -856,7 +896,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     if lower.hasPrefix("captured") || lower.contains("capture running") || lower.contains("capture is running") || lower.contains("capture resumed") {
       return .ready
     }
-    if lower.hasPrefix("copied") || lower.hasPrefix("pasted") || lower.hasPrefix("updated") || lower.hasPrefix("added") || lower.hasPrefix("removed") || lower.hasPrefix("cleared") || lower.hasPrefix("ignored") || lower.hasPrefix("showing") {
+    if lower.hasPrefix("copied") || lower.hasPrefix("pasted") || lower.hasPrefix("updated") || lower.hasPrefix("added") || lower.hasPrefix("created") || lower.hasPrefix("removed") || lower.hasPrefix("cleared") || lower.hasPrefix("ignored") || lower.hasPrefix("showing") {
       return .action
     }
     if lower.hasPrefix("error") || lower.contains("failed") {
@@ -965,6 +1005,13 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       return (
         "No matching clips",
         "Try a broader search or switch filters."
+      )
+    }
+
+    if let collectionName = viewModel.selectedCollectionName {
+      return (
+        "No clips in \(collectionName)",
+        "Drag clips here or use Collect to add them."
       )
     }
 
@@ -1229,6 +1276,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     if stackChip.isSelected {
       return stackChip.titleText
     }
+    if let custom = customCollectionButtons.first(where: { $0.value.isSelected }) {
+      return custom.value.titleText
+    }
     return collectionButtons.first(where: { $0.value.isSelected })?.value.titleText
   }
 
@@ -1248,7 +1298,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   var debugCustomCollectionColorHexes: [String: String] {
     Dictionary(uniqueKeysWithValues: viewModel.collectionNames.map { name in
-      (name, ClipboardItemCardView.debugHex(ClipboardCollectionVisuals.color(forCollectionNamed: name)))
+      (name, ClipboardCollectionVisuals.hexString(for: collectionColor(forCollectionNamed: name)))
     })
   }
 
@@ -1294,7 +1344,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   func debugPressAddCollectionButton() {
-    addSelectedClipToCollection()
+    createCollectionFromToolbar()
   }
 
   func debugShowFirstCardInClipboard() {
@@ -1373,18 +1423,25 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     searchField.stringValue = viewModel.searchText
   }
 
-  @objc private func addSelectedClipToCollection() {
-    guard viewModel.selectedItem != nil,
-          let name = requestCollectionName() else {
-      return
-    }
-    viewModel.assignSelected(to: name)
+  func createCollection() {
+    createCollectionFromToolbar()
   }
 
-  private func requestCollectionName() -> String? {
+  @objc private func createCollectionFromToolbar() {
+    guard let request = requestCollectionCreation() else { return }
+    viewModel.createCollection(named: request.name, colorHex: request.colorHex, selectAfterCreate: true)
+  }
+
+  private func requestCollectionCreation() -> CollectionCreationRequest? {
     #if DEBUG
     if let collectionNameProviderForTesting {
-      return ClipboardCollectionDefaults.normalizedName(collectionNameProviderForTesting())
+      guard let name = ClipboardCollectionDefaults.normalizedName(collectionNameProviderForTesting()) else {
+        return nil
+      }
+      return CollectionCreationRequest(
+        name: name,
+        colorHex: ClipboardCollectionVisuals.defaultColorHex(forCollectionNamed: name)
+      )
     }
     #endif
 
@@ -1392,18 +1449,40 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     input.placeholderString = "Collection name"
     input.stringValue = ""
 
+    let colorWell = NSColorWell(frame: NSRect(x: 0, y: 0, width: 48, height: 28))
+    colorWell.color = ClipboardCollectionVisuals.defaultColor(forCollectionNamed: "New Collection")
+
+    let colorLabel = NSTextField(labelWithString: "Color")
+    colorLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+    colorLabel.textColor = .secondaryLabelColor
+
+    let colorRow = NSStackView(views: [colorLabel, colorWell])
+    colorRow.orientation = .horizontal
+    colorRow.alignment = .centerY
+    colorRow.spacing = 10
+
+    let stack = NSStackView(views: [input, colorRow])
+    stack.orientation = .vertical
+    stack.alignment = .leading
+    stack.spacing = 10
+    stack.frame = NSRect(x: 0, y: 0, width: 260, height: 64)
+
     let alert = NSAlert()
     alert.messageText = "New Collection"
-    alert.informativeText = "Name this collection and add the selected clip to it."
-    alert.accessoryView = input
-    alert.addButton(withTitle: "Add")
+    alert.informativeText = "Name this collection and choose its color."
+    alert.accessoryView = stack
+    alert.addButton(withTitle: "Create")
     alert.addButton(withTitle: "Cancel")
     alert.window.initialFirstResponder = input
 
-    guard alert.runModal() == .alertFirstButtonReturn else {
+    guard alert.runModal() == .alertFirstButtonReturn,
+          let name = ClipboardCollectionDefaults.normalizedName(input.stringValue) else {
       return nil
     }
-    return ClipboardCollectionDefaults.normalizedName(input.stringValue)
+    return CollectionCreationRequest(
+      name: name,
+      colorHex: ClipboardCollectionVisuals.hexString(for: colorWell.color)
+    )
   }
 }
 
@@ -1720,7 +1799,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     isStacked: Bool = false,
     stackCount: Int = 0,
     canShowInClipboard: Bool = false,
-    selectedCollectionName: String? = nil
+    selectedCollectionName: String? = nil,
+    selectedCollectionColor: NSColor? = nil
   ) {
     let normalizedItemCollection = ClipboardCollectionDefaults.normalizedName(item.collectionName)
     let normalizedSelectedCollection = ClipboardCollectionDefaults.normalizedName(selectedCollectionName)
@@ -1737,7 +1817,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     self.itemSourceAppBundleID = Self.presentSourceText(item.sourceAppBundleId)
     self.itemCollectionName = normalizedItemCollection
     self.activeCollectionName = activeCollection
-    self.activeCollectionColor = activeCollection.map(ClipboardCollectionVisuals.color(forCollectionNamed:))
+    self.activeCollectionColor = activeCollection.map { name in
+      selectedCollectionColor ?? ClipboardCollectionVisuals.color(forCollectionNamed: name)
+    }
     self.collectionNames = collectionNames.compactMap { ClipboardCollectionDefaults.normalizedName($0) }
     super.init(frame: .zero)
     configure(item: item, thumbnail: thumbnail)
@@ -1925,11 +2007,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   }
 
   static func debugHex(_ color: NSColor) -> String {
-    let rgb = color.usingColorSpace(.deviceRGB) ?? color
-    let red = Int((rgb.redComponent * 255).rounded())
-    let green = Int((rgb.greenComponent * 255).rounded())
-    let blue = Int((rgb.blueComponent * 255).rounded())
-    return String(format: "#%02X%02X%02X", red, green, blue)
+    ClipboardCollectionVisuals.hexString(for: color)
   }
   #endif
 

@@ -182,6 +182,7 @@ final class ClipboardPanelControllerTests: XCTestCase {
     XCTAssertEqual(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 1, modifiers: [.command, .shift]), .toggleStack)
     XCTAssertEqual(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 8, modifiers: [.command, .shift]), .copyPlainText)
     XCTAssertEqual(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 9, modifiers: [.command, .shift]), .pastePlainText)
+    XCTAssertEqual(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 45, modifiers: [.command, .shift]), .newCollection)
     XCTAssertEqual(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 36, modifiers: [.command, .shift]), .pasteStackNext)
   }
 

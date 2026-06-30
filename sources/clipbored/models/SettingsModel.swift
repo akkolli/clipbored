@@ -1,7 +1,7 @@
 import Foundation
 
 final class SettingsModel {
-  enum Change {
+  enum Change: Equatable {
     case maxHistoryItems
     case imageCacheMaxBytes
     case openShortcut
@@ -12,6 +12,7 @@ final class SettingsModel {
     case pauseCapture
     case pollProfile
     case captureStatus
+    case collections
     case status
     case other
   }
@@ -35,6 +36,8 @@ final class SettingsModel {
     static let pauseCapture = "pauseCapture"
     static let clearHistoryOnQuit = "clearHistoryOnQuit"
     static let accessibilityNoticeShown = "accessibilityNoticeShown"
+    static let customCollectionNames = "customCollectionNames"
+    static let collectionColorHexes = "collectionColorHexes"
   }
 
   var maxHistoryItems: Int {
@@ -88,6 +91,8 @@ final class SettingsModel {
   var clearHistoryOnQuit: Bool {
     didSet { if oldValue != clearHistoryOnQuit { storeAndNotify(.other) } }
   }
+  private(set) var customCollectionNames: [String]
+  private(set) var collectionColorHexes: [String: String]
   private(set) var launchAtLoginErrorMessage: String = ""
   private(set) var accessibilityPermissionStatusMessage: String = ""
   private(set) var captureStatusMessage: String = ""
@@ -123,6 +128,8 @@ final class SettingsModel {
     excludeSensitive = defaults.object(forKey: Keys.excludeSensitive) as? Bool ?? false
     pauseCapture = defaults.object(forKey: Keys.pauseCapture) as? Bool ?? false
     clearHistoryOnQuit = defaults.object(forKey: Keys.clearHistoryOnQuit) as? Bool ?? false
+    customCollectionNames = Self.normalizedCollectionNames(defaults.stringArray(forKey: Keys.customCollectionNames) ?? [])
+    collectionColorHexes = Self.normalizedCollectionColorHexes(defaults.dictionary(forKey: Keys.collectionColorHexes))
     accessibilityNoticeShown = defaults.object(forKey: Keys.accessibilityNoticeShown) as? Bool ?? false
 
     maxHistoryItems = max(AppConfiguration.minHistoryLength, min(AppConfiguration.maxHistoryLength, maxHistoryItems))
@@ -151,6 +158,8 @@ final class SettingsModel {
     defaults.set(excludeSensitive, forKey: Keys.excludeSensitive)
     defaults.set(pauseCapture, forKey: Keys.pauseCapture)
     defaults.set(clearHistoryOnQuit, forKey: Keys.clearHistoryOnQuit)
+    defaults.set(customCollectionNames, forKey: Keys.customCollectionNames)
+    defaults.set(collectionColorHexes, forKey: Keys.collectionColorHexes)
   }
 
   func observe(_ observer: @escaping (Change) -> Void) {
@@ -204,6 +213,45 @@ final class SettingsModel {
     notify(.status)
   }
 
+  @discardableResult
+  func ensureCollection(named name: String, colorHex: String? = nil) -> String? {
+    guard let normalizedName = ClipboardCollectionDefaults.normalizedName(name) else { return nil }
+    let existingName = customCollectionNames.first {
+      $0.caseInsensitiveCompare(normalizedName) == .orderedSame
+    }
+    let canonicalName = existingName ?? normalizedName
+    var changed = false
+
+    if existingName == nil {
+      customCollectionNames.append(normalizedName)
+      changed = true
+    }
+
+    if let normalizedHex = Self.normalizedHexColor(colorHex),
+       collectionColorHexes[canonicalName] != normalizedHex {
+      for key in collectionColorHexes.keys where key.caseInsensitiveCompare(canonicalName) == .orderedSame && key != canonicalName {
+        collectionColorHexes.removeValue(forKey: key)
+      }
+      collectionColorHexes[canonicalName] = normalizedHex
+      changed = true
+    }
+
+    if changed {
+      storeAndNotify(.collections)
+    }
+    return normalizedName
+  }
+
+  func collectionColorHex(forCollectionNamed name: String) -> String? {
+    guard let normalizedName = ClipboardCollectionDefaults.normalizedName(name) else { return nil }
+    if let exact = collectionColorHexes[normalizedName] {
+      return exact
+    }
+    return collectionColorHexes.first { storedName, _ in
+      storedName.caseInsensitiveCompare(normalizedName) == .orderedSame
+    }?.value
+  }
+
   private static func readShortcut(from value: String?) -> ShortcutBinding? {
     guard let value else { return nil }
     return ShortcutBinding(encoded: value)
@@ -217,5 +265,40 @@ final class SettingsModel {
   func sanitizeLimits() {
     maxHistoryItems = max(AppConfiguration.minHistoryLength, min(AppConfiguration.maxHistoryLength, maxHistoryItems))
     imageCacheMaxBytes = max(4 * 1024 * 1024, imageCacheMaxBytes)
+  }
+
+  private static func normalizedCollectionNames(_ names: [String]) -> [String] {
+    var normalized: [String] = []
+    for name in names {
+      guard let value = ClipboardCollectionDefaults.normalizedName(name) else { continue }
+      guard !normalized.contains(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) else { continue }
+      normalized.append(value)
+    }
+    return normalized
+  }
+
+  private static func normalizedCollectionColorHexes(_ rawValue: [String: Any]?) -> [String: String] {
+    guard let rawValue else { return [:] }
+    var normalized: [String: String] = [:]
+    for (name, color) in rawValue {
+      guard let normalizedName = ClipboardCollectionDefaults.normalizedName(name),
+            let hex = normalizedHexColor(color as? String) else {
+        continue
+      }
+      normalized[normalizedName] = hex
+    }
+    return normalized
+  }
+
+  private static func normalizedHexColor(_ value: String?) -> String? {
+    guard let value else { return nil }
+    var hex = value.clipboardTrimmed.uppercased()
+    if hex.hasPrefix("#") {
+      hex.removeFirst()
+    }
+    guard hex.count == 6, hex.allSatisfy({ $0.isHexDigit }) else {
+      return nil
+    }
+    return "#\(hex)"
   }
 }

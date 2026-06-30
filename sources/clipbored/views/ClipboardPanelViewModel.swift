@@ -111,11 +111,18 @@ final class ClipboardPanelViewModel {
       }
     }
     settings.observe { [weak self] change in
-      guard case .captureStatus = change else { return }
       self?.notifyMain {
-        self?.statusMessage = ""
-        self?.onStatusMessageChanged?("")
-        self?.onCaptureStatusChanged?()
+        switch change {
+        case .captureStatus:
+          self?.statusMessage = ""
+          self?.onStatusMessageChanged?("")
+          self?.onCaptureStatusChanged?()
+        case .collections:
+          self?.recomputeVisibleItems()
+          self?.onCollectionsChanged?()
+        default:
+          break
+        }
       }
     }
   }
@@ -155,11 +162,20 @@ final class ClipboardPanelViewModel {
         ClipboardCollectionDefaults.normalizedName(item.collectionName)
       }
     )
-    let defaultNames = ClipboardCollectionDefaults.names.filter { assignedNames.contains($0) }
-    let customNames = assignedNames
+    let configuredNames = settings.customCollectionNames
+    let configuredNameSet = Set(configuredNames.map { $0.lowercased() })
+    let allNames = assignedNames.union(configuredNames)
+    let defaultNames = ClipboardCollectionDefaults.names.filter { allNames.contains($0) }
+    var configuredCustomNames: [String] = []
+    for name in configuredNames where !ClipboardCollectionDefaults.names.contains(name) {
+      guard !configuredCustomNames.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) else { continue }
+      configuredCustomNames.append(name)
+    }
+    let assignedCustomNames = assignedNames
       .filter { !ClipboardCollectionDefaults.names.contains($0) }
+      .filter { !configuredNameSet.contains($0.lowercased()) }
       .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-    return defaultNames + customNames
+    return defaultNames + configuredCustomNames + assignedCustomNames
   }
 
   func collectionCount(for sortMode: ClipboardSortMode) -> Int {
@@ -470,6 +486,21 @@ final class ClipboardPanelViewModel {
     guard let normalizedName = ClipboardCollectionDefaults.normalizedName(name) else { return }
     isStackFilterSelected = false
     selectedCollectionName = normalizedName
+  }
+
+  func createCollection(named name: String, colorHex: String? = nil, selectAfterCreate: Bool = true) {
+    guard let normalizedName = settings.ensureCollection(named: name, colorHex: colorHex) else { return }
+    statusMessage = "Created \(normalizedName)"
+    if selectAfterCreate {
+      selectCollection(named: normalizedName)
+    } else {
+      recomputeVisibleItems()
+      onCollectionsChanged?()
+    }
+  }
+
+  func collectionColorHex(named name: String) -> String? {
+    settings.collectionColorHex(forCollectionNamed: name)
   }
 
   func clearSearch() {
@@ -857,6 +888,9 @@ final class ClipboardPanelViewModel {
 
   private func assign(item: ClipboardItem, to collectionName: String?) {
     let normalizedName = ClipboardCollectionDefaults.normalizedName(collectionName)
+    if let normalizedName {
+      settings.ensureCollection(named: normalizedName)
+    }
     store.setCollection(item.id, name: normalizedName)
     if let normalizedName {
       statusMessage = "Added to \(normalizedName)"

@@ -184,16 +184,10 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Links")
   }
 
-  func testCollectionRailAddButtonCreatesCollectionForSelectedClip() {
+  func testCollectionRailAddButtonCreatesEmptyCollection() {
     let fixture = makePanelFixture()
 
     XCTAssertTrue(fixture.view.debugCollectionRailContainsAddButton)
-    XCTAssertFalse(fixture.view.debugAddCollectionButtonIsEnabled)
-
-    fixture.store.upsert(makeTextItem("Collect this note", store: fixture.store))
-    drainMainQueue()
-    fixture.window.contentView?.layoutSubtreeIfNeeded()
-
     XCTAssertTrue(fixture.view.debugAddCollectionButtonIsEnabled)
 
     fixture.view.debugSetCollectionNameProvider { "  Research   Stack  " }
@@ -201,22 +195,29 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.viewModel.statusMessage, "Added to Research Stack")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Created Research Stack")
     XCTAssertEqual(fixture.view.debugCustomCollectionTitles, ["Research Stack"])
-    XCTAssertEqual(fixture.view.debugFirstCardHeaderTitle, "Text")
-    XCTAssertEqual(fixture.view.debugFirstCardFooterDetailText, "Research Stack - 17 characters")
+    XCTAssertEqual(fixture.view.debugCustomCollectionCounts, [0])
+    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Research Stack")
+    XCTAssertEqual(fixture.view.debugVisibleCardCount, 0)
+    XCTAssertEqual(fixture.view.debugEmptyStateText?.title, "No clips in Research Stack")
+    XCTAssertEqual(fixture.view.debugEmptyStateText?.detail, "Drag clips here or use Collect to add them.")
+  }
 
-    fixture.viewModel.selectCollection(named: "Research Stack")
+  func testCollectionFilteredCardsUseStoredCollectionHeaderColor() {
+    let fixture = makePanelFixture()
+    fixture.viewModel.createCollection(named: "Research Stack", colorHex: "#0A9EB8")
+    var item = makeTextItem("Collect this note", store: fixture.store)
+    item.collectionName = "Research Stack"
+    fixture.store.upsert(item)
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Collect this note"])
     XCTAssertEqual(fixture.view.debugFirstCardHeaderTitle, "Research Stack")
     XCTAssertEqual(fixture.view.debugFirstCardHeaderSubtitle, "Text - Just now")
-    XCTAssertEqual(
-      fixture.view.debugFirstCardHeaderColorHex,
-      fixture.view.debugCustomCollectionColorHexes["Research Stack"] ?? ""
-    )
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderColorHex, "#0A9EB8")
+    XCTAssertEqual(fixture.view.debugCustomCollectionColorHexes["Research Stack"], "#0A9EB8")
     XCTAssertEqual(fixture.view.debugFirstCardFooterDetailText, "17 characters")
   }
 
