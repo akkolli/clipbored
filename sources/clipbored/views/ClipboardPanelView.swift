@@ -1493,6 +1493,11 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     return ClipboardSortMode.allCases.compactMap { collectionButtons[$0]?.count }
   }
 
+  var debugCollectionCountLabelHiddenStates: [Bool] {
+    updateCollectionButtons()
+    return ClipboardSortMode.allCases.compactMap { collectionButtons[$0]?.debugCountLabelIsHidden }
+  }
+
   var debugCollectionChipAccessibilityLabels: [String] {
     updateCollectionButtons()
     return ClipboardSortMode.allCases.compactMap { collectionButtons[$0]?.accessibilityLabel() }
@@ -1563,6 +1568,11 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   var debugCustomCollectionCounts: [Int] {
     updateCollectionButtons()
     return viewModel.collectionNames.compactMap { customCollectionButtons[$0]?.count }
+  }
+
+  var debugCustomCollectionCountLabelHiddenStates: [Bool] {
+    updateCollectionButtons()
+    return viewModel.collectionNames.compactMap { customCollectionButtons[$0]?.debugCountLabelIsHidden }
   }
 
   var debugCustomCollectionColorHexes: [String: String] {
@@ -2109,6 +2119,7 @@ private final class CollectionChipView: NSView {
       ? NSColor.controlAccentColor.withAlphaComponent(0.16)
       : NSColor.labelColor.withAlphaComponent(0.07)
     ).cgColor
+    updateCountLabelVisibility()
     updateAccessibility()
     updateChrome()
   }
@@ -2138,7 +2149,12 @@ private final class CollectionChipView: NSView {
   func setCount(_ count: Int) {
     self.count = count
     countLabel.stringValue = count > 999 ? "999+" : "\(count)"
+    updateCountLabelVisibility()
     updateAccessibility()
+  }
+
+  private func updateCountLabelVisibility() {
+    countLabel.isHidden = count == 0
   }
 
   private func updateAccessibility() {
@@ -2289,6 +2305,10 @@ private final class CollectionChipView: NSView {
 
   var debugIsKeyboardFocused: Bool {
     isKeyboardFocused
+  }
+
+  var debugCountLabelIsHidden: Bool {
+    countLabel.isHidden
   }
 
   func debugDropItem(_ itemID: UUID) {

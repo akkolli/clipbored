@@ -223,6 +223,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(fixture.view.debugCollectionChipAcceptsFirstResponder, Array(repeating: true, count: ClipboardSortMode.allCases.count))
+    XCTAssertEqual(fixture.view.debugCollectionCountLabelHiddenStates, Array(repeating: true, count: ClipboardSortMode.allCases.count))
     XCTAssertEqual(fixture.view.debugCollectionChipAccessibilityLabels.first, "Clipboard, selected, 0 clips")
 
     XCTAssertTrue(fixture.view.debugFocusCollectionChip(.links))
@@ -326,6 +327,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.viewModel.statusMessage, "Created Research Stack")
     XCTAssertEqual(fixture.view.debugCustomCollectionTitles, ["Research Stack"])
     XCTAssertEqual(fixture.view.debugCustomCollectionCounts, [0])
+    XCTAssertEqual(fixture.view.debugCustomCollectionCountLabelHiddenStates, [true])
     XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Research Stack")
     XCTAssertEqual(fixture.view.debugVisibleCardCount, 0)
     XCTAssertEqual(fixture.view.debugEmptyStateText?.title, "No clips in Research Stack")
@@ -624,6 +626,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.viewModel.visibleItems.count, 6)
     XCTAssertEqual(ClipboardSortMode.allCases.map { fixture.viewModel.collectionCount(for: $0) }, [6, 6, 2, 1, 1, 1, 1, 1])
     XCTAssertEqual(fixture.view.debugCollectionCounts, [6, 6, 2, 1, 1, 1, 1, 1])
+    XCTAssertEqual(fixture.view.debugCollectionCountLabelHiddenStates, Array(repeating: false, count: ClipboardSortMode.allCases.count))
   }
 
   func testCollectionRailShowsAssignedCollections() {
@@ -642,6 +645,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(fixture.view.debugCustomCollectionTitles, ["Useful Links", "Important Notes", "Client Work"])
     XCTAssertEqual(fixture.view.debugCustomCollectionCounts, [1, 1, 1])
+    XCTAssertEqual(fixture.view.debugCustomCollectionCountLabelHiddenStates, [false, false, false])
 
     fixture.viewModel.selectCollection(named: "Useful Links")
     drainMainQueue()
