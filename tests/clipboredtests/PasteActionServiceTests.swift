@@ -124,6 +124,41 @@ final class PasteActionServiceTests: XCTestCase {
     XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Paste into target")
   }
 
+  func testAutomaticPlainTextPasteActivatesTargetAndSchedulesKeyboardPasteWhenPermissionGranted() throws {
+    var activatedProcessID: pid_t?
+    let targetApp = try makeRunningTargetApp()
+    var didScheduleKeyboardPaste = false
+    let service = PasteActionService(
+      accessibilityPermissionProvider: { true },
+      targetActivator: { app in
+        activatedProcessID = app.processIdentifier
+        return true
+      },
+      keyboardPasteScheduler: { _ in
+        didScheduleKeyboardPaste = true
+      }
+    )
+    let item = ClipboardItem(
+      id: UUID(),
+      kind: .url,
+      displayText: "Apple",
+      payload: "https://apple.com",
+      payloadHash: "hash",
+      createdAt: Date(),
+      lastUsedAt: Date(),
+      useCount: 0,
+      sourceApp: nil,
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+
+    XCTAssertEqual(service.pastePlainText(item, targetApp: targetApp), .pastedPlainText)
+    XCTAssertEqual(activatedProcessID, targetApp.processIdentifier)
+    XCTAssertTrue(didScheduleKeyboardPaste)
+    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "https://apple.com")
+    XCTAssertNil(NSPasteboard.general.string(forType: .URL))
+  }
+
   func testAutomaticPasteDoesNotPostShortcutWhenTargetActivationFails() throws {
     var didAttemptActivation = false
     let targetApp = try makeRunningTargetApp()
@@ -264,6 +299,37 @@ final class PasteActionServiceTests: XCTestCase {
     XCTAssertEqual(NSPasteboard.general.string(forType: .string), attributed.string)
   }
 
+  func testCopyPlainTextStripsRichTextFormatting() throws {
+    let directory = try makeTempDirectory()
+    let cacheService = ClipboardCacheService(baseURL: directory, encryptionService: fixedEncryptionService())
+    let attributed = NSAttributedString(
+      string: "Styled clipboard text",
+      attributes: [.font: NSFont.boldSystemFont(ofSize: 15)]
+    )
+    let rtfData = try XCTUnwrap(
+      attributed.rtf(from: NSRange(location: 0, length: attributed.length), documentAttributes: [:])
+    )
+    let path = try XCTUnwrap(cacheService.cacheRichText(rtfData, id: UUID()))
+    let service = PasteActionService(cacheService: cacheService)
+    let item = ClipboardItem(
+      id: UUID(),
+      kind: .richText,
+      displayText: attributed.string,
+      payload: path,
+      payloadHash: "hash",
+      createdAt: Date(),
+      lastUsedAt: Date(),
+      useCount: 0,
+      sourceApp: nil,
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+
+    XCTAssertEqual(service.copyPlainText(item), .copiedPlainText)
+    XCTAssertEqual(NSPasteboard.general.string(forType: .string), attributed.string)
+    XCTAssertNil(NSPasteboard.general.data(forType: .rtf))
+  }
+
   func testCopyLegacyRichTextWritesPlainPayloadWhenRTFCacheIsUnavailable() {
     let service = PasteActionService()
     let item = ClipboardItem(
@@ -305,6 +371,28 @@ final class PasteActionServiceTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(atPath: missingPath))
     XCTAssertEqual(service.copy(item), .copied)
     XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Readable rich text")
+  }
+
+  func testCopyPlainTextForURLOmitsURLPasteboardTypes() {
+    let service = PasteActionService()
+    let item = ClipboardItem(
+      id: UUID(),
+      kind: .url,
+      displayText: "Apple",
+      payload: "https://apple.com",
+      payloadHash: "hash",
+      createdAt: Date(),
+      lastUsedAt: Date(),
+      useCount: 0,
+      sourceApp: nil,
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+
+    XCTAssertEqual(service.copyPlainText(item), .copiedPlainText)
+    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "https://apple.com")
+    XCTAssertNil(NSPasteboard.general.string(forType: .URL))
+    XCTAssertNil(NSPasteboard.general.string(forType: NSPasteboard.PasteboardType(rawValue: "public.url-name")))
   }
 
   func testCopyWritesFileReferenceType() throws {

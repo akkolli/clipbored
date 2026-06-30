@@ -528,6 +528,14 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
           self?.viewModel.selectItem(at: selected)
           self?.viewModel.copySelected()
         }
+        card.onPastePlainText = { [weak self] selected in
+          self?.viewModel.selectItem(at: selected)
+          self?.viewModel.pasteSelectedPlainText()
+        }
+        card.onCopyPlainText = { [weak self] selected in
+          self?.viewModel.selectItem(at: selected)
+          self?.viewModel.copySelectedPlainText()
+        }
         card.onEditText = { [weak self] selected in
           self?.editText(at: selected)
         }
@@ -1308,6 +1316,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   var onSelect: (Int) -> Void = { _ in }
   var onPaste: (Int) -> Void = { _ in }
   var onCopy: (Int) -> Void = { _ in }
+  var onPastePlainText: (Int) -> Void = { _ in }
+  var onCopyPlainText: (Int) -> Void = { _ in }
   var onEditText: (Int) -> Void = { _ in }
   var onPreview: (Int) -> Void = { _ in }
   var onPasteboardWriters: (Int) -> [NSPasteboardWriting] = { _ in [] }
@@ -1491,6 +1501,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     menu.autoenablesItems = false
     addMenuItem("Paste", action: #selector(pasteFromMenu), to: menu)
     addMenuItem("Copy", action: #selector(copyFromMenu), to: menu)
+    if canPlainText {
+      addMenuItem("Paste Plain Text", action: #selector(pastePlainTextFromMenu), to: menu)
+      addMenuItem("Copy Plain Text", action: #selector(copyPlainTextFromMenu), to: menu)
+    }
     if canEditText {
       addMenuItem("Edit", action: #selector(editTextFromMenu), to: menu)
     }
@@ -1582,6 +1596,15 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   private var canEditText: Bool {
     itemKind == .text
+  }
+
+  private var canPlainText: Bool {
+    switch itemKind {
+    case .url, .image, .richText, .file, .pdf, .audio:
+      return true
+    case .text, .unknown:
+      return false
+    }
   }
 
   private var canReveal: Bool {
@@ -1692,6 +1715,14 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   @objc private func copyFromMenu() {
     onCopy(index)
+  }
+
+  @objc private func pastePlainTextFromMenu() {
+    onPastePlainText(index)
+  }
+
+  @objc private func copyPlainTextFromMenu() {
+    onCopyPlainText(index)
   }
 
   @objc private func editTextFromMenu() {

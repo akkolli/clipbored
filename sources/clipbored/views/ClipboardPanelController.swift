@@ -15,7 +15,9 @@ struct ClipboardPanelReflowPlan {
 
 enum ClipboardPanelShortcutAction: Equatable {
   case copy
+  case copyPlainText
   case open
+  case pastePlainText
   case preview
   case reveal
 }
@@ -332,6 +334,11 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
         self.performShortcutAction(action)
         return nil
       }
+      if self.shouldHandlePanelKeyEvent(event, allowSearchFieldEditing: true),
+         let action = Self.modifiedShortcutAction(forKeyCode: event.keyCode, modifiers: event.modifierFlags) {
+        self.performShortcutAction(action)
+        return nil
+      }
       guard self.shouldHandlePanelKeyEvent(event) else { return event }
       switch event.keyCode {
       case 53:
@@ -365,8 +372,12 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     switch action {
     case .copy:
       viewModel.copySelected()
+    case .copyPlainText:
+      viewModel.copySelectedPlainText()
     case .open:
       viewModel.openSelected()
+    case .pastePlainText:
+      viewModel.pasteSelectedPlainText()
     case .preview:
       previewSelected()
     case .reveal:
@@ -425,6 +436,19 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
       return .preview
     case 15:
       return .reveal
+    default:
+      return nil
+    }
+  }
+
+  static func modifiedShortcutAction(forKeyCode keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> ClipboardPanelShortcutAction? {
+    let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
+    guard relevantModifiers == [.command, .shift] else { return nil }
+    switch keyCode {
+    case 8:
+      return .copyPlainText
+    case 9:
+      return .pastePlainText
     default:
       return nil
     }

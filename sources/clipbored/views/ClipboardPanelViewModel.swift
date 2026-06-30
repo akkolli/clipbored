@@ -152,9 +152,34 @@ final class ClipboardPanelViewModel {
     settings.setPasteStatus(message: result.message)
   }
 
+  func pasteSelectedPlainText() {
+    guard let item = selectedItem else { return }
+    let result = pasteService.pastePlainText(item, targetApp: targetApplicationProvider())
+    if case .pastedPlainText = result {
+      willPasteToTarget()
+    }
+    if case .failed = result {} else {
+      store.markUsed(item.id)
+      selectedItemID = item.id
+    }
+    statusMessage = result.message
+    settings.setPasteStatus(message: result.message)
+  }
+
   func copySelected() {
     guard let item = selectedItem else { return }
     let result = pasteService.copy(item)
+    if case .failed = result {} else {
+      store.markUsed(item.id)
+      selectedItemID = item.id
+    }
+    statusMessage = result.message
+    settings.setPasteStatus(message: result.message)
+  }
+
+  func copySelectedPlainText() {
+    guard let item = selectedItem else { return }
+    let result = pasteService.copyPlainText(item)
     if case .failed = result {} else {
       store.markUsed(item.id)
       selectedItemID = item.id

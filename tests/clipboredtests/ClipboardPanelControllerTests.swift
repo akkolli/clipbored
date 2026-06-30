@@ -157,4 +157,15 @@ final class ClipboardPanelControllerTests: XCTestCase {
     XCTAssertNil(ClipboardPanelController.commandShortcutAction(forKeyCode: 8, modifiers: [.command, .shift]))
     XCTAssertNil(ClipboardPanelController.commandShortcutAction(forKeyCode: 9, modifiers: .command))
   }
+
+  func testModifiedShortcutsMapToPlainTextActions() {
+    XCTAssertEqual(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 8, modifiers: [.command, .shift]), .copyPlainText)
+    XCTAssertEqual(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 9, modifiers: [.command, .shift]), .pastePlainText)
+  }
+
+  func testModifiedShortcutsRequireCommandShiftOnly() {
+    XCTAssertNil(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 8, modifiers: .command))
+    XCTAssertNil(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 8, modifiers: [.command, .option, .shift]))
+    XCTAssertNil(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 31, modifiers: [.command, .shift]))
+  }
 }

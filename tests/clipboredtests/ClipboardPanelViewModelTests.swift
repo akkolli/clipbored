@@ -271,6 +271,39 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(NSPasteboard.general.string(forType: .URL), item.payload)
   }
 
+  func testCopySelectedPlainTextWritesOnlyStringRepresentation() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    let item = ClipboardItem(
+      id: UUID(),
+      kind: .url,
+      displayText: "Example",
+      payload: "https://example.com",
+      payloadHash: hash("https://example.com"),
+      createdAt: Date(timeIntervalSince1970: 200),
+      lastUsedAt: Date(timeIntervalSince1970: 200),
+      useCount: 0,
+      sourceApp: nil,
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+    store.upsert(item)
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 1)
+
+    viewModel.copySelectedPlainText()
+    store.flushPersistenceForTesting()
+
+    XCTAssertEqual(viewModel.statusMessage, "Copied Plain Text")
+    XCTAssertEqual(NSPasteboard.general.string(forType: .string), item.payload)
+    XCTAssertNil(NSPasteboard.general.string(forType: .URL))
+    XCTAssertEqual(store.items.first?.id, item.id)
+    XCTAssertEqual(store.items.first?.useCount, 1)
+  }
+
   func testUpdateSelectedTextRefreshesVisibleItemAndSearch() {
     let settings = makeSettings()
     let cacheService = makeCacheService()

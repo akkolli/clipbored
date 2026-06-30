@@ -349,7 +349,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Quick Look", "Pin", "Add to Collection", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Paste Plain Text", "Copy Plain Text", "Quick Look", "Pin", "Add to Collection", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
   }
 
