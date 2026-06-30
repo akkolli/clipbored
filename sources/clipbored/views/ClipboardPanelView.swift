@@ -224,7 +224,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private let collectionScrollView = HorizontalRailScrollView()
   private let collectionStack = NSStackView()
   private let addCollectionButton = NSButton()
-  private let stackChip = CollectionChipView(title: "Stack", color: .systemGreen)
+  private let stackChip = CollectionChipView(title: "Stack", color: .systemGreen, symbolName: "square.stack.3d.up.fill")
   private let itemsStack = NSStackView()
   private let scrollView = HorizontalRailScrollView()
   private let statusLabel = NSTextField(labelWithString: "")
@@ -542,7 +542,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     }
 
     for mode in ClipboardSortMode.allCases {
-      let chip = CollectionChipView(title: collectionTitle(for: mode), color: collectionColor(for: mode))
+      let chip = CollectionChipView(title: collectionTitle(for: mode), color: collectionColor(for: mode), symbolName: collectionSymbol(for: mode))
       chip.toolTip = mode.title
       chip.onPress = { [weak self] in
         self?.viewModel.sortMode = mode
@@ -639,6 +639,19 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     case .audio: return "Audio"
     case .files: return "Files"
     case .pinned: return "Pinned"
+    }
+  }
+
+  private func collectionSymbol(for mode: ClipboardSortMode) -> String {
+    switch mode {
+    case .mostRecent: return "doc.on.clipboard"
+    case .mostUsed: return "chart.bar.fill"
+    case .text: return "text.alignleft"
+    case .links: return "link"
+    case .images: return "photo"
+    case .audio: return "music.note"
+    case .files: return "doc.fill"
+    case .pinned: return "pin.fill"
     }
   }
 
@@ -1486,6 +1499,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     ClipboardSortMode.allCases.compactMap { collectionButtons[$0]?.titleText }
   }
 
+  var debugCollectionLeadingSymbols: [String] {
+    ClipboardSortMode.allCases.compactMap { collectionButtons[$0]?.debugLeadingSymbolName }
+  }
+
   var debugSelectedCollectionTitle: String? {
     if stackChip.isSelected {
       return stackChip.titleText
@@ -2036,7 +2053,9 @@ private final class RailEdgeFadeView: NSView {
 private final class CollectionChipView: NSView {
   let titleText: String
   private let color: NSColor
+  private let symbolName: String?
   private let dot = NSView()
+  private let symbolView = NSImageView()
   private let label: NSTextField
   private let countLabel = NSTextField(labelWithString: "0")
   private(set) var isSelected = false
@@ -2052,9 +2071,10 @@ private final class CollectionChipView: NSView {
   var onEdit: (() -> Void)?
   var onDelete: (() -> Void)?
 
-  init(title: String, color: NSColor) {
+  init(title: String, color: NSColor, symbolName: String? = nil) {
     self.titleText = title
     self.color = color
+    self.symbolName = symbolName
     self.label = NSTextField(labelWithString: title)
     super.init(frame: .zero)
     configure()
@@ -2082,6 +2102,20 @@ private final class CollectionChipView: NSView {
     dot.widthAnchor.constraint(equalToConstant: 8).isActive = true
     dot.heightAnchor.constraint(equalToConstant: 8).isActive = true
 
+    let leadingIndicator: NSView
+    if let symbolName {
+      let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: titleText)
+      image?.isTemplate = true
+      symbolView.image = image
+      symbolView.imageScaling = .scaleProportionallyUpOrDown
+      symbolView.contentTintColor = color.withAlphaComponent(0.86)
+      symbolView.widthAnchor.constraint(equalToConstant: 13).isActive = true
+      symbolView.heightAnchor.constraint(equalToConstant: 13).isActive = true
+      leadingIndicator = symbolView
+    } else {
+      leadingIndicator = dot
+    }
+
     label.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
     label.textColor = .secondaryLabelColor
     label.lineBreakMode = .byTruncatingTail
@@ -2101,7 +2135,7 @@ private final class CollectionChipView: NSView {
     countLabel.heightAnchor.constraint(equalToConstant: 16).isActive = true
     countLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-    let stack = NSStackView(views: [dot, label, countLabel])
+    let stack = NSStackView(views: [leadingIndicator, label, countLabel])
     stack.orientation = .horizontal
     stack.alignment = .centerY
     stack.spacing = 6
@@ -2124,9 +2158,10 @@ private final class CollectionChipView: NSView {
     countLabel.textColor = selected ? .labelColor : .tertiaryLabelColor
     countLabel.layer?.backgroundColor = (
       selected
-      ? NSColor.controlAccentColor.withAlphaComponent(0.16)
+      ? color.withAlphaComponent(0.16)
       : NSColor.labelColor.withAlphaComponent(0.07)
     ).cgColor
+    symbolView.contentTintColor = color.withAlphaComponent(selected ? 0.98 : 0.78)
     updateCountLabelVisibility()
     updateAccessibility()
     updateChrome()
@@ -2143,11 +2178,11 @@ private final class CollectionChipView: NSView {
       layer?.backgroundColor = color.withAlphaComponent(0.18).cgColor
       layer?.borderColor = color.withAlphaComponent(0.68).cgColor
     } else if isSelected {
-      layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.58).cgColor
-      layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(isKeyboardFocused ? 0.74 : 0.34).cgColor
+      layer?.backgroundColor = color.withAlphaComponent(0.13).cgColor
+      layer?.borderColor = color.withAlphaComponent(isKeyboardFocused ? 0.72 : 0.38).cgColor
     } else if isKeyboardFocused {
-      layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.34).cgColor
-      layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.52).cgColor
+      layer?.backgroundColor = color.withAlphaComponent(0.09).cgColor
+      layer?.borderColor = color.withAlphaComponent(0.44).cgColor
     } else {
       layer?.backgroundColor = NSColor.clear.cgColor
       layer?.borderColor = NSColor.clear.cgColor
@@ -2317,6 +2352,10 @@ private final class CollectionChipView: NSView {
 
   var debugCountLabelIsHidden: Bool {
     countLabel.isHidden
+  }
+
+  var debugLeadingSymbolName: String {
+    symbolName ?? ""
   }
 
   func debugDropItem(_ itemID: UUID) {

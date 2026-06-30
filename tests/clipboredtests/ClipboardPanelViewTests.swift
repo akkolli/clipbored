@@ -229,6 +229,10 @@ final class ClipboardPanelViewTests: XCTestCase {
       fixture.view.debugCollectionTitles,
       ["Clipboard", "Frequent", "Text", "Links", "Images", "Audio", "Files", "Pinned"]
     )
+    XCTAssertEqual(
+      fixture.view.debugCollectionLeadingSymbols,
+      ["doc.on.clipboard", "chart.bar.fill", "text.alignleft", "link", "photo", "music.note", "doc.fill", "pin.fill"]
+    )
     XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Clipboard")
 
     fixture.viewModel.sortMode = .links
