@@ -1320,6 +1320,39 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     return ClipboardSortMode.allCases.compactMap { collectionButtons[$0]?.count }
   }
 
+  var debugCollectionChipAccessibilityLabels: [String] {
+    updateCollectionButtons()
+    return ClipboardSortMode.allCases.compactMap { collectionButtons[$0]?.accessibilityLabel() }
+  }
+
+  var debugCollectionChipAcceptsFirstResponder: [Bool] {
+    ClipboardSortMode.allCases.compactMap { collectionButtons[$0]?.acceptsFirstResponder }
+  }
+
+  func debugFocusCollectionChip(_ mode: ClipboardSortMode) -> Bool {
+    guard let chip = collectionButtons[mode] else { return false }
+    return window?.makeFirstResponder(chip) ?? false
+  }
+
+  func debugPressFocusedResponderWithSpace() {
+    guard let window,
+          let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: " ",
+            charactersIgnoringModifiers: " ",
+            isARepeat: false,
+            keyCode: 49
+          ) else {
+      return
+    }
+    window.firstResponder?.keyDown(with: event)
+  }
+
   var debugCustomCollectionTitles: [String] {
     viewModel.collectionNames
   }
@@ -1613,6 +1646,7 @@ private final class CollectionChipView: NSView {
   private let countLabel = NSTextField(labelWithString: "0")
   private(set) var isSelected = false
   private(set) var count = 0
+  private var isKeyboardFocused = false
   private var isDropTargeted = false
   var onPress: () -> Void = {}
   var onDropItem: ((UUID) -> Void)?
@@ -1633,12 +1667,13 @@ private final class CollectionChipView: NSView {
 
   private func configure() {
     wantsLayer = true
+    focusRingType = .default
     layer?.cornerRadius = 13
     layer?.borderWidth = 0.6
     layer?.borderColor = NSColor.clear.cgColor
     setAccessibilityElement(true)
     setAccessibilityRole(.button)
-    setAccessibilityLabel(titleText)
+    setAccessibilityHelp("Press Return or Space to show \(titleText)")
     heightAnchor.constraint(equalToConstant: 26).isActive = true
     registerForDraggedTypes(ClipboardItemDragPasteboard.acceptedTypes)
 
@@ -1681,7 +1716,6 @@ private final class CollectionChipView: NSView {
       widthAnchor.constraint(greaterThanOrEqualToConstant: 70),
       widthAnchor.constraint(lessThanOrEqualToConstant: 164)
     ])
-    setAccessibilityLabel("\(titleText), count: \(count)")
     setSelected(false)
   }
 
@@ -1694,6 +1728,7 @@ private final class CollectionChipView: NSView {
       ? NSColor.controlAccentColor.withAlphaComponent(0.16)
       : NSColor.labelColor.withAlphaComponent(0.07)
     ).cgColor
+    updateAccessibility()
     updateChrome()
   }
 
@@ -1709,7 +1744,10 @@ private final class CollectionChipView: NSView {
       layer?.borderColor = color.withAlphaComponent(0.68).cgColor
     } else if isSelected {
       layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.58).cgColor
-      layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.34).cgColor
+      layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(isKeyboardFocused ? 0.74 : 0.34).cgColor
+    } else if isKeyboardFocused {
+      layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.34).cgColor
+      layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.52).cgColor
     } else {
       layer?.backgroundColor = NSColor.clear.cgColor
       layer?.borderColor = NSColor.clear.cgColor
@@ -1719,9 +1757,32 @@ private final class CollectionChipView: NSView {
   func setCount(_ count: Int) {
     self.count = count
     countLabel.stringValue = count > 999 ? "999+" : "\(count)"
-    setAccessibilityLabel("\(titleText), \(count) \(count == 1 ? "clip" : "clips")")
+    updateAccessibility()
+  }
+
+  private func updateAccessibility() {
+    let noun = count == 1 ? "clip" : "clips"
+    let selectedText = isSelected ? "selected, " : ""
+    setAccessibilityLabel("\(titleText), \(selectedText)\(count) \(noun)")
     setAccessibilityValue("\(count)")
-    toolTip = "\(titleText), \(count) \(count == 1 ? "clip" : "clips")"
+    setAccessibilityHelp("Press Return or Space to show \(titleText)")
+    toolTip = "\(titleText), \(selectedText)\(count) \(noun)"
+  }
+
+  override var acceptsFirstResponder: Bool {
+    true
+  }
+
+  override func becomeFirstResponder() -> Bool {
+    isKeyboardFocused = true
+    updateChrome()
+    return true
+  }
+
+  override func resignFirstResponder() -> Bool {
+    isKeyboardFocused = false
+    updateChrome()
+    return true
   }
 
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
@@ -1730,6 +1791,20 @@ private final class CollectionChipView: NSView {
 
   override func mouseDown(with event: NSEvent) {
     onPress()
+  }
+
+  override func keyDown(with event: NSEvent) {
+    switch event.keyCode {
+    case 36, 49:
+      onPress()
+    default:
+      super.keyDown(with: event)
+    }
+  }
+
+  override func accessibilityPerformPress() -> Bool {
+    onPress()
+    return true
   }
 
   override func menu(for event: NSEvent) -> NSMenu? {

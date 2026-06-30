@@ -184,6 +184,22 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Links")
   }
 
+  func testCollectionRailChipsAreKeyboardFocusableAndVoiceOverDescriptive() {
+    let fixture = makePanelFixture()
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCollectionChipAcceptsFirstResponder, Array(repeating: true, count: ClipboardSortMode.allCases.count))
+    XCTAssertEqual(fixture.view.debugCollectionChipAccessibilityLabels.first, "Clipboard, selected, 0 clips")
+
+    XCTAssertTrue(fixture.view.debugFocusCollectionChip(.links))
+    fixture.view.debugPressFocusedResponderWithSpace()
+    drainMainQueue()
+
+    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Links")
+    XCTAssertTrue(fixture.view.debugCollectionChipAccessibilityLabels.contains("Links, selected, 0 clips"))
+  }
+
   func testCollectionRailAddButtonCreatesEmptyCollection() {
     let fixture = makePanelFixture()
 
