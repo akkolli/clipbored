@@ -106,6 +106,33 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertFalse(fixture.view.debugStatusText.contains("Enter paste"))
   }
 
+  func testCardFooterHidesMissingSourceInsteadOfShowingUnknown() {
+    let fixture = makePanelFixture()
+    var item = makeTextItem("No source noise", store: fixture.store)
+    item.sourceApp = nil
+
+    fixture.store.upsert(item)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.debugFirstCardFooterSourceIsHidden)
+    XCTAssertEqual(fixture.view.debugFirstCardFooterSourceText, "")
+    XCTAssertEqual(fixture.view.debugFirstCardFooterDetailText, "15 characters")
+  }
+
+  func testCardFooterShowsSourceAndUsageWhenUsed() {
+    let fixture = makePanelFixture()
+    var item = makeTextItem("Frequently pasted", store: fixture.store)
+    item.useCount = 3
+
+    fixture.store.upsert(item)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertFalse(fixture.view.debugFirstCardFooterSourceIsHidden)
+    XCTAssertEqual(fixture.view.debugFirstCardFooterSourceText, "Ghostty - Used 3 times")
+  }
+
   func testEditedTextStatusUsesActionTone() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Editable footer item", store: fixture.store))

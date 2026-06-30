@@ -1370,6 +1370,14 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     cardViews.first?.debugFooterDetailText ?? ""
   }
 
+  var debugFirstCardFooterSourceText: String {
+    cardViews.first?.debugFooterSourceText ?? ""
+  }
+
+  var debugFirstCardFooterSourceIsHidden: Bool {
+    cardViews.first?.debugFooterSourceIsHidden ?? true
+  }
+
   var debugQuickPasteBadgeTexts: [String] {
     cardViews.compactMap(\.debugQuickPasteBadgeText)
   }
@@ -2401,6 +2409,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private let activeCollectionColor: NSColor?
   private let collectionNames: [String]
   private let contentView = NSView()
+  private let footerSourceLabel = NSTextField(labelWithString: "")
   private let footerDetailLabel = NSTextField(labelWithString: "")
   private let actionRail = NSStackView()
   private var actionRailButtons: [NSButton] = []
@@ -2695,6 +2704,14 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   var debugFooterDetailText: String {
     footerDetailLabel.stringValue
+  }
+
+  var debugFooterSourceText: String {
+    footerSourceLabel.stringValue
+  }
+
+  var debugFooterSourceIsHidden: Bool {
+    footerSourceLabel.isHidden
   }
 
   var debugItemID: UUID {
@@ -3786,12 +3803,14 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     footer.layer?.backgroundColor = Palette.footerBackground
     footer.heightAnchor.constraint(equalToConstant: layout.footerHeight).isActive = true
 
-    let source = NSTextField(labelWithString: sourceText(for: item))
-    source.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
-    source.textColor = .secondaryLabelColor
-    source.lineBreakMode = .byTruncatingTail
-    source.maximumNumberOfLines = 1
-    source.toolTip = source.stringValue
+    let sourceText = footerSourceText(for: item)
+    footerSourceLabel.stringValue = sourceText ?? ""
+    footerSourceLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+    footerSourceLabel.textColor = .secondaryLabelColor
+    footerSourceLabel.lineBreakMode = .byTruncatingTail
+    footerSourceLabel.maximumNumberOfLines = 1
+    footerSourceLabel.toolTip = footerSourceLabel.stringValue
+    footerSourceLabel.isHidden = sourceText == nil
 
     let detailText = detailMetricText(for: item)
     if activeCollectionName == nil,
@@ -3814,12 +3833,12 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     divider.wantsLayer = true
     divider.layer?.backgroundColor = Palette.divider
     divider.translatesAutoresizingMaskIntoConstraints = false
-    let stack = row([source, footerDetailLabel])
+    let stack = row([footerSourceLabel, footerDetailLabel])
     stack.distribution = .fill
     stack.alignment = .centerY
     stack.translatesAutoresizingMaskIntoConstraints = false
-    source.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    source.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    footerSourceLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    footerSourceLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     footerDetailLabel.setContentHuggingPriority(.required, for: .horizontal)
     footerDetailLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
     footer.addSubview(divider)
@@ -3989,8 +4008,21 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     }
   }
 
-  private func sourceText(for item: ClipboardItem) -> String {
-    item.sourceApp?.clipboardTrimmed.isEmpty == false ? item.sourceApp! : "Unknown"
+  private func footerSourceText(for item: ClipboardItem) -> String? {
+    let source = item.sourceApp?.clipboardTrimmed
+    let usage = usageText(for: item.useCount)
+    if let source, !source.isEmpty, let usage {
+      return "\(source) - \(usage)"
+    }
+    if let source, !source.isEmpty {
+      return source
+    }
+    return usage
+  }
+
+  private func usageText(for useCount: Int) -> String? {
+    guard useCount > 0 else { return nil }
+    return useCount == 1 ? "Used once" : "Used \(useCount) times"
   }
 
   private func linkTitle(for item: ClipboardItem) -> String {

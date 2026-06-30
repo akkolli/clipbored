@@ -55,6 +55,7 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 22. Drag an unassigned card onto the renamed collection chip and confirm the chip count increases and the card appears when that collection is selected.
 23. Resize or test on a narrow display and confirm the bottom shelf switches to compact cards that still show two recent clips cleanly.
 24. Select a file, rich text, or URL card and confirm the selected-card rail exposes `Paste Plain Text`, the corner source/kind badge remains visible, and on a narrow shelf secondary actions collapse behind `More` instead of overflowing the card.
+25. Confirm card footers do not show `Unknown` for clips without a source app, and confirm used clips show their usage count beside the source app.
 
 ## Copy And Paste
 
