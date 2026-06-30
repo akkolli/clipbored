@@ -38,20 +38,21 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 5. Use arrow keys to move selection while the search field is focused.
 6. Tab to collection chips and press `Space` or `Return`; confirm the focused chip is selected and the visible focus state is clear.
 7. Tab to cards; confirm the focused card gets a clear focus border, `Return` pastes or copies it, and `Space` opens Quick Look for previewable clips.
-8. Use a mouse wheel or two-finger vertical scroll over the card shelf and a crowded collection rail; confirm each pans horizontally, clamps at both ends, and shows subtle edge fades only where more content is hidden.
-9. Right-click a filtered result and choose Show in Clipboard, or press `Command + G`, and confirm search clears while the same card stays selected in Most Recent.
-10. Press `Esc` once with a non-empty search field and confirm search clears.
-11. Press `Esc` again and confirm the panel closes.
-12. Reopen the panel, change sort segments, and confirm each segment updates results.
-13. Press `Shift + Command + N` or the collection rail `+`, enter `Client Work`, choose a color, and confirm a Client Work chip appears with 0 clips and an empty collection view.
-14. Return to Clipboard, select a card, use its Collect button to choose Client Work, and confirm the Client Work chip count increases.
-15. Select the Client Work chip and confirm the rail filters to assigned items, cards use the Client Work name/color in their headers, and the collection/color/assignment persists after quitting and reopening ClipBored.
-16. Right-click the Client Work chip, choose Edit Collection..., rename it, change its color, and confirm the chip and assigned card headers update.
-17. Right-click a media, file, link, PDF, audio, or text card, choose Rename..., give it a title, and confirm the card title and search results use the custom title while paste/copy still uses the original payload.
-18. Double-click an item and confirm it attempts to paste or falls back to copy without creating a duplicate history entry.
-19. Right-click a card, use Capture Rules to ignore its source app, copy from that app again, and confirm the new item is skipped.
-20. Drag an unassigned card onto the renamed collection chip and confirm the chip count increases and the card appears when that collection is selected.
-21. Resize or test on a narrow display and confirm the bottom shelf switches to compact cards that still show two recent clips cleanly.
+8. With a card focused, use Left/Right, Page Up/Page Down, Home, and End; confirm selection and focus move together across the shelf.
+9. Use a mouse wheel or two-finger vertical scroll over the card shelf and a crowded collection rail; confirm each pans horizontally, clamps at both ends, and shows subtle edge fades only where more content is hidden.
+10. Right-click a filtered result and choose Show in Clipboard, or press `Command + G`, and confirm search clears while the same card stays selected in Most Recent.
+11. Press `Esc` once with a non-empty search field and confirm search clears.
+12. Press `Esc` again and confirm the panel closes.
+13. Reopen the panel, change sort segments, and confirm each segment updates results.
+14. Press `Shift + Command + N` or the collection rail `+`, enter `Client Work`, choose a color, and confirm a Client Work chip appears with 0 clips and an empty collection view.
+15. Return to Clipboard, select a card, use its Collect button to choose Client Work, and confirm the Client Work chip count increases.
+16. Select the Client Work chip and confirm the rail filters to assigned items, cards use the Client Work name/color in their headers, and the collection/color/assignment persists after quitting and reopening ClipBored.
+17. Right-click the Client Work chip, choose Edit Collection..., rename it, change its color, and confirm the chip and assigned card headers update.
+18. Right-click a media, file, link, PDF, audio, or text card, choose Rename..., give it a title, and confirm the card title and search results use the custom title while paste/copy still uses the original payload.
+19. Double-click an item and confirm it attempts to paste or falls back to copy without creating a duplicate history entry.
+20. Right-click a card, use Capture Rules to ignore its source app, copy from that app again, and confirm the new item is skipped.
+21. Drag an unassigned card onto the renamed collection chip and confirm the chip count increases and the card appears when that collection is selected.
+22. Resize or test on a narrow display and confirm the bottom shelf switches to compact cards that still show two recent clips cleanly.
 
 ## Copy And Paste
 

@@ -26,6 +26,15 @@ enum ClipboardPanelShortcutAction: Equatable {
   case toggleStack
 }
 
+enum ClipboardPanelNavigationAction: Equatable {
+  case first
+  case last
+  case next
+  case pageNext
+  case pagePrevious
+  case previous
+}
+
 final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
   private enum Animation {
     static let showDuration: TimeInterval = 0.16
@@ -375,6 +384,10 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
         return nil
       }
       guard self.shouldHandlePanelKeyEvent(event) else { return event }
+      if let action = Self.navigationShortcutAction(forKeyCode: event.keyCode, modifiers: event.modifierFlags) {
+        self.performNavigationAction(action)
+        return nil
+      }
       switch event.keyCode {
       case 53:
         self.hide()
@@ -388,12 +401,6 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
       case 51, 117:
         self.viewModel.deleteSelected()
         return nil
-      case 123:
-        self.viewModel.moveSelection(-1)
-        return nil
-      case 124:
-        self.viewModel.moveSelection(1)
-        return nil
       case 35:
         self.viewModel.togglePinSelected()
         return nil
@@ -401,6 +408,24 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
         return event
       }
     }
+  }
+
+  private func performNavigationAction(_ action: ClipboardPanelNavigationAction) {
+    switch action {
+    case .first:
+      viewModel.selectFirstItem()
+    case .last:
+      viewModel.selectLastItem()
+    case .next:
+      viewModel.moveSelection(1)
+    case .pageNext:
+      viewModel.moveSelection(panelView.visibleCardPageStep)
+    case .pagePrevious:
+      viewModel.moveSelection(-panelView.visibleCardPageStep)
+    case .previous:
+      viewModel.moveSelection(-1)
+    }
+    panelView.focusSelectedCardForKeyboardNavigation()
   }
 
   private func performShortcutAction(_ action: ClipboardPanelShortcutAction) {
@@ -465,6 +490,20 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
     guard relevantModifiers == .command else { return nil }
     return quickPasteKeyCodes[keyCode]
+  }
+
+  static func navigationShortcutAction(forKeyCode keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> ClipboardPanelNavigationAction? {
+    let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
+    guard relevantModifiers.isEmpty else { return nil }
+    switch keyCode {
+    case 115: return .first
+    case 119: return .last
+    case 124: return .next
+    case 121: return .pageNext
+    case 116: return .pagePrevious
+    case 123: return .previous
+    default: return nil
+    }
   }
 
   static func quickPastePlainTextIndex(forKeyCode keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Int? {

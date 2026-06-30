@@ -722,6 +722,19 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
         card.onSelect = { [weak self] selected in
           self?.viewModel.selectItem(at: selected)
         }
+        card.onMoveSelection = { [weak self] delta in
+          self?.moveSelectionFromFocusedCard(delta)
+        }
+        card.onPageSelection = { [weak self] direction in
+          guard let self else { return }
+          self.moveSelectionFromFocusedCard(direction * self.visibleCardPageStep)
+        }
+        card.onSelectFirst = { [weak self] in
+          self?.selectFirstCardFromFocusedCard()
+        }
+        card.onSelectLast = { [weak self] in
+          self?.selectLastCardFromFocusedCard()
+        }
         card.onPaste = { [weak self] selected in
           self?.viewModel.selectItem(at: selected)
           self?.viewModel.pasteSelected()
@@ -1156,6 +1169,16 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     needsLayout = true
   }
 
+  var visibleCardPageStep: Int {
+    let span = cardDensity.layout.width + cardDensity.cardSpacing
+    guard span > 0 else { return 1 }
+    return max(1, Int(floor(scrollView.contentView.bounds.width / span)))
+  }
+
+  func focusSelectedCardForKeyboardNavigation() {
+    focusSelectedCard()
+  }
+
   func prepareForShow() {
     if !searchField.stringValue.isEmpty {
       searchField.stringValue = ""
@@ -1283,6 +1306,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     scrollView.documentView?.frame.width ?? 0
   }
 
+  var debugVisibleCardPageStep: Int {
+    visibleCardPageStep
+  }
+
   var debugCardRailOverflowFadeVisibility: [Bool] {
     scrollView.overflowFadeVisibility
   }
@@ -1379,6 +1406,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   func debugPressFocusedResponderWithSpace() {
     debugPressFocusedResponder(characters: " ", keyCode: 49)
+  }
+
+  func debugPressFocusedResponderKeyCode(_ keyCode: UInt16) {
+    debugPressFocusedResponder(characters: "", keyCode: keyCode)
   }
 
   private func debugPressFocusedResponder(characters: String, keyCode: UInt16) {
@@ -1545,6 +1576,29 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   private func updateSearchText() {
     viewModel.searchText = searchField.stringValue
+  }
+
+  private func moveSelectionFromFocusedCard(_ delta: Int) {
+    viewModel.moveSelection(delta)
+    focusSelectedCard()
+  }
+
+  private func selectFirstCardFromFocusedCard() {
+    viewModel.selectFirstItem()
+    focusSelectedCard()
+  }
+
+  private func selectLastCardFromFocusedCard() {
+    viewModel.selectLastItem()
+    focusSelectedCard()
+  }
+
+  private func focusSelectedCard() {
+    guard viewModel.selectedIndex >= 0,
+          viewModel.selectedIndex < cardViews.count else {
+      return
+    }
+    window?.makeFirstResponder(cardViews[viewModel.selectedIndex])
   }
 
   @objc private func closePanel() {
@@ -2148,6 +2202,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   }
 
   var onSelect: (Int) -> Void = { _ in }
+  var onMoveSelection: (Int) -> Void = { _ in }
+  var onPageSelection: (Int) -> Void = { _ in }
+  var onSelectFirst: () -> Void = {}
+  var onSelectLast: () -> Void = {}
   var onPaste: (Int) -> Void = { _ in }
   var onCopy: (Int) -> Void = { _ in }
   var onPastePlainText: (Int) -> Void = { _ in }
@@ -2289,6 +2347,18 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       } else {
         onPaste(index)
       }
+    case 115:
+      onSelectFirst()
+    case 116:
+      onPageSelection(-1)
+    case 119:
+      onSelectLast()
+    case 121:
+      onPageSelection(1)
+    case 123:
+      onMoveSelection(-1)
+    case 124:
+      onMoveSelection(1)
     default:
       super.keyDown(with: event)
     }

@@ -172,6 +172,21 @@ final class ClipboardPanelControllerTests: XCTestCase {
     XCTAssertFalse(ClipboardPanelController.searchFieldPreviewShortcut(forKeyCode: 36, modifiers: [], searchText: ""))
   }
 
+  func testNavigationShortcutsMapToShelfMovement() {
+    XCTAssertEqual(ClipboardPanelController.navigationShortcutAction(forKeyCode: 115, modifiers: []), .first)
+    XCTAssertEqual(ClipboardPanelController.navigationShortcutAction(forKeyCode: 119, modifiers: []), .last)
+    XCTAssertEqual(ClipboardPanelController.navigationShortcutAction(forKeyCode: 124, modifiers: []), .next)
+    XCTAssertEqual(ClipboardPanelController.navigationShortcutAction(forKeyCode: 121, modifiers: []), .pageNext)
+    XCTAssertEqual(ClipboardPanelController.navigationShortcutAction(forKeyCode: 116, modifiers: []), .pagePrevious)
+    XCTAssertEqual(ClipboardPanelController.navigationShortcutAction(forKeyCode: 123, modifiers: []), .previous)
+  }
+
+  func testNavigationShortcutsRequireNoModifiers() {
+    XCTAssertNil(ClipboardPanelController.navigationShortcutAction(forKeyCode: 124, modifiers: .command))
+    XCTAssertNil(ClipboardPanelController.navigationShortcutAction(forKeyCode: 121, modifiers: .shift))
+    XCTAssertNil(ClipboardPanelController.navigationShortcutAction(forKeyCode: 35, modifiers: []))
+  }
+
   func testCommandActionShortcutsMapToSelectedClipActions() {
     XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 8, modifiers: .command), .copy)
     XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 5, modifiers: .command), .showInClipboard)

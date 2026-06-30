@@ -211,6 +211,17 @@ final class ClipboardPanelViewModel {
     }
   }
 
+  func selectLastItem() {
+    guard !visibleItems.isEmpty else { return }
+    selectedItemID = nil
+    let lastIndex = visibleItems.count - 1
+    if selectedIndex == lastIndex {
+      notifyMain { self.onSelectedIndexChanged?(self.selectedIndex) }
+    } else {
+      selectedIndex = lastIndex
+    }
+  }
+
   func moveSelection(_ delta: Int) {
     let count = visibleItems.count
     guard count > 0 else { return }

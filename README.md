@@ -17,6 +17,7 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
   - `Space` previews the selected card when the focused search field is empty
 - Clipboard history for text, URLs with local preview thumbnails when available, images, audio, RTF/HTML rich text, PDFs, and file references
 - Keyboard-focusable cards with Return-to-paste, Space-to-preview for Quick Look capable clips, vertical wheel/trackpad panning and overflow edge fades in horizontal rails, visible focus chrome, and VoiceOver action hints
+- Shelf navigation keys for focused cards: Left/Right, Page Up/Page Down, Home, and End
 - SQLite persistence with bounded history, pinned-item retention, and encrypted app-managed payloads
 - Search with independent token matching, structured filters such as `app:Safari`, `type:image,pdf`, `pinboard:"Client Work","Read Later"`, `date:2026-06-30`, result jump-back to full history, and optional local OCR for copied images
 - Sort modes for recent, most used, images, links, text, files, audio, and pinned items

@@ -475,6 +475,23 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(viewModel.selectedItem?.payload, "newer")
   }
 
+  func testSelectLastItemSelectsLastVisibleItem() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    store.upsert(makeTextItem("older", createdAt: Date(timeIntervalSince1970: 100)))
+    store.upsert(makeTextItem("newer", createdAt: Date(timeIntervalSince1970: 200)))
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 2)
+
+    viewModel.selectFirstItem()
+    viewModel.selectLastItem()
+
+    XCTAssertEqual(viewModel.selectedItem?.payload, "older")
+  }
+
   func testSelectFirstItemPrefersLatestOnSubsequentUpdates() {
     let settings = makeSettings()
     let cacheService = makeCacheService()

@@ -340,6 +340,54 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.viewModel.selectedItem?.payload, "https://example.com/read")
   }
 
+  func testFocusedCardsSupportShelfNavigationKeys() {
+    let fixture = makePanelFixture()
+    fixture.window.setFrame(NSRect(x: 0, y: 0, width: 620, height: 520), display: true)
+
+    for index in 0..<8 {
+      fixture.store.upsert(makeTextItem("Keyboard navigation item \(index)", store: fixture.store))
+      drainMainQueue()
+    }
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+    fixture.viewModel.selectFirstItem()
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    let pageStep = fixture.view.debugVisibleCardPageStep
+    XCTAssertGreaterThan(pageStep, 1)
+    XCTAssertTrue(fixture.view.debugFocusCard(at: 0))
+
+    fixture.view.debugPressFocusedResponderKeyCode(124)
+    drainMainQueue()
+    XCTAssertEqual(fixture.viewModel.selectedIndex, 1)
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [1])
+
+    fixture.view.debugPressFocusedResponderKeyCode(121)
+    drainMainQueue()
+    XCTAssertEqual(fixture.viewModel.selectedIndex, min(7, 1 + pageStep))
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [fixture.viewModel.selectedIndex])
+
+    fixture.view.debugPressFocusedResponderKeyCode(119)
+    drainMainQueue()
+    XCTAssertEqual(fixture.viewModel.selectedIndex, 7)
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [7])
+
+    fixture.view.debugPressFocusedResponderKeyCode(116)
+    drainMainQueue()
+    XCTAssertEqual(fixture.viewModel.selectedIndex, max(0, 7 - pageStep))
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [fixture.viewModel.selectedIndex])
+
+    fixture.view.debugPressFocusedResponderKeyCode(115)
+    drainMainQueue()
+    XCTAssertEqual(fixture.viewModel.selectedIndex, 0)
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [0])
+
+    fixture.view.debugPressFocusedResponderKeyCode(123)
+    drainMainQueue()
+    XCTAssertEqual(fixture.viewModel.selectedIndex, 0)
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [0])
+  }
+
   func testCardHeaderUsesKindSymbolBadgeWhenSourceIconIsUnavailable() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeItem(kind: .url, text: "https://example.com", store: fixture.store))
