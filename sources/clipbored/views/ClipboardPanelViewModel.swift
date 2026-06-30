@@ -15,6 +15,7 @@ final class ClipboardPanelViewModel {
   var sortMode: ClipboardSortMode {
     didSet {
       guard oldValue != sortMode else { return }
+      isStackFilterSelected = false
       selectedCollectionName = nil
       settings.defaultSortMode = sortMode
       recomputeVisibleItems()
@@ -26,6 +27,13 @@ final class ClipboardPanelViewModel {
       guard oldValue != selectedCollectionName else { return }
       recomputeVisibleItems()
       onCollectionsChanged?()
+    }
+  }
+  private(set) var isStackFilterSelected = false {
+    didSet {
+      guard oldValue != isStackFilterSelected else { return }
+      recomputeVisibleItems()
+      onStackChanged?()
     }
   }
   var selectedIndex: Int = 0 {
@@ -94,6 +102,10 @@ final class ClipboardPanelViewModel {
 
   var stackCount: Int {
     stackItemIDs.count
+  }
+
+  var stackTitle: String {
+    "Stack"
   }
 
   var collectionNames: [String] {
@@ -216,12 +228,24 @@ final class ClipboardPanelViewModel {
     statusMessage = "Added to Stack"
   }
 
+  func selectStack() {
+    guard !stackItemIDs.isEmpty else { return }
+    selectedCollectionName = nil
+    isStackFilterSelected = true
+  }
+
+  func clearStackSelection() {
+    guard isStackFilterSelected else { return }
+    isStackFilterSelected = false
+  }
+
   func clearStack() {
     guard !stackItemIDs.isEmpty else {
       statusMessage = "Stack is empty"
       return
     }
     stackItemIDs.removeAll()
+    isStackFilterSelected = false
     statusMessage = "Cleared Stack"
   }
 
@@ -363,6 +387,7 @@ final class ClipboardPanelViewModel {
 
   func selectCollection(named name: String) {
     guard let normalizedName = ClipboardCollectionDefaults.normalizedName(name) else { return }
+    isStackFilterSelected = false
     selectedCollectionName = normalizedName
   }
 
@@ -374,7 +399,14 @@ final class ClipboardPanelViewModel {
     pruneStackItems()
     let previousSelection = selectedItemID
     let query = searchText.clipboardTrimmed.lowercased()
-    visibleItems = computeVisibleItems(from: items, query: query, sortMode: sortMode, collectionName: selectedCollectionName)
+    if isStackFilterSelected {
+      let stackedItems = stackItemIDs.compactMap { id in
+        items.first { $0.id == id }
+      }
+      visibleItems = computeStackVisibleItems(from: stackedItems, query: query)
+    } else {
+      visibleItems = computeVisibleItems(from: items, query: query, sortMode: sortMode, collectionName: selectedCollectionName)
+    }
 
     if let selectedID = previousSelection, let index = visibleItems.firstIndex(where: { $0.id == selectedID }) {
       selectedIndex = index
@@ -431,6 +463,18 @@ final class ClipboardPanelViewModel {
     let pruned = stackItemIDs.filter { existingIDs.contains($0) }
     if pruned != stackItemIDs {
       stackItemIDs = pruned
+    }
+    if stackItemIDs.isEmpty && isStackFilterSelected {
+      isStackFilterSelected = false
+    }
+  }
+
+  private func computeStackVisibleItems(from items: [ClipboardItem], query: String) -> [ClipboardItem] {
+    let tokens = searchTokens(from: query.lowercased())
+    guard !tokens.isEmpty else { return items }
+    return items.filter { item in
+      let text = searchableText(for: item)
+      return tokens.allSatisfy { text.contains($0) }
     }
   }
 

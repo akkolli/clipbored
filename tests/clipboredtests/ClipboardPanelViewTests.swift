@@ -370,6 +370,42 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Remove from Stack", "Edit", "Delete"])
   }
 
+  func testStackChipAppearsFiltersAndClearsWithStack() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("First stack chip item", store: fixture.store))
+    fixture.store.upsert(makeTextItem("Second stack chip item", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertFalse(fixture.view.debugStackChipIsVisible)
+
+    fixture.viewModel.selectItem(at: 1)
+    fixture.viewModel.toggleSelectedStackMembership()
+    fixture.viewModel.selectItem(at: 0)
+    fixture.viewModel.toggleSelectedStackMembership()
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.debugStackChipIsVisible)
+    XCTAssertEqual(fixture.view.debugStackChipCount, 2)
+    XCTAssertFalse(fixture.view.debugStackChipIsSelected)
+
+    fixture.view.debugPressStackChip()
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Stack")
+    XCTAssertTrue(fixture.view.debugStackChipIsSelected)
+    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["First stack chip item", "Second stack chip item"])
+
+    fixture.viewModel.clearStack()
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertFalse(fixture.view.debugStackChipIsVisible)
+    XCTAssertEqual(fixture.view.debugStackChipCount, 0)
+  }
+
   func testCollectionMenuOffersExistingCustomCollections() {
     let fixture = makePanelFixture()
     var existing = makeTextItem("Existing client note", store: fixture.store)

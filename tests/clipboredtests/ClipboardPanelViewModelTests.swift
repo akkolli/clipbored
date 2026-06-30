@@ -367,6 +367,40 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(viewModel.statusMessage, "Cleared Stack")
   }
 
+  func testSelectingStackFiltersVisibleItemsInQueueOrder() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    let first = makeTextItem("first queue note", createdAt: Date(timeIntervalSince1970: 100))
+    let second = makeTextItem("second queue note", createdAt: Date(timeIntervalSince1970: 200))
+    let outside = makeTextItem("outside note", createdAt: Date(timeIntervalSince1970: 300))
+    store.upsert(first)
+    store.upsert(second)
+    store.upsert(outside)
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 3)
+    XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["outside note", "second queue note", "first queue note"])
+
+    viewModel.selectItem(at: 2)
+    viewModel.toggleSelectedStackMembership()
+    viewModel.selectItem(at: 1)
+    viewModel.toggleSelectedStackMembership()
+    viewModel.selectStack()
+
+    XCTAssertTrue(viewModel.isStackFilterSelected)
+    XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["first queue note", "second queue note"])
+
+    viewModel.searchText = "second"
+    XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["second queue note"])
+
+    viewModel.clearSearch()
+    viewModel.sortMode = .text
+    XCTAssertFalse(viewModel.isStackFilterSelected)
+    XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["outside note", "second queue note", "first queue note"])
+  }
+
   func testUpdateSelectedTextRefreshesVisibleItemAndSearch() {
     let settings = makeSettings()
     let cacheService = makeCacheService()

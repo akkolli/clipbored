@@ -56,6 +56,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private let collectionScrollView = NSScrollView()
   private let collectionStack = NSStackView()
   private let addCollectionButton = NSButton()
+  private let stackChip = CollectionChipView(title: "Stack", color: .systemGreen)
   private let itemsStack = NSStackView()
   private let scrollView = NSScrollView()
   private let statusLabel = NSTextField(labelWithString: "")
@@ -326,6 +327,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     viewModel.onStackChanged = { [weak self] in
       self?.reloadItems()
       self?.updateSelection()
+      self?.configureCollectionButtons()
       self?.updateStatus(self?.viewModel.statusMessage ?? "")
     }
     viewModel.onCaptureStatusChanged = { [weak self] in
@@ -390,9 +392,20 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       customCollectionButtons[collectionName] = chip
       collectionStack.addArrangedSubview(chip)
     }
+    configureStackChip()
     collectionStack.addArrangedSubview(addCollectionButton)
     updateAddCollectionButtonState()
     sizeCollectionDocument()
+  }
+
+  private func configureStackChip() {
+    stackChip.toolTip = "Queued clips"
+    stackChip.onPress = { [weak self] in
+      self?.viewModel.selectStack()
+    }
+    if viewModel.stackCount > 0 {
+      collectionStack.addArrangedSubview(stackChip)
+    }
   }
 
   private func configureAddCollectionButton() {
@@ -845,6 +858,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       chip.setSelected(viewModel.selectedCollectionName == name)
       chip.setCount(viewModel.collectionCount(named: name))
     }
+    stackChip.setSelected(viewModel.isStackFilterSelected)
+    stackChip.setCount(viewModel.stackCount)
     sizeCollectionDocument()
   }
 
@@ -1028,7 +1043,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   var debugSelectedCollectionTitle: String? {
-    collectionButtons.first(where: { $0.value.isSelected })?.value.titleText
+    if stackChip.isSelected {
+      return stackChip.titleText
+    }
+    return collectionButtons.first(where: { $0.value.isSelected })?.value.titleText
   }
 
   var debugCollectionCounts: [Int] {
@@ -1043,6 +1061,23 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   var debugCustomCollectionCounts: [Int] {
     updateCollectionButtons()
     return viewModel.collectionNames.compactMap { customCollectionButtons[$0]?.count }
+  }
+
+  var debugStackChipIsVisible: Bool {
+    collectionStack.arrangedSubviews.contains(stackChip)
+  }
+
+  var debugStackChipCount: Int {
+    updateCollectionButtons()
+    return stackChip.count
+  }
+
+  var debugStackChipIsSelected: Bool {
+    stackChip.isSelected
+  }
+
+  func debugPressStackChip() {
+    stackChip.onPress()
   }
 
   var debugCollectionRailVisibleWidth: CGFloat {
