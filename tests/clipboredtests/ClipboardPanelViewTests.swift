@@ -419,6 +419,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
   func testCollectionRailUsesScrollableDocumentForCrowdedCustomCollections() {
     let fixture = makePanelFixture()
+    fixture.window.setFrame(NSRect(x: 0, y: 0, width: 620, height: 520), display: true)
     let names = [
       "Client Work",
       "Research Archive",
@@ -445,6 +446,17 @@ final class ClipboardPanelViewTests: XCTestCase {
     )
     XCTAssertTrue(fixture.view.debugCustomCollectionTitles.contains("Client Work"))
     XCTAssertTrue(fixture.view.debugCustomCollectionTitles.contains("Product References"))
+
+    XCTAssertEqual(fixture.view.debugCollectionRailVisibleRect.minX, 0, accuracy: 0.5)
+    fixture.view.debugScrollCollectionRailVertically(deltaY: -220)
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertGreaterThan(fixture.view.debugCollectionRailVisibleRect.minX, 0)
+
+    fixture.view.debugScrollCollectionRailVertically(deltaY: 10_000)
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCollectionRailVisibleRect.minX, 0, accuracy: 0.5)
   }
 
   func testSelectionScrollsCardRailToKeepSelectedCardVisible() {
@@ -477,6 +489,42 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertLessThanOrEqual(fixture.view.debugCardRailVisibleRect.minX, 1)
+  }
+
+  func testVerticalWheelPansHorizontalCardRailAndClamps() {
+    let fixture = makePanelFixture()
+    fixture.window.setFrame(NSRect(x: 0, y: 0, width: 620, height: 520), display: true)
+
+    for index in 0..<8 {
+      fixture.store.upsert(makeTextItem("Wheel scroll item \(index)", store: fixture.store))
+      drainMainQueue()
+    }
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+    fixture.viewModel.selectItem(at: 0)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertGreaterThan(
+      fixture.view.debugCardRailDocumentWidth,
+      fixture.view.debugCardRailVisibleRect.width + 1
+    )
+    XCTAssertEqual(fixture.view.debugCardRailVisibleRect.minX, 0, accuracy: 0.5)
+
+    fixture.view.debugScrollCardRailVertically(deltaY: -240)
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertGreaterThan(fixture.view.debugCardRailVisibleRect.minX, 0)
+
+    fixture.view.debugScrollCardRailVertically(deltaY: -10_000)
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    let maxOffset = fixture.view.debugCardRailDocumentWidth - fixture.view.debugCardRailVisibleRect.width
+    XCTAssertEqual(fixture.view.debugCardRailVisibleRect.minX, maxOffset, accuracy: 1)
+
+    fixture.view.debugScrollCardRailVertically(deltaY: 10_000)
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCardRailVisibleRect.minX, 0, accuracy: 1)
   }
 
   func testFilteredEmptyStateNamesCurrentCollection() {

@@ -221,12 +221,12 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private let onPreview: () -> Void
 
   private let searchField = NSSearchField()
-  private let collectionScrollView = NSScrollView()
+  private let collectionScrollView = HorizontalRailScrollView()
   private let collectionStack = NSStackView()
   private let addCollectionButton = NSButton()
   private let stackChip = CollectionChipView(title: "Stack", color: .systemGreen)
   private let itemsStack = NSStackView()
-  private let scrollView = NSScrollView()
+  private let scrollView = HorizontalRailScrollView()
   private let statusLabel = NSTextField(labelWithString: "")
   private let statusResultCountLabel = NSTextField(labelWithString: "")
   private let statusIndicator = NSView()
@@ -1279,6 +1279,14 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     scrollView.contentView.bounds
   }
 
+  var debugCardRailDocumentWidth: CGFloat {
+    scrollView.documentView?.frame.width ?? 0
+  }
+
+  func debugScrollCardRailVertically(deltaY: CGFloat) {
+    scrollView.scrollHorizontallyByVerticalDelta(deltaY)
+  }
+
   var debugFirstCardMenuTitles: [String] {
     cardViews.first?.debugMenuTitles ?? []
   }
@@ -1426,6 +1434,14 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   var debugCollectionRailDocumentWidth: CGFloat {
     collectionScrollView.documentView?.frame.width ?? 0
+  }
+
+  var debugCollectionRailVisibleRect: NSRect {
+    collectionScrollView.contentView.bounds
+  }
+
+  func debugScrollCollectionRailVertically(deltaY: CGFloat) {
+    collectionScrollView.scrollHorizontallyByVerticalDelta(deltaY)
   }
 
   var debugEmptyStateText: (title: String, detail: String)? {
@@ -1671,6 +1687,45 @@ private enum ClipboardItemDragPasteboard {
 
 private enum ClipboardCardDragContext {
   static var itemID: UUID?
+}
+
+private final class HorizontalRailScrollView: NSScrollView {
+  override func scrollWheel(with event: NSEvent) {
+    let horizontalDelta = event.scrollingDeltaX
+    let verticalDelta = event.scrollingDeltaY
+    if abs(verticalDelta) > abs(horizontalDelta),
+       abs(verticalDelta) > 0,
+       canScrollHorizontally {
+      scrollHorizontally(by: -verticalDelta)
+      return
+    }
+
+    super.scrollWheel(with: event)
+  }
+
+  func scrollHorizontallyByVerticalDelta(_ deltaY: CGFloat) {
+    scrollHorizontally(by: -deltaY)
+  }
+
+  private var canScrollHorizontally: Bool {
+    maxHorizontalOffset > 0
+  }
+
+  private var maxHorizontalOffset: CGFloat {
+    guard let documentView else { return 0 }
+    return max(0, documentView.frame.width - contentView.bounds.width)
+  }
+
+  private func scrollHorizontally(by deltaX: CGFloat) {
+    let maxOffset = maxHorizontalOffset
+    guard maxOffset > 0 else { return }
+    let origin = contentView.bounds.origin
+    let targetX = min(max(origin.x + deltaX, 0), maxOffset)
+    guard targetX != origin.x else { return }
+
+    contentView.scroll(to: NSPoint(x: targetX, y: origin.y))
+    reflectScrolledClipView(contentView)
+  }
 }
 
 private final class CollectionChipView: NSView {
