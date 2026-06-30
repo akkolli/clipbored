@@ -239,6 +239,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private var cardViews: [ClipboardItemCardView] = []
   private var collectionButtons: [ClipboardSortMode: CollectionChipView] = [:]
   private var customCollectionButtons: [String: CollectionChipView] = [:]
+  private var collectionChipOrder: [CollectionChipView] = []
   private var lastScrollContentWidth: CGFloat = 0
   private var lastCollectionViewportWidth: CGFloat = 0
   private var defersVisualReloads = false
@@ -533,7 +534,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private func configureCollectionButtons() {
     collectionButtons.removeAll()
     customCollectionButtons.removeAll()
+    collectionChipOrder.removeAll()
     for view in collectionStack.arrangedSubviews {
+      (view as? CollectionChipView)?.clearKeyboardFocus()
       collectionStack.removeArrangedSubview(view)
       view.removeFromSuperview()
     }
@@ -544,7 +547,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       chip.onPress = { [weak self] in
         self?.viewModel.sortMode = mode
       }
+      configureCollectionKeyboardNavigation(for: chip)
       collectionButtons[mode] = chip
+      collectionChipOrder.append(chip)
       collectionStack.addArrangedSubview(chip)
     }
 
@@ -563,7 +568,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       chip.onDelete = { [weak self] in
         self?.deleteCollection(named: collectionName)
       }
+      configureCollectionKeyboardNavigation(for: chip)
       customCollectionButtons[collectionName] = chip
+      collectionChipOrder.append(chip)
       collectionStack.addArrangedSubview(chip)
     }
     configureStackChip()
@@ -577,8 +584,23 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     stackChip.onPress = { [weak self] in
       self?.viewModel.selectStack()
     }
+    configureCollectionKeyboardNavigation(for: stackChip)
     if viewModel.stackCount > 0 {
+      collectionChipOrder.append(stackChip)
       collectionStack.addArrangedSubview(stackChip)
+    }
+  }
+
+  private func configureCollectionKeyboardNavigation(for chip: CollectionChipView) {
+    chip.onMoveFocus = { [weak self, weak chip] delta in
+      self?.moveCollectionFocus(from: chip, delta: delta)
+    }
+    chip.onSelectFirst = { [weak self] in
+      self?.selectCollectionChip(at: 0)
+    }
+    chip.onSelectLast = { [weak self] in
+      guard let self else { return }
+      self.selectCollectionChip(at: self.collectionChipOrder.count - 1)
     }
   }
 
@@ -889,6 +911,46 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     let paddedFrame = frame.insetBy(dx: -cardDensity.cardSpacing, dy: 0)
     itemsStack.scrollToVisible(paddedFrame)
     scrollView.reflectScrolledClipView(scrollView.contentView)
+  }
+
+  private func moveCollectionFocus(from chip: CollectionChipView?, delta: Int) {
+    guard let chip,
+          let currentIndex = collectionChipOrder.firstIndex(where: { $0 === chip }) else {
+      return
+    }
+    selectCollectionChip(at: currentIndex + delta)
+  }
+
+  private func selectCollectionChip(at index: Int) {
+    guard !collectionChipOrder.isEmpty else { return }
+    let targetIndex = max(0, min(collectionChipOrder.count - 1, index))
+    let title = collectionChipOrder[targetIndex].titleText
+    collectionChipOrder[targetIndex].onPress()
+
+    let focusedChip: CollectionChipView?
+    if let rebuiltChip = collectionChipOrder.first(where: { $0.titleText == title }) {
+      focusedChip = rebuiltChip
+    } else if collectionChipOrder.indices.contains(targetIndex) {
+      focusedChip = collectionChipOrder[targetIndex]
+    } else {
+      focusedChip = nil
+    }
+    guard let focusedChip else { return }
+    collectionChipOrder.forEach { $0.clearKeyboardFocus() }
+    window?.makeFirstResponder(focusedChip)
+    scrollCollectionChipIntoView(focusedChip)
+  }
+
+  private func scrollCollectionChipIntoView(_ chip: NSView) {
+    guard collectionScrollView.documentView === collectionStack else { return }
+    guard chip.window != nil else { return }
+    collectionScrollView.layoutSubtreeIfNeeded()
+    collectionStack.layoutSubtreeIfNeeded()
+
+    let frame = chip.convert(chip.bounds, to: collectionStack)
+    let paddedFrame = frame.insetBy(dx: -10, dy: 0)
+    collectionStack.scrollToVisible(paddedFrame)
+    collectionScrollView.reflectScrolledClipView(collectionScrollView.contentView)
   }
 
   private func updateStatus(_ message: String) {
@@ -1388,6 +1450,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   var debugCollectionChipAcceptsFirstResponder: [Bool] {
     ClipboardSortMode.allCases.compactMap { collectionButtons[$0]?.acceptsFirstResponder }
+  }
+
+  var debugKeyboardFocusedCollectionTitles: [String] {
+    collectionChipOrder.compactMap { $0.debugIsKeyboardFocused ? $0.titleText : nil }
   }
 
   func debugFocusCollectionChip(_ mode: ClipboardSortMode) -> Bool {
@@ -1894,6 +1960,9 @@ private final class CollectionChipView: NSView {
   private var isKeyboardFocused = false
   private var isDropTargeted = false
   var onPress: () -> Void = {}
+  var onMoveFocus: (Int) -> Void = { _ in }
+  var onSelectFirst: () -> Void = {}
+  var onSelectLast: () -> Void = {}
   var onDropItem: ((UUID) -> Void)?
   var onEdit: (() -> Void)?
   var onDelete: (() -> Void)?
@@ -1918,7 +1987,7 @@ private final class CollectionChipView: NSView {
     layer?.borderColor = NSColor.clear.cgColor
     setAccessibilityElement(true)
     setAccessibilityRole(.button)
-    setAccessibilityHelp("Press Return or Space to show \(titleText)")
+    setAccessibilityHelp("Press Return or Space to show \(titleText). Use Left and Right to move between collections.")
     heightAnchor.constraint(equalToConstant: 26).isActive = true
     registerForDraggedTypes(ClipboardItemDragPasteboard.acceptedTypes)
 
@@ -2010,7 +2079,7 @@ private final class CollectionChipView: NSView {
     let selectedText = isSelected ? "selected, " : ""
     setAccessibilityLabel("\(titleText), \(selectedText)\(count) \(noun)")
     setAccessibilityValue("\(count)")
-    setAccessibilityHelp("Press Return or Space to show \(titleText)")
+    setAccessibilityHelp("Press Return or Space to show \(titleText). Use Left and Right to move between collections.")
     toolTip = "\(titleText), \(selectedText)\(count) \(noun)"
   }
 
@@ -2030,6 +2099,12 @@ private final class CollectionChipView: NSView {
     return true
   }
 
+  func clearKeyboardFocus() {
+    guard isKeyboardFocused else { return }
+    isKeyboardFocused = false
+    updateChrome()
+  }
+
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
     true
   }
@@ -2042,6 +2117,14 @@ private final class CollectionChipView: NSView {
     switch event.keyCode {
     case 36, 49:
       onPress()
+    case 115:
+      onSelectFirst()
+    case 119:
+      onSelectLast()
+    case 123:
+      onMoveFocus(-1)
+    case 124:
+      onMoveFocus(1)
     default:
       super.keyDown(with: event)
     }
@@ -2131,6 +2214,10 @@ private final class CollectionChipView: NSView {
   #if DEBUG
   var debugAcceptsItemDrops: Bool {
     onDropItem != nil
+  }
+
+  var debugIsKeyboardFocused: Bool {
+    isKeyboardFocused
   }
 
   func debugDropItem(_ itemID: UUID) {

@@ -36,7 +36,7 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 3. Type a structured query such as `pinboard:"Client Work","Read Later" type:image,pdf` and confirm only clips from those collections and content types remain.
 4. Clear the search field, press `Space`, and confirm the selected previewable clip opens in Quick Look instead of inserting a blank query.
 5. Use arrow keys to move selection while the search field is focused.
-6. Tab to collection chips and press `Space` or `Return`; confirm the focused chip is selected and the visible focus state is clear.
+6. Tab to collection chips and press `Space` or `Return`; confirm the focused chip is selected and the visible focus state is clear. Use Left/Right, Home, and End to move through the chip rail, including custom collections and Stack when present.
 7. Tab to cards; confirm the focused card gets a clear focus border, `Return` pastes or copies it, and `Space` opens Quick Look for previewable clips.
 8. With a card focused, use Left/Right, Page Up/Page Down, Home, and End; confirm selection and focus move together across the shelf.
 9. Use a mouse wheel or two-finger vertical scroll over the card shelf and a crowded collection rail; confirm each pans horizontally, clamps at both ends, and shows subtle edge fades only where more content is hidden.

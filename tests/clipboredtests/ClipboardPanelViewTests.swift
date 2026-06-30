@@ -206,6 +206,46 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertTrue(fixture.view.debugCollectionChipAccessibilityLabels.contains("Links, selected, 0 clips"))
   }
 
+  func testCollectionRailChipsSupportShelfNavigationKeys() {
+    let fixture = makePanelFixture()
+    var clientItem = makeTextItem("Client collection item", store: fixture.store)
+    clientItem.collectionName = "Client Work"
+    fixture.store.upsert(clientItem)
+    fixture.store.upsert(makeTextItem("Stack queue item", store: fixture.store))
+    drainMainQueue()
+
+    fixture.viewModel.selectItem(at: 0)
+    fixture.viewModel.toggleSelectedStackMembership()
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.debugFocusCollectionChip(.links))
+    fixture.view.debugPressFocusedResponderKeyCode(124)
+    drainMainQueue()
+    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Images")
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCollectionTitles, ["Images"])
+
+    fixture.view.debugPressFocusedResponderKeyCode(123)
+    drainMainQueue()
+    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Links")
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCollectionTitles, ["Links"])
+
+    fixture.view.debugPressFocusedResponderKeyCode(119)
+    drainMainQueue()
+    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Stack")
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCollectionTitles, ["Stack"])
+
+    fixture.view.debugPressFocusedResponderKeyCode(123)
+    drainMainQueue()
+    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Client Work")
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCollectionTitles, ["Client Work"])
+
+    fixture.view.debugPressFocusedResponderKeyCode(115)
+    drainMainQueue()
+    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Clipboard")
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCollectionTitles, ["Clipboard"])
+  }
+
   func testCollectionRailAddButtonCreatesEmptyCollection() {
     let fixture = makePanelFixture()
 
