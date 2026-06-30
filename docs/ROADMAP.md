@@ -15,7 +15,6 @@ This roadmap keeps future work aligned with the project's constraints: small exe
 ## Product Polish
 
 - Improve keyboard focus states and VoiceOver labels.
-- Add a compact mode for narrower displays.
 - Add import/export only if the storage and privacy story remains clear.
 
 ## Performance

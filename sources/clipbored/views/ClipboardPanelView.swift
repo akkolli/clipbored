@@ -1,12 +1,47 @@
 import AppKit
 
+private struct ClipboardItemCardLayout: Equatable {
+  let width: CGFloat
+  let height: CGFloat
+  let inset: CGFloat
+  let headerHeight: CGFloat
+  let bodyHeight: CGFloat
+  let footerHeight: CGFloat
+  let actionButtonSize: CGFloat
+  let primaryActionButtonSize: CGFloat
+  let actionRailHeight: CGFloat
+
+  static let regular = ClipboardItemCardLayout(
+    width: 320,
+    height: 244,
+    inset: 16,
+    headerHeight: 56,
+    bodyHeight: 152,
+    footerHeight: 36,
+    actionButtonSize: 24,
+    primaryActionButtonSize: 30,
+    actionRailHeight: 34
+  )
+
+  static let compact = ClipboardItemCardLayout(
+    width: 264,
+    height: 220,
+    inset: 13,
+    headerHeight: 50,
+    bodyHeight: 138,
+    footerHeight: 32,
+    actionButtonSize: 22,
+    primaryActionButtonSize: 28,
+    actionRailHeight: 32
+  )
+
+  var isCompact: Bool {
+    self == Self.compact
+  }
+}
+
 final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private enum Metrics {
-    static let cardRailHeight: CGFloat = 266
-    static let cardWidth: CGFloat = 320
-    static let cardHeight: CGFloat = 244
-    static let cardSpacing: CGFloat = 16
-    static let cardStackInset: CGFloat = 10
     static let actionButtonSize: CGFloat = 30
     static let panelTopInset: CGFloat = 12
     static let panelSideInset: CGFloat = 22
@@ -14,6 +49,49 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     static let panelStatusBarHeight: CGFloat = 24
     static let minimumBottomInset: CGFloat = 20
     static let panelCornerRadius: CGFloat = 0
+    static let compactCardThreshold: CGFloat = 760
+    static let emptyStateMinimumWidth: CGFloat = 760
+  }
+
+  private enum CardDensity: String {
+    case regular
+    case compact
+
+    static func fitting(width: CGFloat) -> CardDensity {
+      width > 0 && width < Metrics.compactCardThreshold ? .compact : .regular
+    }
+
+    var layout: ClipboardItemCardLayout {
+      switch self {
+      case .regular: return .regular
+      case .compact: return .compact
+      }
+    }
+
+    var cardSpacing: CGFloat {
+      switch self {
+      case .regular: return 16
+      case .compact: return 12
+      }
+    }
+
+    var cardStackInset: CGFloat {
+      switch self {
+      case .regular: return 10
+      case .compact: return 8
+      }
+    }
+
+    var railHeight: CGFloat {
+      layout.height + (cardStackInset * 2) + 2
+    }
+
+    var emptyStateMinimumWidth: CGFloat {
+      switch self {
+      case .regular: return Metrics.emptyStateMinimumWidth
+      case .compact: return 420
+      }
+    }
   }
 
   private enum Palette {
@@ -66,6 +144,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private var mainStack: NSStackView?
   private var bottomSafeInset = Metrics.minimumBottomInset
   private var currentStatusTone: StatusTone = .ready
+  private var cardDensity: CardDensity = .regular
+  private var scrollViewHeightConstraint: NSLayoutConstraint?
   private var cardViews: [ClipboardItemCardView] = []
   private var collectionButtons: [ClipboardSortMode: CollectionChipView] = [:]
   private var customCollectionButtons: [String: CollectionChipView] = [:]
@@ -206,13 +286,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
     itemsStack.orientation = .horizontal
     itemsStack.alignment = .top
-    itemsStack.spacing = Metrics.cardSpacing
-    itemsStack.edgeInsets = NSEdgeInsets(
-      top: Metrics.cardStackInset,
-      left: Metrics.cardStackInset,
-      bottom: Metrics.cardStackInset,
-      right: Metrics.cardStackInset
-    )
+    applyCardDensity()
     itemsStack.translatesAutoresizingMaskIntoConstraints = true
     scrollView.documentView = itemsStack
     scrollView.hasHorizontalScroller = true
@@ -223,7 +297,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     scrollView.borderType = .noBorder
     scrollView.setContentHuggingPriority(.required, for: .vertical)
     scrollView.setContentCompressionResistancePriority(.required, for: .vertical)
-    scrollView.heightAnchor.constraint(equalToConstant: Metrics.cardRailHeight).isActive = true
+    scrollViewHeightConstraint = scrollView.heightAnchor.constraint(equalToConstant: cardDensity.railHeight)
+    scrollViewHeightConstraint?.isActive = true
 
     statusLabel.font = .systemFont(ofSize: NSFont.systemFontSize - 1)
     statusLabel.textColor = .secondaryLabelColor
@@ -474,6 +549,29 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     }
   }
 
+  private func applyCardDensity() {
+    itemsStack.spacing = cardDensity.cardSpacing
+    let inset = cardDensity.cardStackInset
+    itemsStack.edgeInsets = NSEdgeInsets(
+      top: inset,
+      left: inset,
+      bottom: inset,
+      right: inset
+    )
+    scrollViewHeightConstraint?.constant = cardDensity.railHeight
+  }
+
+  @discardableResult
+  private func updateCardDensityForCurrentWidth() -> Bool {
+    let targetDensity = CardDensity.fitting(width: bounds.width)
+    guard targetDensity != cardDensity else { return false }
+
+    cardDensity = targetDensity
+    applyCardDensity()
+    reloadItems()
+    return true
+  }
+
   private func contentInsets() -> NSEdgeInsets {
     NSEdgeInsets(
       top: Metrics.panelTopInset,
@@ -531,11 +629,13 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
         scrollView.documentView = itemsStack
       }
       let collectionNames = viewModel.collectionNames
+      let layout = cardDensity.layout
       for (index, item) in items.enumerated() {
         let card = ClipboardItemCardView(
           item: item,
           thumbnail: viewModel.thumbnail(for: item),
           index: index,
+          layout: layout,
           collectionNames: collectionNames,
           isStacked: viewModel.isItemStacked(at: index),
           stackCount: viewModel.stackCount
@@ -689,7 +789,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     itemsStack.layoutSubtreeIfNeeded()
 
     let frame = card.convert(card.bounds, to: itemsStack)
-    let paddedFrame = frame.insetBy(dx: -Metrics.cardSpacing, dy: 0)
+    let paddedFrame = frame.insetBy(dx: -cardDensity.cardSpacing, dy: 0)
     itemsStack.scrollToVisible(paddedFrame)
     scrollView.reflectScrolledClipView(scrollView.contentView)
   }
@@ -780,8 +880,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func emptyStateView() -> NSView {
-    let width = max(760, scrollView.contentView.bounds.width)
-    let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: Metrics.cardRailHeight))
+    let width = max(cardDensity.emptyStateMinimumWidth, scrollView.contentView.bounds.width)
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: cardDensity.railHeight))
     let copy = emptyStateCopy()
     let title = NSTextField(labelWithString: copy.title)
     title.font = .systemFont(ofSize: 14, weight: .medium)
@@ -811,9 +911,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   private func sizeItemsDocument(itemCount: Int) {
     let count = CGFloat(itemCount)
-    let contentWidth = (count * Metrics.cardWidth)
-      + max(0, count - 1) * Metrics.cardSpacing
-      + (Metrics.cardStackInset * 2)
+    let contentWidth = (count * cardDensity.layout.width)
+      + max(0, count - 1) * cardDensity.cardSpacing
+      + (cardDensity.cardStackInset * 2)
     let width = max(scrollView.contentView.bounds.width, contentWidth)
     lastScrollContentWidth = width
     itemsStack.frame = NSRect(x: 0, y: 0, width: width, height: currentListHeight())
@@ -822,7 +922,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func currentListHeight() -> CGFloat {
-    Metrics.cardHeight + (Metrics.cardStackInset * 2)
+    cardDensity.layout.height + (cardDensity.cardStackInset * 2)
   }
 
   private func emptyStateCopy() -> (title: String, detail: String) {
@@ -897,6 +997,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   override func layout() {
     super.layout()
+    _ = updateCardDensityForCurrentWidth()
     let collectionViewportWidth = collectionScrollView.contentView.bounds.width
     if collectionViewportWidth != lastCollectionViewportWidth {
       lastCollectionViewportWidth = collectionViewportWidth
@@ -913,7 +1014,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     if cardViews.isEmpty {
       guard let documentView = scrollView.documentView else { return }
       documentView.frame.size = NSSize(
-        width: max(760, scrollView.contentView.bounds.width),
+        width: max(cardDensity.emptyStateMinimumWidth, scrollView.contentView.bounds.width),
         height: currentListHeight()
       )
       return
@@ -995,6 +1096,14 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   var debugCardPreviewStyles: [String] {
     cardViews.map(\.debugPreviewStyle)
+  }
+
+  var debugCardDensity: String {
+    cardDensity.rawValue
+  }
+
+  var debugCardSizes: [NSSize] {
+    cardViews.map { $0.frame.size }
   }
 
   var debugCardHeaderBadgeSymbols: [String] {
@@ -1464,15 +1573,6 @@ private final class AspectFillImageView: NSView {
 
 private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private enum Metrics {
-    static let width: CGFloat = 320
-    static let height: CGFloat = 244
-    static let inset: CGFloat = 16
-    static let headerHeight: CGFloat = 56
-    static let bodyHeight: CGFloat = 152
-    static let footerHeight: CGFloat = 36
-    static let actionButtonSize: CGFloat = 24
-    static let primaryActionButtonSize: CGFloat = 30
-    static let actionRailHeight: CGFloat = 34
     static let dragThreshold: CGFloat = 4
   }
   private enum Palette {
@@ -1507,6 +1607,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   private let index: Int
   private let itemID: UUID
+  private let layout: ClipboardItemCardLayout
   private let itemKind: ClipboardItemKind
   private let itemIsPinned: Bool
   private let itemIsStacked: Bool
@@ -1531,12 +1632,14 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     item: ClipboardItem,
     thumbnail: NSImage?,
     index: Int,
+    layout: ClipboardItemCardLayout = .regular,
     collectionNames: [String] = [],
     isStacked: Bool = false,
     stackCount: Int = 0
   ) {
     self.index = index
     self.itemID = item.id
+    self.layout = layout
     self.itemKind = item.kind
     self.itemIsPinned = item.isPinned
     self.itemIsStacked = isStacked
@@ -1895,7 +1998,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     actionRail.spacing = 4
     actionRail.edgeInsets = NSEdgeInsets(top: 2, left: 6, bottom: 2, right: 6)
     actionRail.wantsLayer = true
-    actionRail.layer?.cornerRadius = Metrics.actionRailHeight / 2
+    actionRail.layer?.cornerRadius = layout.actionRailHeight / 2
     actionRail.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.44).cgColor
     actionRail.layer?.borderWidth = 0.5
     actionRail.layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
@@ -1904,7 +2007,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     actionRail.layer?.shadowRadius = 10
     actionRail.layer?.shadowOffset = NSSize(width: 0, height: 4)
     actionRail.translatesAutoresizingMaskIntoConstraints = false
-    actionRail.heightAnchor.constraint(equalToConstant: Metrics.actionRailHeight).isActive = true
+    actionRail.heightAnchor.constraint(equalToConstant: layout.actionRailHeight).isActive = true
     actionRail.setContentHuggingPriority(.required, for: .horizontal)
     actionRail.setContentCompressionResistancePriority(.required, for: .horizontal)
 
@@ -1934,8 +2037,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     }
     let buttonCount = CGFloat(actionRailButtons.count)
     let secondaryCount = CGFloat(max(0, actionRailButtons.count - 1))
-    let contentWidth = Metrics.primaryActionButtonSize
-      + secondaryCount * Metrics.actionButtonSize
+    let contentWidth = layout.primaryActionButtonSize
+      + secondaryCount * layout.actionButtonSize
       + max(0, buttonCount - 1) * actionRail.spacing
       + actionRail.edgeInsets.left
       + actionRail.edgeInsets.right
@@ -1957,7 +2060,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     button.imageScaling = .scaleProportionallyDown
     button.isBordered = false
     button.wantsLayer = true
-    let size = isPrimary ? Metrics.primaryActionButtonSize : Metrics.actionButtonSize
+    let size = isPrimary ? layout.primaryActionButtonSize : layout.actionButtonSize
     button.layer?.cornerRadius = size / 2
     button.layer?.backgroundColor = isPrimary
       ? NSColor.controlAccentColor.cgColor
@@ -2094,8 +2197,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     setAccessibilityRole(.button)
     setAccessibilityLabel(accessibilityTitle(for: item))
     setAccessibilityHelp("Selects this clipboard item. Double-click to paste.")
-    widthAnchor.constraint(equalToConstant: Metrics.width).isActive = true
-    heightAnchor.constraint(equalToConstant: Metrics.height).isActive = true
+    widthAnchor.constraint(equalToConstant: layout.width).isActive = true
+    heightAnchor.constraint(equalToConstant: layout.height).isActive = true
 
     contentView.wantsLayer = true
     contentView.layer?.cornerRadius = 8
@@ -2142,17 +2245,17 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     let header = NSView()
     header.wantsLayer = true
     header.layer?.backgroundColor = accentColor(for: item.kind).cgColor
-    header.heightAnchor.constraint(equalToConstant: Metrics.headerHeight).isActive = true
+    header.heightAnchor.constraint(equalToConstant: layout.headerHeight).isActive = true
 
     let kind = NSTextField(labelWithString: kindLabel(for: item.kind))
-    kind.font = .systemFont(ofSize: 16, weight: .bold)
+    kind.font = .systemFont(ofSize: layout.isCompact ? 15 : 16, weight: .bold)
     kind.textColor = .white
     kind.lineBreakMode = .byTruncatingTail
     kind.maximumNumberOfLines = 1
     kind.toolTip = kind.stringValue
 
     let source = NSTextField(labelWithString: Self.relativeDateText(for: item.createdAt))
-    source.font = .systemFont(ofSize: 11, weight: .regular)
+    source.font = .systemFont(ofSize: layout.isCompact ? 10 : 11, weight: .regular)
     source.textColor = NSColor.white.withAlphaComponent(0.72)
     source.lineBreakMode = .byTruncatingTail
     source.maximumNumberOfLines = 1
@@ -2191,15 +2294,15 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     source.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
     var constraints: [NSLayoutConstraint] = [
-      labelStack.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: Metrics.inset),
+      labelStack.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: layout.inset),
       labelStack.centerYAnchor.constraint(equalTo: header.centerYAnchor),
       labelStack.trailingAnchor.constraint(lessThanOrEqualTo: badge.leadingAnchor, constant: -12),
-      badge.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -Metrics.inset),
+      badge.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -layout.inset),
       badge.centerYAnchor.constraint(equalTo: header.centerYAnchor),
-      badge.widthAnchor.constraint(equalToConstant: 42),
-      badge.heightAnchor.constraint(equalToConstant: 42),
-      separator.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: Metrics.inset),
-      separator.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -Metrics.inset),
+      badge.widthAnchor.constraint(equalToConstant: layout.isCompact ? 36 : 42),
+      badge.heightAnchor.constraint(equalToConstant: layout.isCompact ? 36 : 42),
+      separator.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: layout.inset),
+      separator.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -layout.inset),
       separator.bottomAnchor.constraint(equalTo: header.bottomAnchor),
       separator.heightAnchor.constraint(equalToConstant: 1)
     ]
@@ -2246,7 +2349,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     let body = NSView()
     body.wantsLayer = true
     body.layer?.backgroundColor = Palette.bodyBackground
-    body.heightAnchor.constraint(equalToConstant: Metrics.bodyHeight).isActive = true
+    body.heightAnchor.constraint(equalToConstant: layout.bodyHeight).isActive = true
 
     let content = previewView(for: item, thumbnail: thumbnail)
     body.addSubview(content)
@@ -2311,8 +2414,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     title.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
     detail.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
     NSLayoutConstraint.activate([
-      stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Metrics.inset),
-      stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Metrics.inset),
+      stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: layout.inset),
+      stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -layout.inset),
       stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
       stack.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -14)
     ])
@@ -2377,8 +2480,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       globe.widthAnchor.constraint(equalToConstant: 28),
       globe.heightAnchor.constraint(equalToConstant: 28),
       host.widthAnchor.constraint(lessThanOrEqualTo: hero.widthAnchor, constant: -48),
-      textStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Metrics.inset),
-      textStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Metrics.inset),
+      textStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: layout.inset),
+      textStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -layout.inset),
       textStack.topAnchor.constraint(equalTo: hero.bottomAnchor, constant: 11),
       textStack.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -10),
       title.widthAnchor.constraint(equalTo: textStack.widthAnchor),
@@ -2427,8 +2530,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       imageView.topAnchor.constraint(equalTo: container.topAnchor),
       hostPill.leadingAnchor.constraint(equalTo: imageView.leadingAnchor, constant: 12),
       hostPill.bottomAnchor.constraint(equalTo: imageView.bottomAnchor, constant: -10),
-      textStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Metrics.inset),
-      textStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Metrics.inset),
+      textStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: layout.inset),
+      textStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -layout.inset),
       textStack.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 10),
       textStack.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -8),
       title.widthAnchor.constraint(equalTo: textStack.widthAnchor),
@@ -2495,8 +2598,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     container.addSubview(row)
 
     NSLayoutConstraint.activate([
-      row.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Metrics.inset),
-      row.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Metrics.inset),
+      row.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: layout.inset),
+      row.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -layout.inset),
       row.centerYAnchor.constraint(equalTo: container.centerYAnchor),
       iconBox.widthAnchor.constraint(equalToConstant: thumbnail == nil ? 72 : 96),
       iconBox.heightAnchor.constraint(equalToConstant: thumbnail == nil ? 84 : 104),
@@ -2567,8 +2670,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       note.heightAnchor.constraint(equalToConstant: 28),
       waveform.centerXAnchor.constraint(equalTo: container.centerXAnchor),
       waveform.topAnchor.constraint(equalTo: note.bottomAnchor, constant: 8),
-      labels.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Metrics.inset),
-      labels.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Metrics.inset),
+      labels.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: layout.inset),
+      labels.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -layout.inset),
       labels.topAnchor.constraint(equalTo: waveform.bottomAnchor, constant: 10),
       title.widthAnchor.constraint(equalTo: labels.widthAnchor),
       detail.widthAnchor.constraint(equalTo: labels.widthAnchor)
@@ -2668,7 +2771,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     let footer = NSView()
     footer.wantsLayer = true
     footer.layer?.backgroundColor = Palette.footerBackground
-    footer.heightAnchor.constraint(equalToConstant: Metrics.footerHeight).isActive = true
+    footer.heightAnchor.constraint(equalToConstant: layout.footerHeight).isActive = true
 
     let source = NSTextField(labelWithString: sourceText(for: item))
     source.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
@@ -2707,12 +2810,12 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     footer.addSubview(divider)
     footer.addSubview(stack)
     NSLayoutConstraint.activate([
-      divider.leadingAnchor.constraint(equalTo: footer.leadingAnchor, constant: Metrics.inset),
-      divider.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -Metrics.inset),
+      divider.leadingAnchor.constraint(equalTo: footer.leadingAnchor, constant: layout.inset),
+      divider.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -layout.inset),
       divider.topAnchor.constraint(equalTo: footer.topAnchor),
       divider.heightAnchor.constraint(equalToConstant: 1),
-      stack.leadingAnchor.constraint(equalTo: footer.leadingAnchor, constant: Metrics.inset),
-      stack.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -Metrics.inset),
+      stack.leadingAnchor.constraint(equalTo: footer.leadingAnchor, constant: layout.inset),
+      stack.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -layout.inset),
       stack.centerYAnchor.constraint(equalTo: footer.centerYAnchor)
     ])
     return footer

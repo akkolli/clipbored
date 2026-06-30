@@ -1,6 +1,6 @@
 # ClipBored
 
-ClipBored is a small native macOS clipboard manager. It captures local clipboard history and opens a keyboard-first bottom panel for search, sorting, copy, paste, pinning, and deletion. It runs as a dockless menu-bar utility by default, with an optional Dock icon mode.
+ClipBored is a small native macOS clipboard manager. It captures local clipboard history and opens a keyboard-first responsive bottom panel for search, sorting, copy, paste, pinning, and deletion. It runs as a dockless menu-bar utility by default, with an optional Dock icon mode.
 
 The project is intentionally dependency-light: Swift Package Manager, AppKit, Carbon hotkeys, SQLite, and system frameworks only.
 

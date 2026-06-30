@@ -59,6 +59,25 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugCardPreviewStyles, ["text-preview"])
   }
 
+  func testCompactCardsFitTwoItemsOnNarrowDockShelf() {
+    let fixture = makePanelFixture()
+    fixture.window.setFrame(NSRect(x: 0, y: 0, width: 620, height: 520), display: true)
+    fixture.store.upsert(makeTextItem("Compact first", store: fixture.store))
+    fixture.store.upsert(makeTextItem("Compact second", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCardDensity, "compact")
+    XCTAssertEqual(fixture.view.debugVisibleCardCount, 2)
+    XCTAssertEqual(fixture.view.debugCardSizes.count, 2)
+    XCTAssertEqual(fixture.view.debugCardSizes.first?.width ?? 0, 264, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugCardSizes.first?.height ?? 0, 220, accuracy: 0.5)
+    XCTAssertLessThanOrEqual(
+      fixture.view.debugDocumentViewFrame.width,
+      fixture.view.debugCardRailVisibleRect.width + 1
+    )
+  }
+
   func testCardsShowQuickPasteNumberBadgesForFirstNineItems() {
     let fixture = makePanelFixture()
     for index in 0..<10 {

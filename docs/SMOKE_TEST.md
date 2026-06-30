@@ -43,6 +43,7 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 10. Double-click an item and confirm it attempts to paste or falls back to copy without creating a duplicate history entry.
 11. Right-click a card, use Capture Rules to ignore its source app, copy from that app again, and confirm the new item is skipped.
 12. Drag an unassigned card onto the Client Work chip and confirm the chip count increases and the card appears when Client Work is selected.
+13. Resize or test on a narrow display and confirm the bottom shelf switches to compact cards that still show two recent clips cleanly.
 
 ## Copy And Paste
 
