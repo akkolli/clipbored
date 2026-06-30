@@ -1434,6 +1434,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     cardViews.first?.debugHeaderBadgeIsHidden ?? false
   }
 
+  var debugFirstCardHeaderBadgeFrame: NSRect {
+    cardViews.first?.debugHeaderBadgeFrame ?? .zero
+  }
+
   var debugResultCountText: String {
     statusResultCountLabel.stringValue
   }
@@ -2672,6 +2676,11 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     headerBadgeView?.isHidden ?? false
   }
 
+  var debugHeaderBadgeFrame: NSRect {
+    guard let headerBadgeView else { return .zero }
+    return headerBadgeView.convert(headerBadgeView.bounds, to: self)
+  }
+
   var debugQuickPasteBadgeText: String? {
     quickPasteBadgeLabel?.stringValue
   }
@@ -2984,7 +2993,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private var maximumVisibleActionRailWidth: CGFloat {
     layout.width
       - Metrics.actionRailLeadingMargin
-      - layout.inset
       - Metrics.actionRailBadgeGap
       - headerBadgeSize
   }
@@ -3288,8 +3296,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       labelStack.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: layout.inset),
       labelStack.centerYAnchor.constraint(equalTo: header.centerYAnchor),
       labelStack.trailingAnchor.constraint(lessThanOrEqualTo: badge.leadingAnchor, constant: -12),
-      badge.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -layout.inset),
-      badge.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+      badge.trailingAnchor.constraint(equalTo: header.trailingAnchor),
+      badge.topAnchor.constraint(equalTo: header.topAnchor),
       badge.widthAnchor.constraint(equalToConstant: headerBadgeSize),
       badge.heightAnchor.constraint(equalToConstant: headerBadgeSize),
       separator.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: layout.inset),

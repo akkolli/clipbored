@@ -362,21 +362,28 @@ final class ClipboardPanelViewTests: XCTestCase {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Plain text", store: fixture.store))
     drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Collect", "Add to Stack", "Edit", "Preview", "Delete"])
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 238)
     XCTAssertFalse(fixture.view.debugFirstCardFooterDetailIsHidden)
     XCTAssertFalse(fixture.view.debugFirstCardHeaderBadgeIsHidden)
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.maxX, 320, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.maxY, 244, accuracy: 0.5)
 
     fixture.store.upsert(makeItem(kind: .file, text: "/tmp/report.txt", store: fixture.store))
     drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     fixture.viewModel.selectFirstItem()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
     XCTAssertEqual(fixture.viewModel.visibleItems.first?.kind, .file)
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Paste Plain Text", "Collect", "Add to Stack", "Preview", "Open", "More"])
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 238)
     XCTAssertFalse(fixture.view.debugFirstCardFooterDetailIsHidden)
     XCTAssertFalse(fixture.view.debugFirstCardHeaderBadgeIsHidden)
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.maxX, 320, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.maxY, 244, accuracy: 0.5)
   }
 
   func testCompactFileCardActionsFitInsideShelfWithOverflowMenu() {
@@ -391,6 +398,8 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 196)
     XCTAssertLessThanOrEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 197)
     XCTAssertFalse(fixture.view.debugFirstCardHeaderBadgeIsHidden)
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.maxX, 264, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.maxY, 220, accuracy: 0.5)
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
       ["Paste", "Copy", "Paste Plain Text", "Copy Plain Text", "Rename...", "Add to Stack", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
