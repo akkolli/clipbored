@@ -438,7 +438,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Add to Stack", "Edit", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Rename...", "Add to Stack", "Edit", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
     XCTAssertEqual(
       fixture.view.debugFirstCardCollectionMenuTitles,
@@ -472,7 +472,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Show in Clipboard", "Add to Stack", "Edit", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Show in Clipboard", "Rename...", "Add to Stack", "Edit", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
 
     fixture.view.debugShowFirstCardInClipboard()
@@ -492,7 +492,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Paste Plain Text", "Copy Plain Text", "Add to Stack", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Paste Plain Text", "Copy Plain Text", "Rename...", "Add to Stack", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
     XCTAssertEqual(
       fixture.view.debugFirstCardCaptureRuleMenuTitles,
@@ -512,7 +512,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Remove from Stack", "Paste Stack Next", "Copy Stack Next", "Clear Stack", "Edit", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Rename...", "Remove from Stack", "Paste Stack Next", "Copy Stack Next", "Clear Stack", "Edit", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Collect", "Remove from Stack", "Edit", "Delete"])
   }
@@ -669,6 +669,33 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugCardAccessibilityLabels, ["File: Project Plan.pdf"])
     XCTAssertEqual(fixture.view.debugCardPreviewSummaries, ["Project Plan.pdf|~/Documents|PDF"])
     XCTAssertEqual(fixture.view.debugCardPreviewStyles, ["file-preview"])
+  }
+
+  func testRenamedClipsUseCustomTitleInCardsAndSearch() {
+    let fixture = makePanelFixture()
+    let fileURL = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Documents")
+      .appendingPathComponent("Project Plan.pdf")
+    let item = makeItem(kind: .file, displayText: "File", payload: fileURL.path, store: fixture.store)
+
+    fixture.store.upsert(item)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.debugFirstCardMenuTitles.contains("Rename..."))
+    fixture.view.debugRenameFirstCard(to: "  Client   Launch  Brief  ")
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCardAccessibilityLabels, ["File: Client Launch Brief"])
+    XCTAssertEqual(fixture.view.debugCardPreviewSummaries, ["Client Launch Brief|~/Documents|PDF"])
+    XCTAssertEqual(fixture.view.debugStatusText, "Renamed clip")
+    XCTAssertEqual(fixture.view.debugStatusTone, "action")
+
+    fixture.viewModel.searchText = "launch"
+    drainMainQueue()
+
+    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.id), [item.id])
   }
 
   func testMultipleFileCardsUseCountAndSharedLocation() throws {

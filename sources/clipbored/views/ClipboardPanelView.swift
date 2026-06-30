@@ -754,6 +754,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
         card.onShowInClipboard = { [weak self] selected in
           self?.showSelectedInClipboard(at: selected)
         }
+        card.onRename = { [weak self] selected in
+          self?.renameClip(at: selected)
+        }
         card.onEditText = { [weak self] selected in
           self?.editText(at: selected)
         }
@@ -902,7 +905,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     if lower.hasPrefix("captured") || lower.contains("capture running") || lower.contains("capture is running") || lower.contains("capture resumed") {
       return .ready
     }
-    if lower.hasPrefix("copied") || lower.hasPrefix("pasted") || lower.hasPrefix("updated") || lower.hasPrefix("added") || lower.hasPrefix("created") || lower.hasPrefix("removed") || lower.hasPrefix("cleared") || lower.hasPrefix("ignored") || lower.hasPrefix("showing") {
+    if lower.hasPrefix("copied") || lower.hasPrefix("pasted") || lower.hasPrefix("updated") || lower.hasPrefix("renamed") || lower.hasPrefix("added") || lower.hasPrefix("created") || lower.hasPrefix("removed") || lower.hasPrefix("cleared") || lower.hasPrefix("ignored") || lower.hasPrefix("showing") {
       return .action
     }
     if lower.hasPrefix("error") || lower.contains("failed") {
@@ -958,6 +961,26 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
     guard alert.runModal() == .alertFirstButtonReturn else { return }
     viewModel.updateSelectedText(to: textView.string)
+  }
+
+  private func renameClip(at index: Int) {
+    viewModel.selectItem(at: index)
+    guard let currentTitle = viewModel.editableTitleForSelected() else { return }
+
+    let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+    input.placeholderString = "Clip title"
+    input.stringValue = currentTitle
+
+    let alert = NSAlert()
+    alert.messageText = "Rename Clip"
+    alert.informativeText = "Give this clip a searchable title. Leave it blank to clear the title."
+    alert.accessoryView = input
+    alert.addButton(withTitle: "Save")
+    alert.addButton(withTitle: "Cancel")
+    alert.window.initialFirstResponder = input
+
+    guard alert.runModal() == .alertFirstButtonReturn else { return }
+    viewModel.updateSelectedTitle(to: input.stringValue)
   }
 
   private func emptyStateView() -> NSView {
@@ -1363,6 +1386,11 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   func debugDeleteCollection(named collectionName: String) {
     viewModel.deleteCollection(named: collectionName)
+  }
+
+  func debugRenameFirstCard(to title: String) {
+    viewModel.selectItem(at: 0)
+    viewModel.updateSelectedTitle(to: title)
   }
 
   func debugShowFirstCardInClipboard() {
@@ -1859,6 +1887,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   var onCopyStackNext: () -> Void = {}
   var onClearStack: () -> Void = {}
   var onShowInClipboard: (Int) -> Void = { _ in }
+  var onRename: (Int) -> Void = { _ in }
   var onEditText: (Int) -> Void = { _ in }
   var onPreview: (Int) -> Void = { _ in }
   var onPasteboardWriters: (Int) -> [NSPasteboardWriting] = { _ in [] }
@@ -2129,6 +2158,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     if canShowInClipboard {
       addMenuItem("Show in Clipboard", action: #selector(showInClipboardFromMenu), to: menu)
     }
+    addMenuItem("Rename...", action: #selector(renameFromMenu), to: menu)
     addMenuItem(itemIsStacked ? "Remove from Stack" : "Add to Stack", action: #selector(toggleStackFromMenu), to: menu)
     if stackCount > 0 {
       addMenuItem("Paste Stack Next", action: #selector(pasteStackNextFromMenu), to: menu)
@@ -2429,6 +2459,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   @objc private func showInClipboardFromMenu() {
     onShowInClipboard(index)
+  }
+
+  @objc private func renameFromMenu() {
+    onRename(index)
   }
 
   @objc private func editTextFromMenu() {
@@ -3226,6 +3260,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   }
 
   private func titleText(for item: ClipboardItem) -> String {
+    if let customTitle = item.customTitle?.clipboardTrimmed, !customTitle.isEmpty {
+      return customTitle
+    }
+
     switch item.kind {
     case .url:
       return linkTitle(for: item)

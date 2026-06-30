@@ -358,6 +358,24 @@ final class ClipboardPanelViewModel {
     return item.payload
   }
 
+  func editableTitleForSelected() -> String? {
+    guard let item = selectedItem else { return nil }
+    return item.customTitle ?? ""
+  }
+
+  func updateSelectedTitle(to title: String) {
+    guard let item = selectedItem else { return }
+    let normalizedTitle = ClipboardItem.normalizedCustomTitle(title)
+    guard item.customTitle != normalizedTitle else {
+      statusMessage = "No changes"
+      return
+    }
+
+    selectedItemID = item.id
+    store.setCustomTitle(item.id, title: normalizedTitle)
+    statusMessage = normalizedTitle == nil ? "Cleared clip title" : "Renamed clip"
+  }
+
   func updateSelectedText(to text: String) {
     guard let item = selectedItem, item.kind == .text else { return }
     let trimmed = text.clipboardTrimmed

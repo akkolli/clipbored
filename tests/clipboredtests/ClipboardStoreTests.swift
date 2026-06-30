@@ -138,6 +138,32 @@ final class ClipboardStoreTests: XCTestCase {
     XCTAssertNil(cleared.items.first?.collectionName)
   }
 
+  func testSetCustomTitlePersistsAcrossReloadAndClears() {
+    let settings = makeSettings(maxHistory: 50)
+    let store = makeStore(settings: settings)
+
+    store.upsert(makeItem("alpha", displayText: "A", created: Date()))
+    store.flushPersistenceForTesting()
+
+    let itemID = try! XCTUnwrap(store.items.first?.id)
+    store.setCustomTitle(itemID, title: "  Launch   Brief  ")
+    store.flushPersistenceForTesting()
+
+    let restored = makeStore(settings: settings)
+    restored.flushPersistenceForTesting()
+    XCTAssertEqual(restored.items.first?.customTitle, "Launch Brief")
+    XCTAssertEqual(restored.items.first?.payload, "alpha")
+
+    let restoredID = try! XCTUnwrap(restored.items.first?.id)
+    restored.setCustomTitle(restoredID, title: "   ")
+    restored.flushPersistenceForTesting()
+
+    let cleared = makeStore(settings: settings)
+    cleared.flushPersistenceForTesting()
+    XCTAssertNil(cleared.items.first?.customTitle)
+    XCTAssertEqual(cleared.items.first?.payload, "alpha")
+  }
+
   func testUpdateTextPersistsAcrossReloadAndPreservesMetadata() {
     let settings = makeSettings(maxHistory: 50)
     let store = makeStore(settings: settings)

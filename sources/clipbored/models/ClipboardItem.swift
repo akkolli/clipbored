@@ -114,9 +114,13 @@ struct ClipboardItem {
   var sourceAppBundleId: String?
   var ocrText: String?
   var collectionName: String?
+  var customTitle: String?
 
   var searchableText: String {
     var text = kindLabel + " " + displayText.lowercased() + " " + payload.lowercased()
+    if let customTitle {
+      text += " " + customTitle.lowercased()
+    }
     if let sourceApp {
       text += " " + sourceApp.lowercased()
     }
@@ -160,7 +164,8 @@ struct ClipboardItem {
     isPinned: Bool = false,
     sourceAppBundleId: String? = nil,
     ocrText: String? = nil,
-    collectionName: String? = nil
+    collectionName: String? = nil,
+    customTitle: String? = nil
   ) {
     self.id = id
     self.kind = kind
@@ -177,5 +182,16 @@ struct ClipboardItem {
     self.sourceAppBundleId = sourceAppBundleId
     self.ocrText = ocrText
     self.collectionName = collectionName
+    self.customTitle = ClipboardItem.normalizedCustomTitle(customTitle)
+  }
+
+  static func normalizedCustomTitle(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let title = value
+      .split { $0.isWhitespace }
+      .joined(separator: " ")
+      .clipboardTrimmed
+    guard !title.isEmpty else { return nil }
+    return String(title.prefix(80))
   }
 }

@@ -769,6 +769,43 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertTrue(viewModel.visibleItems.isEmpty)
   }
 
+  func testUpdateSelectedTitleRefreshesSearchWithoutChangingPayload() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    let item = makeMissingFileItem(useCount: 0)
+    store.upsert(item)
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 1)
+
+    XCTAssertEqual(viewModel.editableTitleForSelected(), "")
+    viewModel.updateSelectedTitle(to: "  Launch   Brief  ")
+    store.flushPersistenceForTesting()
+    waitForVisibleItems(in: viewModel, count: 1)
+
+    XCTAssertEqual(viewModel.statusMessage, "Renamed clip")
+    XCTAssertEqual(viewModel.selectedItem?.id, item.id)
+    XCTAssertEqual(viewModel.selectedItem?.customTitle, "Launch Brief")
+    XCTAssertEqual(viewModel.selectedItem?.payload, item.payload)
+    XCTAssertEqual(viewModel.selectedItem?.payloadHash, item.payloadHash)
+
+    viewModel.searchText = "launch"
+    XCTAssertEqual(viewModel.visibleItems.map(\.id), [item.id])
+    viewModel.searchText = "missing"
+    XCTAssertEqual(viewModel.visibleItems.map(\.id), [item.id])
+    viewModel.searchText = "brief"
+    XCTAssertEqual(viewModel.visibleItems.map(\.id), [item.id])
+
+    viewModel.updateSelectedTitle(to: "   ")
+    store.flushPersistenceForTesting()
+    waitForVisibleItems(in: viewModel, count: 0)
+
+    XCTAssertEqual(viewModel.statusMessage, "Cleared clip title")
+    XCTAssertTrue(store.items.contains { $0.id == item.id && $0.customTitle == nil && $0.payload == item.payload })
+  }
+
   func testUpdateSelectedTextRejectsEmptyAndNonTextSelections() {
     let settings = makeSettings()
     let cacheService = makeCacheService()

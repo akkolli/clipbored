@@ -101,6 +101,12 @@ final class ClipboardStore {
     persistAsync(.upsert(items[index]))
   }
 
+  func setCustomTitle(_ id: UUID, title: String?) {
+    guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+    items[index].customTitle = ClipboardItem.normalizedCustomTitle(title)
+    persistAsync(.upsert(items[index]))
+  }
+
   @discardableResult
   func updateText(_ id: UUID, text: String) -> Bool {
     guard !text.isEmpty,
@@ -209,6 +215,7 @@ final class ClipboardStore {
     }
     existing.sourceApp = incoming.sourceApp
     existing.sourceAppBundleId = incoming.sourceAppBundleId
+    existing.customTitle = incoming.customTitle ?? existing.customTitle
     items.insert(existing, at: 0)
     normalizeHistoryLength()
     persistAsync(.upsert(existing), purgeCache: existing.kind == .image)
@@ -227,6 +234,7 @@ final class ClipboardStore {
     existing.kind = incoming.kind
     existing.sourceApp = incoming.sourceApp
     existing.sourceAppBundleId = incoming.sourceAppBundleId
+    existing.customTitle = incoming.customTitle ?? existing.customTitle
 
     if incoming.kind == .image || incoming.kind == .url {
       existing.imagePath = incoming.imagePath
@@ -332,7 +340,8 @@ final class ClipboardStore {
         thumbnail_path TEXT,
         is_pinned INTEGER NOT NULL DEFAULT 0,
         ocr_text TEXT,
-        collection_name TEXT
+        collection_name TEXT,
+        custom_title TEXT
       );
     """
 
@@ -347,6 +356,7 @@ final class ClipboardStore {
 
     _ = execute(createTable)
     _ = execute("ALTER TABLE clipboard_items ADD COLUMN collection_name TEXT;")
+    _ = execute("ALTER TABLE clipboard_items ADD COLUMN custom_title TEXT;")
     _ = execute(createIndexes)
   }
 
@@ -411,7 +421,8 @@ final class ClipboardStore {
       isPinned: row["isPinned"] as? Bool ?? false,
       sourceAppBundleId: row["sourceAppBundleId"] as? String,
       ocrText: row["ocrText"] as? String,
-      collectionName: row["collectionName"] as? String
+      collectionName: row["collectionName"] as? String,
+      customTitle: row["customTitle"] as? String
     )
   }
 
@@ -523,7 +534,8 @@ final class ClipboardStore {
       SELECT
         id, kind, display_text, payload, payload_hash, created_at,
         last_used_at, use_count, source_app, source_app_bundle_id,
-        image_path, thumbnail_path, is_pinned, ocr_text, collection_name
+        image_path, thumbnail_path, is_pinned, ocr_text, collection_name,
+        custom_title
       FROM clipboard_items
       ORDER BY created_at DESC, last_used_at DESC
     """
@@ -604,6 +616,7 @@ final class ClipboardStore {
       let isPinned = sqlite3_column_int(statement, 12) != 0
       let ocrTextValue = stringValue(13)
       let collectionNameValue = stringValue(14)
+      let customTitleValue = stringValue(15)
 
       needsEncryptionMigration = needsEncryptionMigration
         || sourceAppValue.migrationNeeded
@@ -612,6 +625,7 @@ final class ClipboardStore {
         || thumbnailPathValue.migrationNeeded
         || ocrTextValue.migrationNeeded
         || collectionNameValue.migrationNeeded
+        || customTitleValue.migrationNeeded
       hadDecodeFailure = hadDecodeFailure
         || sourceAppValue.decodeFailed
         || sourceAppBundleIdValue.decodeFailed
@@ -619,6 +633,7 @@ final class ClipboardStore {
         || thumbnailPathValue.decodeFailed
         || ocrTextValue.decodeFailed
         || collectionNameValue.decodeFailed
+        || customTitleValue.decodeFailed
 
       loaded.append(
         ClipboardItem(
@@ -636,7 +651,8 @@ final class ClipboardStore {
           isPinned: isPinned,
           sourceAppBundleId: sourceAppBundleIdValue.value,
           ocrText: ocrTextValue.value,
-          collectionName: collectionNameValue.value
+          collectionName: collectionNameValue.value,
+          customTitle: customTitleValue.value
         )
       )
     }
@@ -668,8 +684,8 @@ final class ClipboardStore {
         id, kind, display_text, payload, payload_hash,
         created_at, last_used_at, use_count, source_app,
         source_app_bundle_id, image_path, thumbnail_path, is_pinned, ocr_text,
-        collection_name
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        collection_name, custom_title
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """
 
     switch mutation {
@@ -768,8 +784,8 @@ final class ClipboardStore {
         id, kind, display_text, payload, payload_hash,
         created_at, last_used_at, use_count, source_app,
         source_app_bundle_id, image_path, thumbnail_path, is_pinned, ocr_text,
-        collection_name
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        collection_name, custom_title
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """
 
     guard execute("BEGIN IMMEDIATE TRANSACTION;") else {
@@ -853,5 +869,6 @@ final class ClipboardStore {
     sqlite3_bind_int(statement, 13, item.isPinned ? 1 : 0)
     bindText(statement, 14, encryptionService.protect(item.ocrText))
     bindText(statement, 15, encryptionService.protect(item.collectionName))
+    bindText(statement, 16, encryptionService.protect(item.customTitle))
   }
 }
