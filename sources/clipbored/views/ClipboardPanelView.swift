@@ -1102,6 +1102,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     return false
   }
 
+  var searchTextForKeyboardShortcut: String {
+    searchField.stringValue
+  }
+
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
     return true
   }

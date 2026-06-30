@@ -164,6 +164,14 @@ final class ClipboardPanelControllerTests: XCTestCase {
     XCTAssertNil(ClipboardPanelController.collectionShortcutMode(forKeyCode: 29, modifiers: .command))
   }
 
+  func testSearchFieldSpacePreviewShortcutRequiresEmptySearchAndNoModifiers() {
+    XCTAssertTrue(ClipboardPanelController.searchFieldPreviewShortcut(forKeyCode: 49, modifiers: [], searchText: ""))
+    XCTAssertTrue(ClipboardPanelController.searchFieldPreviewShortcut(forKeyCode: 49, modifiers: [], searchText: "   "))
+    XCTAssertFalse(ClipboardPanelController.searchFieldPreviewShortcut(forKeyCode: 49, modifiers: [], searchText: "release note"))
+    XCTAssertFalse(ClipboardPanelController.searchFieldPreviewShortcut(forKeyCode: 49, modifiers: .command, searchText: ""))
+    XCTAssertFalse(ClipboardPanelController.searchFieldPreviewShortcut(forKeyCode: 36, modifiers: [], searchText: ""))
+  }
+
   func testCommandActionShortcutsMapToSelectedClipActions() {
     XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 8, modifiers: .command), .copy)
     XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 5, modifiers: .command), .showInClipboard)

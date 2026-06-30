@@ -14,6 +14,7 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
   - `Command + 1` through `Command + 9` paste the numbered visible card; add `Shift` to paste that card as plain text
   - `Command + G` shows a filtered result back in the full clipboard history
   - `Shift + Command + N` creates a new collection
+  - `Space` previews the selected card when the focused search field is empty
 - Clipboard history for text, URLs with local preview thumbnails when available, images, audio, RTF/HTML rich text, PDFs, and file references
 - SQLite persistence with bounded history, pinned-item retention, and encrypted app-managed payloads
 - Search with independent token matching, structured filters such as `app:Safari`, `type:image,pdf`, `pinboard:"Client Work","Read Later"`, `date:2026-06-30`, result jump-back to full history, and optional local OCR for copied images

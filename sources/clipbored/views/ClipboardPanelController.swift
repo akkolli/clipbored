@@ -340,6 +340,16 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
       guard let self else { return event }
       if self.shouldHandlePanelKeyEvent(event, allowSearchFieldEditing: true),
+         self.panelView.isSearchFieldEditing,
+         Self.searchFieldPreviewShortcut(
+           forKeyCode: event.keyCode,
+           modifiers: event.modifierFlags,
+           searchText: self.panelView.searchTextForKeyboardShortcut
+         ) {
+        self.previewSelected()
+        return nil
+      }
+      if self.shouldHandlePanelKeyEvent(event, allowSearchFieldEditing: true),
          let index = Self.quickPasteIndex(forKeyCode: event.keyCode, modifiers: event.modifierFlags) {
         self.viewModel.pasteItem(at: index)
         return nil
@@ -467,6 +477,11 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
     guard relevantModifiers == [.command, .option] else { return nil }
     return collectionShortcuts[keyCode]
+  }
+
+  static func searchFieldPreviewShortcut(forKeyCode keyCode: UInt16, modifiers: NSEvent.ModifierFlags, searchText: String) -> Bool {
+    let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
+    return keyCode == 49 && relevantModifiers.isEmpty && searchText.clipboardTrimmed.isEmpty
   }
 
   static func commandShortcutAction(forKeyCode keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> ClipboardPanelShortcutAction? {
