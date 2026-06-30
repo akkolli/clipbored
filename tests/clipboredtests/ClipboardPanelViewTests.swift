@@ -829,6 +829,18 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugEmptyStateText?.detail, "Image clips are saved when the clipboard contains image data.")
   }
 
+  func testPinnedEmptyStatePointsToPinAction() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Only text exists", store: fixture.store))
+    drainMainQueue()
+
+    fixture.viewModel.sortMode = .pinned
+    drainMainQueue()
+
+    XCTAssertEqual(fixture.view.debugEmptyStateText?.title, "No pinned clips")
+    XCTAssertEqual(fixture.view.debugEmptyStateText?.detail, "Use the Pin action on a card to keep important clips here.")
+  }
+
   func testCardsExposeContextMenuActions() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Context menu text", store: fixture.store))

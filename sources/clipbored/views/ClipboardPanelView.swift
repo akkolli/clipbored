@@ -1146,7 +1146,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     case .audio:
       return ("No audio yet", "Copied sound clips appear here.")
     case .pinned:
-      return ("No pinned clips", "New copies appear under Most Recent. Select an item and press P to pin it.")
+      return ("No pinned clips", "Use the Pin action on a card to keep important clips here.")
     case .mostRecent, .mostUsed:
       return ("No clips in this view", "Switch filters or copy something new.")
     }
