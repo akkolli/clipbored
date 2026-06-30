@@ -528,6 +528,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
           self?.viewModel.selectItem(at: selected)
           self?.viewModel.copySelected()
         }
+        card.onEditText = { [weak self] selected in
+          self?.editText(at: selected)
+        }
         card.onPreview = { [weak self] selected in
           self?.viewModel.selectItem(at: selected)
           self?.onPreview()
@@ -666,7 +669,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     if lower.hasPrefix("captured") || lower.contains("capture running") || lower.contains("capture is running") || lower.contains("capture resumed") {
       return .ready
     }
-    if lower.hasPrefix("copied") || lower.hasPrefix("pasted") {
+    if lower.hasPrefix("copied") || lower.hasPrefix("pasted") || lower.hasPrefix("updated") {
       return .action
     }
     if lower.hasPrefix("error") || lower.contains("failed") {
@@ -692,6 +695,36 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     }
     statusResultCountLabel.stringValue = text
     statusResultCountLabel.toolTip = text
+  }
+
+  private func editText(at index: Int) {
+    viewModel.selectItem(at: index)
+    guard let currentText = viewModel.editableTextForSelected() else { return }
+
+    let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 460, height: 180))
+    textView.string = currentText
+    textView.font = .systemFont(ofSize: 13)
+    textView.isRichText = false
+    textView.allowsUndo = true
+    textView.textContainerInset = NSSize(width: 10, height: 10)
+    textView.usesAdaptiveColorMappingForDarkAppearance = true
+
+    let scrollView = NSScrollView(frame: textView.frame)
+    scrollView.hasVerticalScroller = true
+    scrollView.hasHorizontalScroller = false
+    scrollView.autohidesScrollers = true
+    scrollView.borderType = .bezelBorder
+    scrollView.documentView = textView
+
+    let alert = NSAlert()
+    alert.messageText = "Edit Text"
+    alert.accessoryView = scrollView
+    alert.addButton(withTitle: "Save")
+    alert.addButton(withTitle: "Cancel")
+    alert.window.initialFirstResponder = textView
+
+    guard alert.runModal() == .alertFirstButtonReturn else { return }
+    viewModel.updateSelectedText(to: textView.string)
   }
 
   private func emptyStateView() -> NSView {
@@ -1275,6 +1308,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   var onSelect: (Int) -> Void = { _ in }
   var onPaste: (Int) -> Void = { _ in }
   var onCopy: (Int) -> Void = { _ in }
+  var onEditText: (Int) -> Void = { _ in }
   var onPreview: (Int) -> Void = { _ in }
   var onPasteboardWriters: (Int) -> [NSPasteboardWriting] = { _ in [] }
   var onOpen: (Int) -> Void = { _ in }
@@ -1457,6 +1491,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     menu.autoenablesItems = false
     addMenuItem("Paste", action: #selector(pasteFromMenu), to: menu)
     addMenuItem("Copy", action: #selector(copyFromMenu), to: menu)
+    if canEditText {
+      addMenuItem("Edit", action: #selector(editTextFromMenu), to: menu)
+    }
     if canPreview {
       addMenuItem("Quick Look", action: #selector(previewFromMenu), to: menu)
     }
@@ -1543,6 +1580,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     }
   }
 
+  private var canEditText: Bool {
+    itemKind == .text
+  }
+
   private var canReveal: Bool {
     switch itemKind {
     case .file, .image, .pdf, .audio:
@@ -1577,6 +1618,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       cardActionButton("doc.on.doc", toolTip: "Copy", action: #selector(copyFromMenu)),
       cardActionButton(itemIsPinned ? "pin.slash" : "pin", toolTip: pinTitle, action: #selector(togglePinFromMenu))
     ]
+    if canEditText {
+      actionRailButtons.append(cardActionButton("pencil", toolTip: "Edit", action: #selector(editTextFromMenu)))
+    }
     if canPreview {
       actionRailButtons.append(cardActionButton("eye", toolTip: "Preview", action: #selector(previewFromMenu)))
     }
@@ -1648,6 +1692,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   @objc private func copyFromMenu() {
     onCopy(index)
+  }
+
+  @objc private func editTextFromMenu() {
+    onEditText(index)
   }
 
   @objc private func previewFromMenu() {

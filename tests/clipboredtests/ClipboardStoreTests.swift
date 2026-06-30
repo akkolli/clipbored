@@ -138,6 +138,50 @@ final class ClipboardStoreTests: XCTestCase {
     XCTAssertNil(cleared.items.first?.collectionName)
   }
 
+  func testUpdateTextPersistsAcrossReloadAndPreservesMetadata() {
+    let settings = makeSettings(maxHistory: 50)
+    let store = makeStore(settings: settings)
+    var item = makeItem("alpha", displayText: "Alpha", created: Date(timeIntervalSince1970: 100))
+    item.isPinned = true
+    item.collectionName = "Important Notes"
+    item.sourceApp = "Notes"
+    item.useCount = 4
+
+    store.upsert(item)
+    store.flushPersistenceForTesting()
+    let itemID = try! XCTUnwrap(store.items.first?.id)
+
+    XCTAssertTrue(store.updateText(itemID, text: "Edited alpha"))
+    store.flushPersistenceForTesting()
+
+    let restored = makeStore(settings: settings)
+    restored.flushPersistenceForTesting()
+    let restoredItem = try! XCTUnwrap(restored.items.first)
+    XCTAssertEqual(restoredItem.id, itemID)
+    XCTAssertEqual(restoredItem.kind, .text)
+    XCTAssertEqual(restoredItem.displayText, "Edited alpha")
+    XCTAssertEqual(restoredItem.payload, "Edited alpha")
+    XCTAssertEqual(restoredItem.payloadHash, restored.hashString("Edited alpha"))
+    XCTAssertEqual(restoredItem.isPinned, true)
+    XCTAssertEqual(restoredItem.collectionName, "Important Notes")
+    XCTAssertEqual(restoredItem.sourceApp, "Notes")
+    XCTAssertEqual(restoredItem.useCount, 4)
+  }
+
+  func testUpdateTextRejectsNonTextItems() {
+    let settings = makeSettings(maxHistory: 50)
+    let store = makeStore(settings: settings)
+    let pdf = makePDFItem(path: "/tmp/report.pdf", hash: "pdf-hash", created: Date(timeIntervalSince1970: 100))
+
+    store.upsert(pdf)
+    store.flushPersistenceForTesting()
+    let itemID = try! XCTUnwrap(store.items.first?.id)
+
+    XCTAssertFalse(store.updateText(itemID, text: "Edited"))
+    XCTAssertEqual(store.items.first?.payload, "/tmp/report.pdf")
+    XCTAssertEqual(store.items.first?.payloadHash, "pdf-hash")
+  }
+
   func testLegacyJSONHistoryMigratesToSQLite() throws {
     let settings = makeSettings(maxHistory: 50)
     let itemID = UUID()

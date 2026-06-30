@@ -168,6 +168,36 @@ final class ClipboardPanelViewModel {
     return pasteService.pasteboardWriters(for: visibleItems[index])
   }
 
+  func editableTextForSelected() -> String? {
+    guard let item = selectedItem, item.kind == .text else { return nil }
+    return item.payload
+  }
+
+  func editableTextForItem(at index: Int) -> String? {
+    guard index >= 0 && index < visibleItems.count else { return nil }
+    let item = visibleItems[index]
+    guard item.kind == .text else { return nil }
+    return item.payload
+  }
+
+  func updateSelectedText(to text: String) {
+    guard let item = selectedItem, item.kind == .text else { return }
+    let trimmed = text.clipboardTrimmed
+    guard !trimmed.isEmpty else {
+      statusMessage = "Text clip cannot be empty"
+      return
+    }
+    guard item.payload != text else {
+      statusMessage = "No changes"
+      return
+    }
+
+    selectedItemID = item.id
+    if store.updateText(item.id, text: text) {
+      statusMessage = "Updated text clip"
+    }
+  }
+
   func previewURLForSelected() -> URL? {
     guard let item = selectedItem else { return nil }
     return previewURL(for: item)

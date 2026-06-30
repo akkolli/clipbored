@@ -69,6 +69,18 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertFalse(fixture.view.debugStatusText.contains("Enter paste"))
   }
 
+  func testEditedTextStatusUsesActionTone() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Editable footer item", store: fixture.store))
+    drainMainQueue()
+
+    fixture.viewModel.updateSelectedText(to: "Edited footer item")
+    drainMainQueue()
+
+    XCTAssertEqual(fixture.view.debugStatusText, "Updated text clip")
+    XCTAssertEqual(fixture.view.debugStatusTone, "action")
+  }
+
   func testSkippedCaptureStatusUsesWarningTone() {
     let fixture = makePanelFixture()
 
@@ -172,8 +184,8 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.store.upsert(makeTextItem("Plain text", store: fixture.store))
     drainMainQueue()
 
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Delete"])
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 126)
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Edit", "Delete"])
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 154)
     XCTAssertFalse(fixture.view.debugFirstCardFooterDetailIsHidden)
     XCTAssertTrue(fixture.view.debugFirstCardHeaderBadgeIsHidden)
 
@@ -321,7 +333,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Pin", "Add to Collection", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Edit", "Pin", "Add to Collection", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
     XCTAssertEqual(
       fixture.view.debugFirstCardCollectionMenuTitles,

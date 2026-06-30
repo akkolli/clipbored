@@ -271,6 +271,57 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(NSPasteboard.general.string(forType: .URL), item.payload)
   }
 
+  func testUpdateSelectedTextRefreshesVisibleItemAndSearch() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    let item = makeTextItem("draft meeting note", createdAt: Date(timeIntervalSince1970: 100))
+    store.upsert(item)
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 1)
+
+    XCTAssertEqual(viewModel.editableTextForSelected(), "draft meeting note")
+    viewModel.updateSelectedText(to: "final launch note")
+    store.flushPersistenceForTesting()
+    waitForVisibleItems(in: viewModel, count: 1)
+
+    XCTAssertEqual(viewModel.statusMessage, "Updated text clip")
+    XCTAssertEqual(viewModel.selectedItem?.id, item.id)
+    XCTAssertEqual(viewModel.selectedItem?.displayText, "final launch note")
+    XCTAssertEqual(viewModel.selectedItem?.payload, "final launch note")
+
+    viewModel.searchText = "launch"
+    XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["final launch note"])
+    viewModel.searchText = "draft"
+    XCTAssertTrue(viewModel.visibleItems.isEmpty)
+  }
+
+  func testUpdateSelectedTextRejectsEmptyAndNonTextSelections() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    let text = makeTextItem("editable note", createdAt: Date(timeIntervalSince1970: 100))
+    let file = makeMissingFileItem(useCount: 0)
+    store.upsert(text)
+    store.upsert(file)
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 2)
+
+    XCTAssertNil(viewModel.editableTextForItem(at: 0))
+    viewModel.selectItem(at: 0)
+    viewModel.updateSelectedText(to: "should not apply")
+    XCTAssertEqual(store.items.first?.payload, file.payload)
+
+    viewModel.selectItem(at: 1)
+    viewModel.updateSelectedText(to: "   \n")
+    XCTAssertEqual(viewModel.statusMessage, "Text clip cannot be empty")
+    XCTAssertEqual(store.items.last?.payload, "editable note")
+  }
+
   func testFailedCopyDoesNotMarkItemUsed() {
     let settings = makeSettings()
     let cacheService = makeCacheService()

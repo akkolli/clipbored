@@ -101,6 +101,22 @@ final class ClipboardStore {
     persistAsync(.upsert(items[index]))
   }
 
+  @discardableResult
+  func updateText(_ id: UUID, text: String) -> Bool {
+    guard !text.isEmpty,
+          let index = items.firstIndex(where: { $0.id == id }),
+          items[index].kind == .text else {
+      return false
+    }
+
+    items[index].displayText = text
+    items[index].payload = text
+    items[index].payloadHash = hashString(text)
+    items[index].ocrText = nil
+    persistAsync(.upsert(items[index]))
+    return true
+  }
+
   func remove(_ id: UUID) {
     guard let index = items.firstIndex(where: { $0.id == id }) else { return }
     let removed = items.remove(at: index)
