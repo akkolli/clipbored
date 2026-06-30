@@ -3,6 +3,46 @@ import XCTest
 @testable import ClipBored
 
 final class AppDelegateTests: XCTestCase {
+  func testPresentationPlanMapsDockPreferenceToActivationPolicy() {
+    let dockless = AppDelegate.presentationPlan(
+      showMenuBarIcon: true,
+      showDockIcon: false,
+      changedSurface: nil
+    )
+    XCTAssertTrue(dockless.showMenuBarIcon)
+    XCTAssertFalse(dockless.showDockIcon)
+    XCTAssertEqual(dockless.activationPolicy, .accessory)
+
+    let dockVisible = AppDelegate.presentationPlan(
+      showMenuBarIcon: true,
+      showDockIcon: true,
+      changedSurface: nil
+    )
+    XCTAssertTrue(dockVisible.showMenuBarIcon)
+    XCTAssertTrue(dockVisible.showDockIcon)
+    XCTAssertEqual(dockVisible.activationPolicy, .regular)
+  }
+
+  func testPresentationPlanKeepsOneVisibleEntryPoint() {
+    let hidingMenuBar = AppDelegate.presentationPlan(
+      showMenuBarIcon: false,
+      showDockIcon: false,
+      changedSurface: .menuBar
+    )
+    XCTAssertFalse(hidingMenuBar.showMenuBarIcon)
+    XCTAssertTrue(hidingMenuBar.showDockIcon)
+    XCTAssertEqual(hidingMenuBar.activationPolicy, .regular)
+
+    let hidingDock = AppDelegate.presentationPlan(
+      showMenuBarIcon: false,
+      showDockIcon: false,
+      changedSurface: .dock
+    )
+    XCTAssertTrue(hidingDock.showMenuBarIcon)
+    XCTAssertFalse(hidingDock.showDockIcon)
+    XCTAssertEqual(hidingDock.activationPolicy, .accessory)
+  }
+
   func testStatusItemMenuRoutingSeparatesLeftAndRightClick() {
     XCTAssertFalse(AppDelegate.shouldOpenStatusMenu(eventType: .leftMouseUp, modifierFlags: []))
     XCTAssertTrue(AppDelegate.shouldOpenStatusMenu(eventType: .rightMouseUp, modifierFlags: []))

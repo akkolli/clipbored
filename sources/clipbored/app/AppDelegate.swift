@@ -1,6 +1,17 @@
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+  enum PresentationSurface: Equatable {
+    case menuBar
+    case dock
+  }
+
+  struct PresentationPlan: Equatable {
+    let showMenuBarIcon: Bool
+    let showDockIcon: Bool
+    let activationPolicy: NSApplication.ActivationPolicy
+  }
+
   struct StatusMenuPresentation: Equatable {
     let summary: String
     let detail: String?
@@ -61,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       settingsShortcut: settings.settingsShortcut
     )
     bindSettings()
+    applyPresentation(changedSurface: nil)
     monitor.setPaused(settings.pauseCapture)
     monitor.start()
     shortcutManager.start()
@@ -415,7 +427,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     case .launchAtLogin:
       applyLaunchAtLoginSetting(settings.launchAtLogin)
     case .showMenuBarIcon:
-      refreshStatusItem()
+      applyPresentation(changedSurface: .menuBar)
+    case .showDockIcon:
+      applyPresentation(changedSurface: .dock)
     case .pauseCapture:
       monitor.setPaused(settings.pauseCapture)
       if settings.showMenuBarIcon {
@@ -428,6 +442,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     case .captureStatus:
       break
     }
+  }
+
+  static func presentationPlan(
+    showMenuBarIcon: Bool,
+    showDockIcon: Bool,
+    changedSurface: PresentationSurface?
+  ) -> PresentationPlan {
+    var plannedMenuBarIcon = showMenuBarIcon
+    var plannedDockIcon = showDockIcon
+
+    if !plannedMenuBarIcon && !plannedDockIcon {
+      if changedSurface == .menuBar {
+        plannedDockIcon = true
+      } else {
+        plannedMenuBarIcon = true
+      }
+    }
+
+    return PresentationPlan(
+      showMenuBarIcon: plannedMenuBarIcon,
+      showDockIcon: plannedDockIcon,
+      activationPolicy: plannedDockIcon ? .regular : .accessory
+    )
+  }
+
+  private func applyPresentation(changedSurface: PresentationSurface?) {
+    let plan = Self.presentationPlan(
+      showMenuBarIcon: settings.showMenuBarIcon,
+      showDockIcon: settings.showDockIcon,
+      changedSurface: changedSurface
+    )
+
+    if settings.showMenuBarIcon != plan.showMenuBarIcon {
+      settings.showMenuBarIcon = plan.showMenuBarIcon
+    }
+    if settings.showDockIcon != plan.showDockIcon {
+      settings.showDockIcon = plan.showDockIcon
+    }
+
+    NSApp.setActivationPolicy(plan.activationPolicy)
+    configureMainMenu()
+    refreshStatusItem()
   }
 
   private func applyLaunchAtLoginSetting(_ shouldLaunch: Bool) {

@@ -8,6 +8,7 @@ final class SettingsModel {
     case settingsShortcut
     case launchAtLogin
     case showMenuBarIcon
+    case showDockIcon
     case pauseCapture
     case pollProfile
     case captureStatus
@@ -23,6 +24,7 @@ final class SettingsModel {
     static let pruneDuplicates = "pruneDuplicates"
     static let launchAtLogin = "launchAtLogin"
     static let showMenuBarIcon = "showMenuBarIcon"
+    static let showDockIcon = "showDockIcon"
     static let openShortcut = "openShortcut"
     static let settingsShortcut = "settingsShortcut"
     static let ignoredApps = "ignoredApps"
@@ -55,6 +57,9 @@ final class SettingsModel {
   }
   var showMenuBarIcon: Bool {
     didSet { if oldValue != showMenuBarIcon { storeAndNotify(.showMenuBarIcon) } }
+  }
+  var showDockIcon: Bool {
+    didSet { if oldValue != showDockIcon { storeAndNotify(.showDockIcon) } }
   }
   var openShortcut: ShortcutBinding {
     didSet { if oldValue != openShortcut { storeAndNotify(.openShortcut) } }
@@ -107,6 +112,7 @@ final class SettingsModel {
     pruneDuplicates = defaults.object(forKey: Keys.pruneDuplicates) as? Bool ?? true
     launchAtLogin = defaults.object(forKey: Keys.launchAtLogin) as? Bool ?? false
     showMenuBarIcon = defaults.object(forKey: Keys.showMenuBarIcon) as? Bool ?? true
+    showDockIcon = defaults.object(forKey: Keys.showDockIcon) as? Bool ?? false
     openShortcut = Self.readShortcut(from: defaults.string(forKey: Keys.openShortcut)) ?? AppConfiguration.defaultOpenShortcut
     settingsShortcut = Self.readShortcut(from: defaults.string(forKey: Keys.settingsShortcut)) ?? AppConfiguration.defaultSettingsShortcut
     ignoredApps = defaults.stringArray(forKey: Keys.ignoredApps) ?? AppConfiguration.defaultIgnoredApps
@@ -135,6 +141,7 @@ final class SettingsModel {
     defaults.set(pruneDuplicates, forKey: Keys.pruneDuplicates)
     defaults.set(launchAtLogin, forKey: Keys.launchAtLogin)
     defaults.set(showMenuBarIcon, forKey: Keys.showMenuBarIcon)
+    defaults.set(showDockIcon, forKey: Keys.showDockIcon)
     defaults.set(openShortcut.encoded(), forKey: Keys.openShortcut)
     defaults.set(settingsShortcut.encoded(), forKey: Keys.settingsShortcut)
     defaults.set(ignoredApps, forKey: Keys.ignoredApps)

@@ -13,6 +13,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSTextViewD
   private let defaultSortPopup = NSPopUpButton()
   private let launchAtLoginButton = NSButton()
   private let showMenuBarIconButton = NSButton()
+  private let showDockIconButton = NSButton()
   private let launchStatusLabel = NSTextField(labelWithString: "")
 
   private var openShortcutControls: ShortcutControlSet?
@@ -124,6 +125,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSTextViewD
     }
     configureCheckbox(launchAtLoginButton, title: "Launch at login", action: #selector(launchAtLoginChanged))
     configureCheckbox(showMenuBarIconButton, title: "Show ClipBored in the menu bar", action: #selector(showMenuBarIconChanged))
+    configureCheckbox(showDockIconButton, title: "Show ClipBored in the Dock", action: #selector(showDockIconChanged))
     configureStatusLabel(launchStatusLabel)
 
     return page([
@@ -138,6 +140,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSTextViewD
       section("Lifecycle", [
         launchAtLoginButton,
         showMenuBarIconButton,
+        showDockIconButton,
         launchStatusLabel
       ])
     ])
@@ -392,6 +395,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSTextViewD
     select(defaultSortPopup, rawValue: settings.defaultSortMode.rawValue)
     launchAtLoginButton.state = settings.launchAtLogin ? .on : .off
     showMenuBarIconButton.state = settings.showMenuBarIcon ? .on : .off
+    showDockIconButton.state = settings.showDockIcon ? .on : .off
     launchStatusLabel.stringValue = settings.launchAtLoginErrorMessage
 
     refreshShortcutControls(openShortcutControls, binding: settings.openShortcut)
@@ -468,7 +472,19 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSTextViewD
   }
 
   @objc private func showMenuBarIconChanged() {
-    settings.showMenuBarIcon = showMenuBarIconButton.state == .on
+    let shouldShowMenuBarIcon = showMenuBarIconButton.state == .on
+    settings.showMenuBarIcon = shouldShowMenuBarIcon
+    if !shouldShowMenuBarIcon && !settings.showDockIcon {
+      settings.showDockIcon = true
+    }
+  }
+
+  @objc private func showDockIconChanged() {
+    let shouldShowDockIcon = showDockIconButton.state == .on
+    settings.showDockIcon = shouldShowDockIcon
+    if !shouldShowDockIcon && !settings.showMenuBarIcon {
+      settings.showMenuBarIcon = true
+    }
   }
 
   @objc private func shortcutChanged(_ sender: NSControl) {
