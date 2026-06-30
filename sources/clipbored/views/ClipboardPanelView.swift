@@ -3077,7 +3077,15 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   }
 
   private var headerBadgeSize: CGFloat {
-    layout.isCompact ? 36 : 42
+    layout.headerHeight
+  }
+
+  private var headerBadgeCornerRadius: CGFloat {
+    layout.isCompact ? 13 : 15
+  }
+
+  private var headerBadgeIconInset: CGFloat {
+    layout.isCompact ? 9 : 10
   }
 
   private var stackCornerButtonSize: CGFloat {
@@ -3988,10 +3996,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private func iconBadge(for item: ClipboardItem) -> NSView {
     let badge = NSView()
     badge.wantsLayer = true
-    badge.layer?.cornerRadius = 8
-    badge.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.92).cgColor
+    badge.layer?.cornerRadius = headerBadgeCornerRadius
+    badge.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.95).cgColor
     badge.layer?.borderWidth = 1
-    badge.layer?.borderColor = Palette.divider
+    badge.layer?.borderColor = NSColor.white.withAlphaComponent(0.52).cgColor
     badge.translatesAutoresizingMaskIntoConstraints = false
     if let bundleId = item.sourceAppBundleId,
        let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
@@ -4000,10 +4008,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       icon.translatesAutoresizingMaskIntoConstraints = false
       badge.addSubview(icon)
       NSLayoutConstraint.activate([
-        icon.leadingAnchor.constraint(equalTo: badge.leadingAnchor, constant: 8),
-        icon.trailingAnchor.constraint(equalTo: badge.trailingAnchor, constant: -8),
-        icon.topAnchor.constraint(equalTo: badge.topAnchor, constant: 8),
-        icon.bottomAnchor.constraint(equalTo: badge.bottomAnchor, constant: -8)
+        icon.leadingAnchor.constraint(equalTo: badge.leadingAnchor, constant: headerBadgeIconInset),
+        icon.trailingAnchor.constraint(equalTo: badge.trailingAnchor, constant: -headerBadgeIconInset),
+        icon.topAnchor.constraint(equalTo: badge.topAnchor, constant: headerBadgeIconInset),
+        icon.bottomAnchor.constraint(equalTo: badge.bottomAnchor, constant: -headerBadgeIconInset)
       ])
     } else {
       let image = NSImage(systemSymbolName: headerBadgeSymbol(for: item.kind), accessibilityDescription: kindLabel(for: item.kind))
@@ -4015,11 +4023,12 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       icon.contentTintColor = accentColor(for: item.kind)
       icon.translatesAutoresizingMaskIntoConstraints = false
       badge.addSubview(icon)
+      let symbolInset = headerBadgeIconInset + 2
       NSLayoutConstraint.activate([
-        icon.leadingAnchor.constraint(equalTo: badge.leadingAnchor, constant: 9),
-        icon.trailingAnchor.constraint(equalTo: badge.trailingAnchor, constant: -9),
-        icon.topAnchor.constraint(equalTo: badge.topAnchor, constant: 9),
-        icon.bottomAnchor.constraint(equalTo: badge.bottomAnchor, constant: -9)
+        icon.leadingAnchor.constraint(equalTo: badge.leadingAnchor, constant: symbolInset),
+        icon.trailingAnchor.constraint(equalTo: badge.trailingAnchor, constant: -symbolInset),
+        icon.topAnchor.constraint(equalTo: badge.topAnchor, constant: symbolInset),
+        icon.bottomAnchor.constraint(equalTo: badge.bottomAnchor, constant: -symbolInset)
       ])
     }
     return badge

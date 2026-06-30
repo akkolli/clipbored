@@ -437,6 +437,8 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 210)
     XCTAssertFalse(fixture.view.debugFirstCardFooterDetailIsHidden)
     XCTAssertFalse(fixture.view.debugFirstCardHeaderBadgeIsHidden)
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.width, 56, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.height, 56, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.maxX, 320, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.maxY, 244, accuracy: 0.5)
 
@@ -451,6 +453,8 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 238)
     XCTAssertFalse(fixture.view.debugFirstCardFooterDetailIsHidden)
     XCTAssertFalse(fixture.view.debugFirstCardHeaderBadgeIsHidden)
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.width, 56, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.height, 56, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.maxX, 320, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.maxY, 244, accuracy: 0.5)
   }
@@ -467,6 +471,8 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 196)
     XCTAssertLessThanOrEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 197)
     XCTAssertFalse(fixture.view.debugFirstCardHeaderBadgeIsHidden)
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.width, 50, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.height, 50, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.maxX, 264, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.maxY, 220, accuracy: 0.5)
     XCTAssertEqual(
