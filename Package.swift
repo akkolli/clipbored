@@ -18,6 +18,7 @@ let package = Package(
         .linkedFramework("AppKit"),
         .linkedFramework("Carbon"),
         .linkedFramework("LocalAuthentication"),
+        .linkedFramework("QuickLook"),
         .linkedFramework("Security"),
         .linkedFramework("Vision"),
         .linkedLibrary("sqlite3")

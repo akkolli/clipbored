@@ -168,6 +168,15 @@ final class ClipboardPanelViewModel {
     return pasteService.pasteboardWriters(for: visibleItems[index])
   }
 
+  func previewURLForSelected() -> URL? {
+    guard let item = selectedItem else { return nil }
+    return previewURL(for: item)
+  }
+
+  internal func previewURL(for item: ClipboardItem) -> URL? {
+    cacheService.temporaryPreviewURL(for: item)
+  }
+
   func openSelected() {
     guard let item = selectedItem else { return }
     switch item.kind {

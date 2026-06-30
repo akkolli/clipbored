@@ -1,4 +1,5 @@
 import AppKit
+import QuickLook
 
 struct ClipboardPanelAnimationProfile {
   let showDuration: TimeInterval
@@ -15,10 +16,11 @@ struct ClipboardPanelReflowPlan {
 enum ClipboardPanelShortcutAction: Equatable {
   case copy
   case open
+  case preview
   case reveal
 }
 
-final class ClipboardPanelController: NSObject, NSWindowDelegate {
+final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
   private enum Animation {
     static let showDuration: TimeInterval = 0.16
     static let hideDuration: TimeInterval = 0.12
@@ -44,6 +46,7 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate {
   private let preferredScreenProvider: () -> NSScreen?
   private let openSettings: () -> Void
   private var isAnimating = false
+  private var quickLookURL: URL?
   private var screenParametersObserver: NSObjectProtocol?
   private static let collectionShortcuts: [UInt16: ClipboardSortMode] = [
     18: .mostRecent,
@@ -82,7 +85,8 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate {
     panelView = ClipboardPanelView(
       viewModel: viewModel,
       onClose: { [weak self] in self?.hide() },
-      onSettings: { [weak self] in self?.openSettings() }
+      onSettings: { [weak self] in self?.openSettings() },
+      onPreview: { [weak self] in self?.previewSelected() }
     )
 
     let contentSize = NSSize(width: 1200, height: 420)
@@ -333,6 +337,9 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate {
       case 53:
         self.hide()
         return nil
+      case 49:
+        self.previewSelected()
+        return nil
       case 36:
         self.viewModel.pasteSelected()
         return nil
@@ -360,9 +367,24 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate {
       viewModel.copySelected()
     case .open:
       viewModel.openSelected()
+    case .preview:
+      previewSelected()
     case .reveal:
       viewModel.revealSelected()
     }
+  }
+
+  private func previewSelected() {
+    guard let url = viewModel.previewURLForSelected() else { return }
+    quickLookURL = url
+    guard let previewPanel = QLPreviewPanel.shared() else {
+      NSWorkspace.shared.open(url)
+      return
+    }
+    previewPanel.dataSource = self
+    previewPanel.delegate = self
+    previewPanel.currentPreviewItemIndex = 0
+    previewPanel.makeKeyAndOrderFront(nil)
   }
 
   private func shouldHandlePanelKeyEvent(_ event: NSEvent) -> Bool {
@@ -399,11 +421,21 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate {
       return .copy
     case 31:
       return .open
+    case 16:
+      return .preview
     case 15:
       return .reveal
     default:
       return nil
     }
+  }
+
+  func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+    quickLookURL == nil ? 0 : 1
+  }
+
+  func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
+    quickLookURL as NSURL?
   }
 
   #if DEBUG

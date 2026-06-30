@@ -182,6 +182,23 @@ final class ClipboardCacheService {
     }
   }
 
+  func temporaryPreviewURL(for item: ClipboardItem) -> URL? {
+    switch item.kind {
+    case .file:
+      let urls = FilePayload.urls(from: item.payload)
+      return urls.first { fileManager.fileExists(atPath: $0.path) }
+    case .text, .unknown:
+      let text = item.payload.clipboardTrimmed.isEmpty ? item.displayText : item.payload
+      guard !text.clipboardTrimmed.isEmpty else { return nil }
+      return writeTemporaryCopy(data: Data(text.utf8), id: item.id, fileExtension: "txt")
+    case .url:
+      guard let data = webLocationData(for: item.payload) else { return nil }
+      return writeTemporaryCopy(data: data, id: item.id, fileExtension: "webloc")
+    case .image, .pdf, .audio, .richText:
+      return temporaryReadableURL(for: item)
+    }
+  }
+
   func encryptCachedReferencesIfNeeded(for items: [ClipboardItem]) {
     queue.async { [weak self] in
       guard let self else { return }
@@ -318,6 +335,16 @@ final class ClipboardCacheService {
     } catch {
       return nil
     }
+  }
+
+  private func webLocationData(for value: String) -> Data? {
+    let trimmed = value.clipboardTrimmed
+    guard !trimmed.isEmpty else { return nil }
+    return try? PropertyListSerialization.data(
+      fromPropertyList: ["URL": trimmed],
+      format: .xml,
+      options: 0
+    )
   }
 
   private func removeTemporaryPreviewFiles() {
