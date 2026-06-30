@@ -246,6 +246,23 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugKeyboardFocusedCollectionTitles, ["Clipboard"])
   }
 
+  func testTypingFromFocusedCollectionChipStartsSearch() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Alpha note", store: fixture.store))
+    fixture.store.upsert(makeTextItem("Quantum reference", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.debugFocusCollectionChip(.links))
+    fixture.view.debugTypeFocusedResponder("q", keyCode: 12)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.isSearchFieldEditing)
+    XCTAssertEqual(fixture.view.debugSearchFieldText, "q")
+    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Quantum reference"])
+  }
+
   func testCollectionRailAddButtonCreatesEmptyCollection() {
     let fixture = makePanelFixture()
 
@@ -378,6 +395,23 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.previewProbe.requestCount, 1)
     XCTAssertEqual(fixture.viewModel.selectedItem?.payload, "Preview this text without pasting")
     XCTAssertEqual(fixture.viewModel.statusMessage, "")
+  }
+
+  func testTypingFromFocusedCardStartsSearch() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Alpha note", store: fixture.store))
+    fixture.store.upsert(makeTextItem("Quantum card", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.debugFocusCard(at: 0))
+    fixture.view.debugTypeFocusedResponder("q", keyCode: 12)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.isSearchFieldEditing)
+    XCTAssertEqual(fixture.view.debugSearchFieldText, "q")
+    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Quantum card"])
   }
 
   func testFocusedPreviewableCardSpaceOpensQuickLook() {

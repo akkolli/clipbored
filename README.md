@@ -16,7 +16,7 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
   - `Shift + Command + N` creates a new collection
   - `Space` previews the selected card when the focused search field is empty
 - Clipboard history for text, URLs with local preview thumbnails when available, images, audio, RTF/HTML rich text, PDFs, and file references
-- Keyboard-focusable cards and collection chips with Return-to-paste/select, Space-to-preview for text, links, files, and media, vertical wheel/trackpad panning and overflow edge fades in horizontal rails, visible focus chrome, and VoiceOver action hints
+- Keyboard-focusable cards and collection chips with type-to-search, Return-to-paste/select, Space-to-preview for text, links, files, and media, vertical wheel/trackpad panning and overflow edge fades in horizontal rails, visible focus chrome, and VoiceOver action hints
 - Shelf navigation keys for focused cards: Left/Right, Page Up/Page Down, Home, and End
 - Shelf navigation keys for focused collection chips: Left/Right, Home, and End
 - SQLite persistence with bounded history, pinned-item retention, and encrypted app-managed payloads

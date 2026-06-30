@@ -592,6 +592,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func configureCollectionKeyboardNavigation(for chip: CollectionChipView) {
+    chip.onStartSearch = { [weak self] text in
+      self?.startSearchFromShelf(text)
+    }
     chip.onMoveFocus = { [weak self, weak chip] delta in
       self?.moveCollectionFocus(from: chip, delta: delta)
     }
@@ -743,6 +746,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
         )
         card.onSelect = { [weak self] selected in
           self?.viewModel.selectItem(at: selected)
+        }
+        card.onStartSearch = { [weak self] text in
+          self?.startSearchFromShelf(text)
         }
         card.onMoveSelection = { [weak self] delta in
           self?.moveSelectionFromFocusedCard(delta)
@@ -1225,6 +1231,13 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     window?.makeFirstResponder(searchField)
   }
 
+  private func startSearchFromShelf(_ text: String) {
+    guard !text.isEmpty else { return }
+    focusSearchField()
+    searchField.stringValue += text
+    updateSearchText()
+  }
+
   func setBottomSafeInset(_ inset: CGFloat) {
     bottomSafeInset = max(Metrics.minimumBottomInset, inset)
     mainStack?.edgeInsets = contentInsets()
@@ -1476,6 +1489,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   func debugPressFocusedResponderKeyCode(_ keyCode: UInt16) {
     debugPressFocusedResponder(characters: "", keyCode: keyCode)
+  }
+
+  func debugTypeFocusedResponder(_ characters: String, keyCode: UInt16) {
+    debugPressFocusedResponder(characters: characters, keyCode: keyCode)
   }
 
   private func debugPressFocusedResponder(characters: String, keyCode: UInt16) {
@@ -1813,6 +1830,14 @@ private enum ClipboardItemDragPasteboard {
   ]
 }
 
+private func shelfSearchText(from event: NSEvent) -> String? {
+  let blockedModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .function]
+  guard event.modifierFlags.intersection(blockedModifiers).isEmpty else { return nil }
+  guard let characters = event.characters, !characters.isEmpty else { return nil }
+  guard characters.rangeOfCharacter(from: .controlCharacters) == nil else { return nil }
+  return characters
+}
+
 private enum ClipboardCardDragContext {
   static var itemID: UUID?
 }
@@ -1960,6 +1985,7 @@ private final class CollectionChipView: NSView {
   private var isKeyboardFocused = false
   private var isDropTargeted = false
   var onPress: () -> Void = {}
+  var onStartSearch: (String) -> Void = { _ in }
   var onMoveFocus: (Int) -> Void = { _ in }
   var onSelectFirst: () -> Void = {}
   var onSelectLast: () -> Void = {}
@@ -2126,7 +2152,11 @@ private final class CollectionChipView: NSView {
     case 124:
       onMoveFocus(1)
     default:
-      super.keyDown(with: event)
+      if let text = shelfSearchText(from: event) {
+        onStartSearch(text)
+      } else {
+        super.keyDown(with: event)
+      }
     }
   }
 
@@ -2313,6 +2343,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   var onIgnoreSourceApp: (Int) -> Void = { _ in }
   var onIgnoreKind: (Int) -> Void = { _ in }
   var onDelete: (Int) -> Void = { _ in }
+  var onStartSearch: (String) -> Void = { _ in }
 
   private let index: Int
   private let itemID: UUID
@@ -2447,7 +2478,11 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     case 124:
       onMoveSelection(1)
     default:
-      super.keyDown(with: event)
+      if let text = shelfSearchText(from: event) {
+        onStartSearch(text)
+      } else {
+        super.keyDown(with: event)
+      }
     }
   }
 
