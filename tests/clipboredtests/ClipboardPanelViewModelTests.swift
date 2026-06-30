@@ -145,6 +145,85 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     )
   }
 
+  func testStructuredSearchSupportsQuotedPinboardAndMultiValueFilters() {
+    let settings = makeSettings()
+    let store = makeStore(settings: settings)
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: ClipboardCacheService())
+    let items = [
+      ClipboardItem(
+        id: UUID(),
+        kind: .url,
+        displayText: "Launch link",
+        payload: "https://example.com/launch",
+        payloadHash: hash("launch-link"),
+        createdAt: Date(timeIntervalSince1970: 100),
+        lastUsedAt: Date(timeIntervalSince1970: 100),
+        useCount: 0,
+        sourceApp: "Safari",
+        imagePath: nil,
+        thumbnailPath: nil,
+        collectionName: "Useful Links"
+      ),
+      ClipboardItem(
+        id: UUID(),
+        kind: .image,
+        displayText: "Moodboard",
+        payload: "/tmp/moodboard.png",
+        payloadHash: hash("moodboard"),
+        createdAt: Date(timeIntervalSince1970: 300),
+        lastUsedAt: Date(timeIntervalSince1970: 300),
+        useCount: 0,
+        sourceApp: "Photos",
+        imagePath: nil,
+        thumbnailPath: nil,
+        collectionName: "Read Later"
+      ),
+      ClipboardItem(
+        id: UUID(),
+        kind: .file,
+        displayText: "Launch brief",
+        payload: "/tmp/brief.pdf",
+        payloadHash: hash("launch-brief"),
+        createdAt: Date(timeIntervalSince1970: 200),
+        lastUsedAt: Date(timeIntervalSince1970: 200),
+        useCount: 0,
+        sourceApp: "Finder",
+        imagePath: nil,
+        thumbnailPath: nil,
+        collectionName: "Client Work"
+      ),
+      ClipboardItem(
+        id: UUID(),
+        kind: .text,
+        displayText: "Standalone note",
+        payload: "outside",
+        payloadHash: hash("outside"),
+        createdAt: Date(timeIntervalSince1970: 400),
+        lastUsedAt: Date(timeIntervalSince1970: 400),
+        useCount: 0,
+        sourceApp: "Notes",
+        imagePath: nil,
+        thumbnailPath: nil
+      )
+    ]
+
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: items, query: "pinboard:\"Client Work\"", sortMode: .mostRecent).map(\.displayText),
+      ["Launch brief"]
+    )
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: items, query: "pinboard:\"Useful Links\",\"Read Later\"", sortMode: .mostRecent).map(\.displayText),
+      ["Moodboard", "Launch link"]
+    )
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: items, query: "board:\"Client Work\" type:file,pdf", sortMode: .mostRecent).map(\.displayText),
+      ["Launch brief"]
+    )
+    XCTAssertTrue(
+      viewModel.computeVisibleItems(from: items, query: "pinboard:\"Client Work\" type:image", sortMode: .mostRecent).isEmpty
+    )
+  }
+
   func testStructuredSearchFiltersByCreatedDate() {
     let settings = makeSettings()
     let store = makeStore(settings: settings)

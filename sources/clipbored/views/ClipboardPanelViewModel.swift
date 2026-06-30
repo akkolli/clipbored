@@ -13,8 +13,8 @@ final class ClipboardPanelViewModel {
 
   private struct ParsedSearchQuery {
     var textTokens: [String] = []
-    var appTokens: [String] = []
-    var collectionTokens: [String] = []
+    var appTokenGroups: [[String]] = []
+    var collectionTokenGroups: [[String]] = []
     var typeKinds: Set<ClipboardItemKind> = []
     var createdAfter: Date?
     var createdBefore: Date?
@@ -22,8 +22,8 @@ final class ClipboardPanelViewModel {
 
     var isEmpty: Bool {
       textTokens.isEmpty
-        && appTokens.isEmpty
-        && collectionTokens.isEmpty
+        && appTokenGroups.isEmpty
+        && collectionTokenGroups.isEmpty
         && typeKinds.isEmpty
         && createdAfter == nil
         && createdBefore == nil
@@ -793,19 +793,23 @@ final class ClipboardPanelViewModel {
       guard query.textTokens.allSatisfy({ text.contains($0) }) else { return false }
     }
 
-    if !query.appTokens.isEmpty {
+    if !query.appTokenGroups.isEmpty {
       let source = [item.sourceApp, item.sourceAppBundleId]
         .compactMap { $0?.lowercased() }
         .joined(separator: " ")
       guard !source.isEmpty,
-            query.appTokens.allSatisfy({ source.contains($0) }) else {
+            query.appTokenGroups.contains(where: { group in
+              group.allSatisfy { source.contains($0) }
+            }) else {
         return false
       }
     }
 
-    if !query.collectionTokens.isEmpty {
+    if !query.collectionTokenGroups.isEmpty {
       guard let collection = item.collectionName?.lowercased(),
-            query.collectionTokens.allSatisfy({ collection.contains($0) }) else {
+            query.collectionTokenGroups.contains(where: { group in
+              group.allSatisfy { collection.contains($0) }
+            }) else {
         return false
       }
     }
@@ -831,7 +835,7 @@ final class ClipboardPanelViewModel {
 
   private func parseSearchQuery(_ query: String) -> ParsedSearchQuery {
     var parsed = ParsedSearchQuery()
-    for part in query.split(whereSeparator: { $0.isWhitespace }).map(String.init) {
+    for part in searchParts(from: query) {
       guard !part.isEmpty else { continue }
       guard let delimiter = part.firstIndex(of: ":") else {
         parsed.textTokens.append(contentsOf: searchTokens(from: part.lowercased()))
@@ -852,14 +856,23 @@ final class ClipboardPanelViewModel {
   private func applyStructuredSearchToken(key: String, value: String, to query: inout ParsedSearchQuery) -> Bool {
     switch key {
     case "app", "source", "from":
-      query.appTokens.append(contentsOf: searchTokens(from: value))
+      let groups = structuredTokenGroups(from: value)
+      guard !groups.isEmpty else { return false }
+      query.appTokenGroups.append(contentsOf: groups)
       return true
-    case "collection", "folder", "list":
-      query.collectionTokens.append(contentsOf: searchTokens(from: value))
+    case "collection", "folder", "list", "pinboard", "pinboards", "board", "boards":
+      let groups = structuredTokenGroups(from: value)
+      guard !groups.isEmpty else { return false }
+      query.collectionTokenGroups.append(contentsOf: groups)
       return true
     case "type", "kind":
-      guard let kinds = itemKinds(matching: value), !kinds.isEmpty else { return false }
-      query.typeKinds.formUnion(kinds)
+      var matchedKinds = Set<ClipboardItemKind>()
+      for segment in structuredValueSegments(from: value) {
+        guard let kinds = itemKinds(matching: segment), !kinds.isEmpty else { return false }
+        matchedKinds.formUnion(kinds)
+      }
+      guard !matchedKinds.isEmpty else { return false }
+      query.typeKinds.formUnion(matchedKinds)
       return true
     case "pin", "pinned":
       guard let pinned = booleanValue(from: value) else { return false }
@@ -884,6 +897,55 @@ final class ClipboardPanelViewModel {
     default:
       return false
     }
+  }
+
+  private func searchParts(from query: String) -> [String] {
+    var parts: [String] = []
+    var current = ""
+    var quotedBy: Character?
+
+    func flushCurrent() {
+      let part = current.clipboardTrimmed
+      if !part.isEmpty {
+        parts.append(part)
+      }
+      current = ""
+    }
+
+    for character in query {
+      if character == "\"" || character == "'" {
+        if quotedBy == character {
+          quotedBy = nil
+          continue
+        }
+        if quotedBy == nil {
+          quotedBy = character
+          continue
+        }
+      }
+
+      if character.isWhitespace && quotedBy == nil {
+        flushCurrent()
+      } else {
+        current.append(character)
+      }
+    }
+
+    flushCurrent()
+    return parts
+  }
+
+  private func structuredValueSegments(from value: String) -> [String] {
+    value
+      .split(separator: ",")
+      .map { String($0).clipboardTrimmed.lowercased() }
+      .filter { !$0.isEmpty }
+  }
+
+  private func structuredTokenGroups(from value: String) -> [[String]] {
+    structuredValueSegments(from: value)
+      .map { searchTokens(from: $0) }
+      .filter { !$0.isEmpty }
   }
 
   private func itemKinds(matching value: String) -> Set<ClipboardItemKind>? {

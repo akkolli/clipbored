@@ -16,7 +16,7 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
   - `Shift + Command + N` creates a new collection
 - Clipboard history for text, URLs with local preview thumbnails when available, images, audio, RTF/HTML rich text, PDFs, and file references
 - SQLite persistence with bounded history, pinned-item retention, and encrypted app-managed payloads
-- Search with independent token matching, structured filters such as `app:Safari`, `type:image`, `date:2026-06-30`, result jump-back to full history, and optional local OCR for copied images
+- Search with independent token matching, structured filters such as `app:Safari`, `type:image,pdf`, `pinboard:"Client Work","Read Later"`, `date:2026-06-30`, result jump-back to full history, and optional local OCR for copied images
 - Sort modes for recent, most used, images, links, text, files, audio, and pinned items
 - Custom named collections, including empty color-coded collections, for organizing clips from the card Collect control, context menu, or by dragging cards onto collection chips; collection chips can be edited or deleted from their context menu
 - Searchable custom titles for clips, so media, files, links, PDFs, audio, and text can be renamed without changing the copied payload
