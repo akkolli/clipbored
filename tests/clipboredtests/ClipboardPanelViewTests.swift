@@ -215,8 +215,8 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.store.upsert(makeTextItem("Plain text", store: fixture.store))
     drainMainQueue()
 
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Add to Stack", "Edit", "Delete"])
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 182)
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Collect", "Add to Stack", "Edit", "Delete"])
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 210)
     XCTAssertFalse(fixture.view.debugFirstCardFooterDetailIsHidden)
     XCTAssertTrue(fixture.view.debugFirstCardHeaderBadgeIsHidden)
 
@@ -225,8 +225,8 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     fixture.viewModel.selectFirstItem()
     XCTAssertEqual(fixture.viewModel.visibleItems.first?.kind, .file)
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Add to Stack", "Preview", "Open", "Reveal", "Delete"])
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 238)
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Collect", "Add to Stack", "Preview", "Open", "Reveal", "Delete"])
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 266)
     XCTAssertFalse(fixture.view.debugFirstCardFooterDetailIsHidden)
     XCTAssertTrue(fixture.view.debugFirstCardHeaderBadgeIsHidden)
   }
@@ -398,6 +398,10 @@ final class ClipboardPanelViewTests: XCTestCase {
       ["Useful Links", "Important Notes", "Code Snippets", "Read Later", "-", "New Collection..."]
     )
     XCTAssertEqual(
+      fixture.view.debugFirstCardCollectActionMenuTitles,
+      ["Useful Links", "Important Notes", "Code Snippets", "Read Later", "-", "New Collection..."]
+    )
+    XCTAssertEqual(
       fixture.view.debugFirstCardCaptureRuleMenuTitles,
       ["Ignore Ghostty", "Ignore Text Items"]
     )
@@ -433,7 +437,7 @@ final class ClipboardPanelViewTests: XCTestCase {
       fixture.view.debugFirstCardMenuTitles,
       ["Paste", "Copy", "Remove from Stack", "Paste Stack Next", "Copy Stack Next", "Clear Stack", "Edit", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
-    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Remove from Stack", "Edit", "Delete"])
+    XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Collect", "Remove from Stack", "Edit", "Delete"])
   }
 
   func testStackChipAppearsFiltersAndClearsWithStack() {
@@ -483,6 +487,10 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardCollectionMenuTitles,
+      ["Useful Links", "Important Notes", "Code Snippets", "Read Later", "Client Work", "-", "New Collection..."]
+    )
+    XCTAssertEqual(
+      fixture.view.debugFirstCardCollectActionMenuTitles,
       ["Useful Links", "Important Notes", "Code Snippets", "Read Later", "Client Work", "-", "New Collection..."]
     )
   }

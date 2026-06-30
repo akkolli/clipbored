@@ -1134,6 +1134,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     cardViews.first?.debugCollectionMenuTitles ?? []
   }
 
+  var debugFirstCardCollectActionMenuTitles: [String] {
+    cardViews.first?.debugCollectActionMenuTitles ?? []
+  }
+
   var debugFirstCardCaptureRuleMenuTitles: [String] {
     cardViews.first?.debugCaptureRuleMenuTitles ?? []
   }
@@ -1788,6 +1792,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     return collectionMenu.items.map { $0.isSeparatorItem ? "-" : $0.title }
   }
 
+  var debugCollectActionMenuTitles: [String] {
+    collectionAssignmentMenu().items.map { $0.isSeparatorItem ? "-" : $0.title }
+  }
+
   var debugCaptureRuleMenuTitles: [String] {
     guard let rulesMenu = contextMenu().items.first(where: { $0.title == "Capture Rules" })?.submenu else {
       return []
@@ -1859,6 +1867,12 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   private func addCollectionMenu(to menu: NSMenu) {
     let parent = NSMenuItem(title: "Add to Collection", action: nil, keyEquivalent: "")
+    let submenu = collectionAssignmentMenu()
+    menu.addItem(parent)
+    menu.setSubmenu(submenu, for: parent)
+  }
+
+  private func collectionAssignmentMenu() -> NSMenu {
     let submenu = NSMenu(title: "Add to Collection")
     submenu.autoenablesItems = false
 
@@ -1884,8 +1898,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       submenu.addItem(remove)
     }
 
-    menu.addItem(parent)
-    menu.setSubmenu(submenu, for: parent)
+    return submenu
   }
 
   private func addCaptureRulesMenu(to menu: NSMenu) {
@@ -2017,6 +2030,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       cardActionButton("doc.on.doc", toolTip: "Copy", action: #selector(copyFromMenu)),
       cardActionButton(itemIsPinned ? "pin.slash" : "pin", toolTip: pinTitle, action: #selector(togglePinFromMenu))
     ]
+    actionRailButtons.append(cardActionButton("plus", toolTip: "Collect", action: #selector(showCollectionMenuFromAction(_:))))
     actionRailButtons.append(cardActionButton("square.stack.3d.up", toolTip: itemIsStacked ? "Remove from Stack" : "Add to Stack", action: #selector(toggleStackFromMenu)))
     if canEditText {
       actionRailButtons.append(cardActionButton("pencil", toolTip: "Edit", action: #selector(editTextFromMenu)))
@@ -2062,12 +2076,18 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     button.wantsLayer = true
     let size = isPrimary ? layout.primaryActionButtonSize : layout.actionButtonSize
     button.layer?.cornerRadius = size / 2
-    button.layer?.backgroundColor = isPrimary
-      ? NSColor.controlAccentColor.cgColor
-      : NSColor.white.withAlphaComponent(0.08).cgColor
-    button.contentTintColor = isPrimary
-      ? .white
-      : (toolTip == "Delete" ? NSColor.white.withAlphaComponent(0.48) : NSColor.white.withAlphaComponent(0.78))
+    if isPrimary {
+      button.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+      button.contentTintColor = .white
+    } else if toolTip == "Collect" {
+      button.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.88).cgColor
+      button.contentTintColor = .white
+    } else {
+      button.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
+      button.contentTintColor = toolTip == "Delete"
+        ? NSColor.white.withAlphaComponent(0.48)
+        : NSColor.white.withAlphaComponent(0.78)
+    }
     button.toolTip = toolTip
     button.setAccessibilityLabel(toolTip)
     button.translatesAutoresizingMaskIntoConstraints = false
@@ -2136,6 +2156,11 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   @objc private func togglePinFromMenu() {
     onTogglePin(index)
+  }
+
+  @objc private func showCollectionMenuFromAction(_ sender: NSButton) {
+    let menu = collectionAssignmentMenu()
+    menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY + 4), in: sender)
   }
 
   @objc private func assignToCollectionFromMenu(_ sender: NSMenuItem) {
