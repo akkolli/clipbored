@@ -3678,26 +3678,45 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     let container = NSView()
     container.translatesAutoresizingMaskIntoConstraints = false
 
+    let hostText = webHostText(from: item.payload) ?? "Link"
+    let siteColor = linkVisualColor(for: hostText)
     let hero = NSView()
     hero.wantsLayer = true
-    hero.layer?.backgroundColor = accentColor(for: item.kind).withAlphaComponent(0.12).cgColor
+    hero.layer?.backgroundColor = siteColor.withAlphaComponent(0.16).cgColor
     hero.translatesAutoresizingMaskIntoConstraints = false
     hero.heightAnchor.constraint(equalToConstant: 82).isActive = true
 
-    let globe = headerIcon("globe", color: accentColor(for: item.kind))
-    globe.translatesAutoresizingMaskIntoConstraints = false
-    let host = NSTextField(labelWithString: webHostText(from: item.payload) ?? "Link")
+    let tile = NSView()
+    tile.wantsLayer = true
+    tile.layer?.cornerRadius = 18
+    tile.layer?.backgroundColor = siteColor.cgColor
+    tile.layer?.shadowColor = NSColor.black.cgColor
+    tile.layer?.shadowOpacity = 0.14
+    tile.layer?.shadowRadius = 9
+    tile.layer?.shadowOffset = NSSize(width: 0, height: 4)
+    tile.translatesAutoresizingMaskIntoConstraints = false
+
+    let monogram = NSTextField(labelWithString: linkMonogram(from: hostText))
+    monogram.font = .systemFont(ofSize: 20, weight: .heavy)
+    monogram.textColor = .white
+    monogram.alignment = .center
+    monogram.lineBreakMode = .byClipping
+    monogram.maximumNumberOfLines = 1
+    monogram.translatesAutoresizingMaskIntoConstraints = false
+    tile.addSubview(monogram)
+
+    let host = NSTextField(labelWithString: hostText)
     host.font = .systemFont(ofSize: 12, weight: .semibold)
-    host.textColor = accentColor(for: item.kind)
+    host.textColor = siteColor
     host.alignment = .center
     host.lineBreakMode = .byTruncatingTail
     host.maximumNumberOfLines = 1
     host.toolTip = host.stringValue
 
-    let heroStack = NSStackView(views: [globe, host])
+    let heroStack = NSStackView(views: [tile, host])
     heroStack.orientation = .vertical
     heroStack.alignment = .centerX
-    heroStack.spacing = 7
+    heroStack.spacing = 6
     heroStack.translatesAutoresizingMaskIntoConstraints = false
     hero.addSubview(heroStack)
 
@@ -3729,8 +3748,11 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       hero.topAnchor.constraint(equalTo: container.topAnchor),
       heroStack.centerXAnchor.constraint(equalTo: hero.centerXAnchor),
       heroStack.centerYAnchor.constraint(equalTo: hero.centerYAnchor),
-      globe.widthAnchor.constraint(equalToConstant: 28),
-      globe.heightAnchor.constraint(equalToConstant: 28),
+      tile.widthAnchor.constraint(equalToConstant: 44),
+      tile.heightAnchor.constraint(equalToConstant: 44),
+      monogram.leadingAnchor.constraint(equalTo: tile.leadingAnchor, constant: 6),
+      monogram.trailingAnchor.constraint(equalTo: tile.trailingAnchor, constant: -6),
+      monogram.centerYAnchor.constraint(equalTo: tile.centerYAnchor),
       host.widthAnchor.constraint(lessThanOrEqualTo: hero.widthAnchor, constant: -48),
       textStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: layout.inset),
       textStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -layout.inset),
@@ -4162,7 +4184,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
     switch item.kind {
     case .url:
-      return thumbnail == nil ? "link-preview" : "link-media-preview"
+      return thumbnail == nil ? "link-site-preview" : "link-media-preview"
     case .file:
       if thumbnail != nil {
         return "file-media-preview"
@@ -4454,6 +4476,12 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
        !looksLikeWebAddress(display) {
       return display
     }
+    if let pageTitle = webPageTitleText(from: item.payload) {
+      return pageTitle
+    }
+    if let hostTitle = webHostTitleText(from: item.payload) {
+      return hostTitle
+    }
     return webHostText(from: item.payload) ?? "Link"
   }
 
@@ -4528,6 +4556,134 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       address += path
     }
     return address
+  }
+
+  private func webPageTitleText(from value: String) -> String? {
+    guard let components = webComponents(from: value) else { return nil }
+    let segments = components.path
+      .split(separator: "/")
+      .map { String($0).removingPercentEncoding ?? String($0) }
+      .map { $0.clipboardTrimmed }
+      .filter { !$0.isEmpty }
+
+    for segment in segments.reversed() where !isLikelyVersionPathSegment(segment) {
+      if let title = humanReadableWebTitle(from: segment) {
+        return title
+      }
+    }
+    return nil
+  }
+
+  private func webHostTitleText(from value: String) -> String? {
+    guard let host = webHostText(from: value) else { return nil }
+    let labels = host
+      .split(separator: ".")
+      .map(String.init)
+      .filter { !$0.isEmpty }
+    guard let label = labels.first else { return nil }
+    return humanReadableWebTitle(from: label)
+  }
+
+  private func humanReadableWebTitle(from value: String) -> String? {
+    var slug = value.clipboardTrimmed
+    guard !slug.isEmpty else { return nil }
+    if let dotIndex = slug.lastIndex(of: ".") {
+      let extensionText = slug[slug.index(after: dotIndex)...]
+      let base = slug[..<dotIndex]
+      if !base.isEmpty, (1...6).contains(extensionText.count), extensionText.allSatisfy(\.isLetter) {
+        slug = String(base)
+      }
+    }
+
+    var words: [String] = []
+    var current = ""
+    for scalar in slug.unicodeScalars {
+      if CharacterSet.alphanumerics.contains(scalar) {
+        current.unicodeScalars.append(scalar)
+      } else if !current.isEmpty {
+        words.append(current)
+        current = ""
+      }
+    }
+    if !current.isEmpty {
+      words.append(current)
+    }
+    words = words.filter { !isLikelyVersionPathSegment($0) }
+    guard !words.isEmpty else { return nil }
+
+    let title = words
+      .map(formattedWebTitleWord)
+      .joined(separator: " ")
+      .clipboardTrimmed
+    guard !title.isEmpty else { return nil }
+    return String(title.prefix(70))
+  }
+
+  private func formattedWebTitleWord(_ word: String) -> String {
+    let lower = word.lowercased()
+    switch lower {
+    case "api": return "API"
+    case "appkit": return "AppKit"
+    case "ios": return "iOS"
+    case "macos": return "macOS"
+    case "nscolor": return "NSColor"
+    case "pdf": return "PDF"
+    case "ui": return "UI"
+    case "url": return "URL"
+    case "wwdc": return "WWDC"
+    case "xcode": return "Xcode"
+    default:
+      if word.count <= 5, word.allSatisfy(\.isUppercase) {
+        return word
+      }
+      return lower.prefix(1).uppercased() + lower.dropFirst()
+    }
+  }
+
+  private func isLikelyVersionPathSegment(_ value: String) -> Bool {
+    var text = value.clipboardTrimmed.lowercased()
+    if text.hasPrefix("v"), text.count > 1 {
+      text.removeFirst()
+    }
+    guard !text.isEmpty else { return false }
+    return text.allSatisfy { character in
+      character.isNumber || character == "." || character == "-" || character == "_"
+    }
+  }
+
+  private func linkMonogram(from host: String) -> String {
+    let words = host
+      .split { character in
+        character == "." || character == "-" || character == "_"
+      }
+      .map(String.init)
+      .filter { !$0.isEmpty && $0.lowercased() != "www" }
+    let letters = words
+      .prefix(2)
+      .compactMap { $0.first }
+      .map { String($0).uppercased() }
+      .joined()
+    if !letters.isEmpty {
+      return letters
+    }
+    return String(host.prefix(1)).uppercased()
+  }
+
+  private func linkVisualColor(for host: String) -> NSColor {
+    let palette = [
+      NSColor(calibratedRed: 0.02, green: 0.47, blue: 0.98, alpha: 1),
+      NSColor(calibratedRed: 0.10, green: 0.62, blue: 0.72, alpha: 1),
+      NSColor(calibratedRed: 0.18, green: 0.72, blue: 0.34, alpha: 1),
+      NSColor(calibratedRed: 0.55, green: 0.35, blue: 0.88, alpha: 1),
+      NSColor(calibratedRed: 0.93, green: 0.12, blue: 0.34, alpha: 1),
+      NSColor(calibratedRed: 0.96, green: 0.64, blue: 0.00, alpha: 1)
+    ]
+    var hash: UInt64 = 1_469_598_103_934_665_603
+    for scalar in host.lowercased().unicodeScalars {
+      hash ^= UInt64(scalar.value)
+      hash &*= 1_099_511_628_211
+    }
+    return palette[Int(hash % UInt64(palette.count))]
   }
 
   private func fileURL(from value: String) -> URL? {

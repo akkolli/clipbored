@@ -1093,7 +1093,25 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(fixture.view.debugCardAccessibilityLabels, ["Link: Release notes"])
     XCTAssertEqual(fixture.view.debugCardPreviewSummaries, ["Release notes|example.com/releases/v1|example.com"])
-    XCTAssertEqual(fixture.view.debugCardPreviewStyles, ["link-preview"])
+    XCTAssertEqual(fixture.view.debugCardPreviewStyles, ["link-site-preview"])
+  }
+
+  func testPlainURLCardsDeriveReadableTitleFromPath() {
+    let fixture = makePanelFixture()
+    let item = makeItem(
+      kind: .url,
+      displayText: "https://www.example.com/articles/weekly-design-review?utm_source=copy",
+      payload: "https://www.example.com/articles/weekly-design-review?utm_source=copy",
+      store: fixture.store
+    )
+
+    fixture.store.upsert(item)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCardAccessibilityLabels, ["Link: Weekly Design Review"])
+    XCTAssertEqual(fixture.view.debugCardPreviewSummaries, ["Weekly Design Review|example.com/articles/weekly-design-review|example.com"])
+    XCTAssertEqual(fixture.view.debugCardPreviewStyles, ["link-site-preview"])
   }
 
   func testLinkCardsUseMediaPreviewWhenThumbnailExists() throws {
