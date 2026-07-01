@@ -64,6 +64,7 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 31. Confirm each card's source or type badge reads as an attached header-corner tile instead of a small floating icon.
 32. Confirm built-in collection chips use recognizable glyphs, while custom collection chips keep color-dot swatches.
 33. Confirm cards from known apps show app identity in the header tile, falling back to source initials when an app icon is unavailable.
+34. Confirm multi-file cards show a stacked file preview, while single-file cards keep the regular file layout.
 
 ## Copy And Paste
 

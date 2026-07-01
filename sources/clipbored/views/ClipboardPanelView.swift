@@ -3571,7 +3571,15 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
         return linkMediaPreviewView(for: item, thumbnail: thumbnail)
       }
       return linkPreviewView(for: item)
-    case .file, .pdf:
+    case .file:
+      if let thumbnail {
+        return mediaPreviewView(for: item, thumbnail: thumbnail)
+      }
+      if FilePayload.paths(from: item.payload).count > 1 {
+        return multiFilePreviewView(for: item)
+      }
+      return filePreviewView(for: item, thumbnail: thumbnail)
+    case .pdf:
       if let thumbnail {
         return mediaPreviewView(for: item, thumbnail: thumbnail)
       }
@@ -3824,6 +3832,109 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     return container
   }
 
+  private func multiFilePreviewView(for item: ClipboardItem) -> NSView {
+    let container = NSView()
+    container.wantsLayer = true
+    container.layer?.backgroundColor = accentColor(for: item.kind).withAlphaComponent(0.08).cgColor
+    container.translatesAutoresizingMaskIntoConstraints = false
+
+    let urls = FilePayload.urls(from: item.payload)
+    let displayURLs = Array(urls.prefix(3))
+    let tileViews = displayURLs.enumerated().map { offset, url in
+      miniFileTile(for: url, index: offset, hiddenCount: max(0, urls.count - displayURLs.count))
+    }
+    let tileStack = NSStackView(views: tileViews)
+    tileStack.orientation = .horizontal
+    tileStack.alignment = .centerY
+    tileStack.spacing = layout.isCompact ? 6 : 8
+    tileStack.translatesAutoresizingMaskIntoConstraints = false
+
+    let title = NSTextField(labelWithString: titleText(for: item))
+    title.font = .systemFont(ofSize: 14, weight: .semibold)
+    title.textColor = .labelColor
+    title.maximumNumberOfLines = 1
+    title.lineBreakMode = .byTruncatingTail
+    title.toolTip = title.stringValue
+
+    let location = NSTextField(labelWithString: previewText(for: item))
+    location.font = .systemFont(ofSize: 12)
+    location.textColor = .secondaryLabelColor
+    location.maximumNumberOfLines = 1
+    location.lineBreakMode = .byTruncatingMiddle
+    location.toolTip = location.stringValue
+
+    let labels = NSStackView(views: [title, location])
+    labels.orientation = .vertical
+    labels.alignment = .leading
+    labels.spacing = 3
+    labels.translatesAutoresizingMaskIntoConstraints = false
+
+    container.addSubview(tileStack)
+    container.addSubview(labels)
+    NSLayoutConstraint.activate([
+      tileStack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+      tileStack.topAnchor.constraint(equalTo: container.topAnchor, constant: layout.isCompact ? 14 : 16),
+      labels.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: layout.inset),
+      labels.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -layout.inset),
+      labels.topAnchor.constraint(equalTo: tileStack.bottomAnchor, constant: layout.isCompact ? 10 : 12),
+      labels.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -10),
+      title.widthAnchor.constraint(equalTo: labels.widthAnchor),
+      location.widthAnchor.constraint(equalTo: labels.widthAnchor)
+    ])
+    return container
+  }
+
+  private func miniFileTile(for url: URL, index: Int, hiddenCount: Int) -> NSView {
+    let tile = NSView()
+    tile.wantsLayer = true
+    tile.layer?.cornerRadius = 10
+    tile.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.84).cgColor
+    tile.layer?.borderWidth = 0.8
+    tile.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.16).cgColor
+    tile.layer?.shadowColor = NSColor.black.cgColor
+    tile.layer?.shadowOpacity = 0.08
+    tile.layer?.shadowRadius = 5
+    tile.layer?.shadowOffset = NSSize(width: 0, height: 2)
+    tile.translatesAutoresizingMaskIntoConstraints = false
+
+    let iconName = url.hasDirectoryPath ? "folder.fill" : "doc.fill"
+    let icon = headerIcon(iconName, color: accentColor(for: .file))
+    icon.translatesAutoresizingMaskIntoConstraints = false
+
+    let extensionText = fileKindText(from: url.path, fallback: url.hasDirectoryPath ? "DIR" : "FILE")
+    let extensionPill = capsuleLabel(extensionText, color: accentColor(for: .file))
+    extensionPill.translatesAutoresizingMaskIntoConstraints = false
+
+    tile.addSubview(icon)
+    tile.addSubview(extensionPill)
+
+    var constraints = [
+      tile.widthAnchor.constraint(equalToConstant: layout.isCompact ? 48 : 54),
+      tile.heightAnchor.constraint(equalToConstant: layout.isCompact ? 58 : 64),
+      icon.centerXAnchor.constraint(equalTo: tile.centerXAnchor),
+      icon.centerYAnchor.constraint(equalTo: tile.centerYAnchor, constant: -7),
+      icon.widthAnchor.constraint(equalToConstant: layout.isCompact ? 23 : 26),
+      icon.heightAnchor.constraint(equalToConstant: layout.isCompact ? 26 : 29),
+      extensionPill.centerXAnchor.constraint(equalTo: tile.centerXAnchor),
+      extensionPill.bottomAnchor.constraint(equalTo: tile.bottomAnchor, constant: -7),
+      extensionPill.widthAnchor.constraint(lessThanOrEqualTo: tile.widthAnchor, constant: -8)
+    ]
+
+    if hiddenCount > 0, index == 2 {
+      let morePill = capsuleLabel("+\(hiddenCount)", color: NSColor.black.withAlphaComponent(0.52))
+      morePill.translatesAutoresizingMaskIntoConstraints = false
+      tile.addSubview(morePill)
+      constraints += [
+        morePill.trailingAnchor.constraint(equalTo: tile.trailingAnchor, constant: -5),
+        morePill.topAnchor.constraint(equalTo: tile.topAnchor, constant: 5),
+        morePill.widthAnchor.constraint(lessThanOrEqualTo: tile.widthAnchor, constant: -10)
+      ]
+    }
+
+    NSLayoutConstraint.activate(constraints)
+    return tile
+  }
+
   private func audioPreviewView(for item: ClipboardItem) -> NSView {
     let container = NSView()
     container.wantsLayer = true
@@ -3962,7 +4073,12 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     switch item.kind {
     case .url:
       return thumbnail == nil ? "link-preview" : "link-media-preview"
-    case .file, .pdf:
+    case .file:
+      if thumbnail != nil {
+        return "file-media-preview"
+      }
+      return FilePayload.paths(from: item.payload).count > 1 ? "multi-file-preview" : "file-preview"
+    case .pdf:
       return thumbnail == nil ? "file-preview" : "file-media-preview"
     case .audio:
       return "audio-preview"

@@ -1185,7 +1185,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(fixture.view.debugCardAccessibilityLabels, ["File: 2 files"])
     XCTAssertEqual(fixture.view.debugCardPreviewSummaries, ["2 files|\(directory.path)|2 files"])
-    XCTAssertEqual(fixture.view.debugCardPreviewStyles, ["file-preview"])
+    XCTAssertEqual(fixture.view.debugCardPreviewStyles, ["multi-file-preview"])
   }
 
   func testExistingFileCardsUseFullBleedMediaPreviewLayout() throws {
