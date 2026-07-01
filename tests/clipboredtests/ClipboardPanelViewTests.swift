@@ -47,6 +47,25 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertTrue(view.isSearchFieldEditing)
   }
 
+  func testShelfChromeKeepsSearchAndCollectionsInOneCompactRow() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Compact shelf chrome", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugShelfChromeRowCount, 1)
+    XCTAssertTrue(fixture.view.debugShelfChromeContainsSearchAndCollections)
+    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 34, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugSearchFieldPlaceholderText, "")
+
+    fixture.view.debugSetSearchFieldText("type:text")
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 300, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugSearchFieldPlaceholderText, "Search clips")
+  }
+
   func testCapturedTextItemCreatesVisibleCardDocument() {
     let fixture = makePanelFixture()
     let item = makeTextItem("Bruh it said copied text but it does not appear.", store: fixture.store)

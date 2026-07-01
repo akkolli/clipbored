@@ -141,6 +141,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     static let panelCornerRadius: CGFloat = 0
     static let compactCardThreshold: CGFloat = 760
     static let emptyStateMinimumWidth: CGFloat = 760
+    static let compactSearchWidth: CGFloat = 34
+    static let expandedSearchWidth: CGFloat = 300
   }
 
   private enum CardDensity: String {
@@ -236,6 +238,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private var currentStatusTone: StatusTone = .ready
   private var cardDensity: CardDensity = .regular
   private var scrollViewHeightConstraint: NSLayoutConstraint?
+  private var searchFieldWidthConstraint: NSLayoutConstraint?
+  private weak var shelfChromeStack: NSStackView?
+  private weak var headerStack: NSStackView?
   private var cardViews: [ClipboardItemCardView] = []
   private var collectionButtons: [ClipboardSortMode: CollectionChipView] = [:]
   private var customCollectionButtons: [String: CollectionChipView] = [:]
@@ -288,13 +293,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     layer?.shadowRadius = 20
     layer?.shadowOffset = NSSize(width: 0, height: 10)
 
-    let toolbarIcon = NSImageView(image: appIconImage())
-    toolbarIcon.imageScaling = .scaleProportionallyUpOrDown
-    toolbarIcon.toolTip = "ClipBored"
-    toolbarIcon.widthAnchor.constraint(equalToConstant: 22).isActive = true
-    toolbarIcon.heightAnchor.constraint(equalToConstant: 22).isActive = true
-
-    searchField.placeholderString = "Search clips"
     searchField.setAccessibilityLabel("Search clipboard history")
     searchField.delegate = self
     searchField.target = self
@@ -312,10 +310,12 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     searchField.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.6)
     searchField.focusRingType = .none
     searchField.toolTip = "Search clipboard history. Supports app:Safari, type:image, date:2026-06-30, after:2026-06-01, and pinned:on."
-    searchField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    searchField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 280).isActive = true
-    searchField.widthAnchor.constraint(lessThanOrEqualToConstant: 620).isActive = true
+    searchField.setContentCompressionResistancePriority(.required, for: .horizontal)
+    searchField.setContentHuggingPriority(.required, for: .horizontal)
+    searchFieldWidthConstraint = searchField.widthAnchor.constraint(equalToConstant: Metrics.compactSearchWidth)
+    searchFieldWidthConstraint?.isActive = true
+    searchField.heightAnchor.constraint(equalToConstant: 30).isActive = true
+    updateSearchFieldPresentation()
 
     collectionStack.orientation = .horizontal
     collectionStack.alignment = .centerY
@@ -351,29 +351,18 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     actionStrip.setContentCompressionResistancePriority(.required, for: .horizontal)
     let actionGroup = groupedToolbar(actionStrip)
 
-    let topSpacer = NSView()
-    topSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    topSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    let topBar = row([
-      toolbarIcon,
-      searchField,
-      topSpacer,
-      actionGroup
-    ])
-    topBar.distribution = .fill
-    topBar.setHuggingPriority(.defaultHigh, for: .vertical)
     actionGroup.setContentHuggingPriority(.required, for: .horizontal)
     actionGroup.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-    let filterSpacer = NSView()
-    filterSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    filterSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    let filterBar = row([
+    let shelfChrome = row([
+      searchField,
       collectionScrollView,
-      filterSpacer
+      actionGroup
     ])
-    filterBar.spacing = 12
-    filterBar.distribution = .fill
+    shelfChrome.spacing = 10
+    shelfChrome.distribution = .fill
+    shelfChrome.setHuggingPriority(.defaultHigh, for: .vertical)
+    shelfChromeStack = shelfChrome
 
     itemsStack.orientation = .horizontal
     itemsStack.alignment = .top
@@ -427,11 +416,12 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     statusResultCountLabel.setAccessibilityLabel("Result count")
     statusLabel.setAccessibilityLabel("Status")
 
-    let headerStack = NSStackView(views: [topBar, filterBar])
+    let headerStack = NSStackView(views: [shelfChrome])
     headerStack.orientation = .vertical
     headerStack.alignment = .leading
-    headerStack.spacing = 10
+    headerStack.spacing = 0
     headerStack.setContentCompressionResistancePriority(.required, for: .vertical)
+    self.headerStack = headerStack
 
     let statusContainer = NSView()
     statusContainer.wantsLayer = true
@@ -464,8 +454,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       mainStack.topAnchor.constraint(equalTo: topAnchor),
       mainStack.bottomAnchor.constraint(equalTo: bottomAnchor),
       headerStack.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -(Metrics.panelSideInset * 2)),
-      topBar.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
-      filterBar.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
+      shelfChrome.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
       scrollView.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -(Metrics.panelSideInset * 2)),
       statusContainer.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -(Metrics.panelSideInset * 2))
     ])
@@ -714,15 +703,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     button.widthAnchor.constraint(equalToConstant: Metrics.actionButtonSize).isActive = true
     button.heightAnchor.constraint(equalToConstant: Metrics.actionButtonSize).isActive = true
     return button
-  }
-
-  private func appIconImage() -> NSImage {
-    if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
-       let icon = NSImage(contentsOf: url) {
-      icon.size = NSSize(width: 22, height: 22)
-      return icon
-    }
-    return NSImage(systemSymbolName: "doc.on.clipboard.fill", accessibilityDescription: "ClipBored") ?? NSImage()
   }
 
   private func reloadItems() {
@@ -1240,8 +1220,25 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     collectionStack.frame = NSRect(x: 0, y: 0, width: width, height: 30)
   }
 
+  private func updateSearchFieldPresentation() {
+    let hasSearchText = !searchField.stringValue.clipboardTrimmed.isEmpty
+    searchFieldWidthConstraint?.constant = hasSearchText
+      ? Metrics.expandedSearchWidth
+      : Metrics.compactSearchWidth
+    searchField.placeholderAttributedString = NSAttributedString(
+      string: hasSearchText ? "Search clips" : "",
+      attributes: [
+        .foregroundColor: NSColor.tertiaryLabelColor
+      ]
+    )
+    needsLayout = true
+    shelfChromeStack?.needsLayout = true
+    headerStack?.needsLayout = true
+  }
+
   func focusSearchField() {
     window?.makeFirstResponder(searchField)
+    updateSearchFieldPresentation()
   }
 
   @discardableResult
@@ -1692,6 +1689,24 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     searchField.stringValue
   }
 
+  var debugSearchFieldWidth: CGFloat {
+    searchFieldWidthConstraint?.constant ?? searchField.frame.width
+  }
+
+  var debugSearchFieldPlaceholderText: String {
+    searchField.placeholderAttributedString?.string ?? searchField.placeholderString ?? ""
+  }
+
+  var debugShelfChromeRowCount: Int {
+    headerStack?.arrangedSubviews.count ?? 0
+  }
+
+  var debugShelfChromeContainsSearchAndCollections: Bool {
+    guard let arrangedSubviews = shelfChromeStack?.arrangedSubviews else { return false }
+    return arrangedSubviews.contains { $0 === searchField }
+      && arrangedSubviews.contains { $0 === collectionScrollView }
+  }
+
   func debugDropFirstCard(onCollectionNamed collectionName: String) {
     guard let itemID = cardViews.first?.debugItemID else { return }
     customCollectionButtons[collectionName]?.debugDropItem(itemID)
@@ -1706,6 +1721,16 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   func controlTextDidChange(_ notification: Notification) {
     guard notification.object as? NSSearchField === searchField else { return }
     updateSearchText()
+  }
+
+  func controlTextDidBeginEditing(_ notification: Notification) {
+    guard notification.object as? NSSearchField === searchField else { return }
+    updateSearchFieldPresentation()
+  }
+
+  func controlTextDidEndEditing(_ notification: Notification) {
+    guard notification.object as? NSSearchField === searchField else { return }
+    updateSearchFieldPresentation()
   }
 
   func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -1739,6 +1764,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   private func updateSearchText() {
     viewModel.searchText = searchField.stringValue
+    updateSearchFieldPresentation()
   }
 
   private func moveSelectionFromFocusedCard(_ delta: Int) {
@@ -1780,6 +1806,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     viewModel.selectItem(at: index)
     viewModel.showSelectedInClipboard()
     searchField.stringValue = viewModel.searchText
+    updateSearchFieldPresentation()
   }
 
   func createCollection() {
