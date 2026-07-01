@@ -195,6 +195,15 @@ final class ClipboardMonitorService {
       return itemFromURL(url.url, title: url.title, sourceApp: source.name, sourceBundleId: source.bundleId, previewPasteboard: pasteboard)
     }
 
+    if isIgnored(.color), hasColor(on: pasteboard) {
+      reportReadFailureStatus(ignoredKindMessage(.color))
+      return nil
+    }
+
+    if let colorItem = itemFromColor(pasteboard, sourceApp: source.name, sourceBundleId: source.bundleId) {
+      return colorItem
+    }
+
     if isIgnored(.image), hasImage(on: pasteboard) {
       reportReadFailureStatus(ignoredKindMessage(.image))
       return nil
@@ -407,6 +416,10 @@ final class ClipboardMonitorService {
     pasteboard.data(forType: .sound) != nil
   }
 
+  private func hasColor(on pasteboard: NSPasteboard) -> Bool {
+    NSColor(from: pasteboard) != nil
+  }
+
   private func hasFileItems(on pasteboard: NSPasteboard) -> Bool {
     guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL], !urls.isEmpty else {
       return false
@@ -463,6 +476,30 @@ final class ClipboardMonitorService {
       displayText: "Audio (\(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file)))",
       payload: path,
       payloadHash: hash,
+      createdAt: Date(),
+      lastUsedAt: Date(),
+      useCount: 1,
+      sourceApp: sourceApp,
+      imagePath: nil,
+      thumbnailPath: nil,
+      isPinned: false,
+      sourceAppBundleId: sourceBundleId
+    )
+  }
+
+  private func itemFromColor(_ pasteboard: NSPasteboard, sourceApp: String?, sourceBundleId: String?) -> ClipboardItem? {
+    guard let color = NSColor(from: pasteboard) else { return nil }
+    guard let hex = ColorPayload.hexString(from: color) else {
+      reportReadFailureStatus("Clipboard color is present but could not be decoded.")
+      return nil
+    }
+
+    return ClipboardItem(
+      id: UUID(),
+      kind: .color,
+      displayText: hex,
+      payload: hex,
+      payloadHash: store.hashString(hex),
       createdAt: Date(),
       lastUsedAt: Date(),
       useCount: 1,

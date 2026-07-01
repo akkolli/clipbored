@@ -169,6 +169,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSTextViewD
       kindCheckbox("Text", .text),
       kindCheckbox("Links", .url),
       kindCheckbox("Images", .image),
+      kindCheckbox("Colors", .color),
       kindCheckbox("Audio", .audio),
       kindCheckbox("Rich text", .richText),
       kindCheckbox("PDFs", .pdf),

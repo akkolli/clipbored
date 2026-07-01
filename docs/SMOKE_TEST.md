@@ -66,6 +66,7 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 33. Confirm cards from known apps show app identity in the header tile, falling back to source initials when an app icon is unavailable.
 34. Confirm multi-file cards show a stacked file preview, while single-file cards keep the regular file layout.
 35. Confirm the shelf chrome uses one row with compact search, collection chips, and utility buttons; typing a search expands the search field without pushing cards out of view.
+36. Copy a color swatch from a design tool and confirm it appears as a Color card, can be filtered with the Colors chip, and copies back as both a color and hex text.
 
 ## Copy And Paste
 

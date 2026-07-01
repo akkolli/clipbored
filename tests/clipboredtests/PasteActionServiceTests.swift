@@ -83,6 +83,30 @@ final class PasteActionServiceTests: XCTestCase {
     )
   }
 
+  func testCopyWritesColorToPasteboardWithHexFallback() throws {
+    let service = PasteActionService()
+    let item = ClipboardItem(
+      id: UUID(),
+      kind: .color,
+      displayText: "#0A84FF",
+      payload: "#0A84FF",
+      payloadHash: "hash",
+      createdAt: Date(),
+      lastUsedAt: Date(),
+      useCount: 0,
+      sourceApp: nil,
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+
+    XCTAssertEqual(service.copy(item), .copied)
+    let restored = try XCTUnwrap(NSColor(from: NSPasteboard.general))
+    XCTAssertEqual(ColorPayload.hexString(from: restored), "#0A84FF")
+    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "#0A84FF")
+    XCTAssertEqual(service.copyPlainText(item), .copiedPlainText)
+    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "#0A84FF")
+  }
+
   func testPasteWithoutTargetCopiesWithoutRequestingAutomaticPaste() {
     let service = PasteActionService()
     let item = ClipboardItem(

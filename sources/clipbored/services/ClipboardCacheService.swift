@@ -105,7 +105,7 @@ final class ClipboardCacheService {
     case .file:
       return filePreviewThumbnail(for: item.payload)
 
-    case .text, .unknown, .audio, .richText:
+    case .text, .unknown, .audio, .richText, .color:
       return nil
     }
   }
@@ -190,6 +190,9 @@ final class ClipboardCacheService {
     case .text, .unknown:
       let text = item.payload.clipboardTrimmed.isEmpty ? item.displayText : item.payload
       guard !text.clipboardTrimmed.isEmpty else { return nil }
+      return writeTemporaryCopy(data: Data(text.utf8), id: item.id, fileExtension: "txt")
+    case .color:
+      let text = ColorPayload.previewText(from: item.payload)
       return writeTemporaryCopy(data: Data(text.utf8), id: item.id, fileExtension: "txt")
     case .url:
       guard let data = webLocationData(for: item.payload) else { return nil }

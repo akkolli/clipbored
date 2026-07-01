@@ -59,6 +59,7 @@ private enum ClipboardCollectionVisuals {
     case .text: return NSColor(calibratedRed: 0.96, green: 0.64, blue: 0.00, alpha: 1)
     case .links: return NSColor(calibratedRed: 0.02, green: 0.47, blue: 0.98, alpha: 1)
     case .images: return NSColor(calibratedRed: 1.00, green: 0.22, blue: 0.25, alpha: 1)
+    case .colors: return NSColor(calibratedRed: 0.00, green: 0.65, blue: 0.74, alpha: 1)
     case .audio: return NSColor(calibratedRed: 0.93, green: 0.12, blue: 0.34, alpha: 1)
     case .files: return NSColor(calibratedRed: 0.11, green: 0.68, blue: 0.36, alpha: 1)
     case .pinned: return NSColor(calibratedRed: 0.94, green: 0.12, blue: 0.48, alpha: 1)
@@ -625,6 +626,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     case .text: return "Text"
     case .links: return "Links"
     case .images: return "Images"
+    case .colors: return "Colors"
     case .audio: return "Audio"
     case .files: return "Files"
     case .pinned: return "Pinned"
@@ -638,6 +640,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     case .text: return "text.alignleft"
     case .links: return "link"
     case .images: return "photo"
+    case .colors: return "paintpalette"
     case .audio: return "music.note"
     case .files: return "doc.fill"
     case .pinned: return "pin.fill"
@@ -1130,6 +1133,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     switch viewModel.sortMode {
     case .images:
       return ("No images yet", "Image clips are saved when the clipboard contains image data.")
+    case .colors:
+      return ("No colors yet", "Copied color swatches appear here.")
     case .links:
       return ("No links yet", "Links are detected from copied URLs.")
     case .text:
@@ -1933,7 +1938,8 @@ private enum ClipboardItemDragPasteboard {
     .png,
     .pdf,
     .sound,
-    .rtf
+    .rtf,
+    .color
   ]
 }
 
@@ -3009,14 +3015,14 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     switch itemKind {
     case .url, .file, .image, .pdf, .audio:
       return true
-    case .text, .richText, .unknown:
+    case .text, .richText, .unknown, .color:
       return false
     }
   }
 
   private var canPreview: Bool {
     switch itemKind {
-    case .text, .url, .image, .richText, .file, .pdf, .audio, .unknown:
+    case .text, .url, .image, .richText, .file, .pdf, .audio, .unknown, .color:
       return true
     }
   }
@@ -3027,7 +3033,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   private var canPlainText: Bool {
     switch itemKind {
-    case .url, .image, .richText, .file, .pdf, .audio:
+    case .url, .image, .richText, .file, .pdf, .audio, .color:
       return true
     case .text, .unknown:
       return false
@@ -3038,7 +3044,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     switch itemKind {
     case .file, .image, .pdf, .audio:
       return true
-    case .text, .richText, .url, .unknown:
+    case .text, .richText, .url, .unknown, .color:
       return false
     }
   }
@@ -3613,6 +3619,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return filePreviewView(for: item, thumbnail: thumbnail)
     case .audio:
       return audioPreviewView(for: item)
+    case .color:
+      return colorPreviewView(for: item)
     case .text, .richText, .image, .unknown:
       return textPreviewView(for: item)
     }
@@ -4026,6 +4034,61 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     return container
   }
 
+  private func colorPreviewView(for item: ClipboardItem) -> NSView {
+    let swatchColor = ColorPayload.color(from: item.payload) ?? accentColor(for: item.kind)
+    let textColor = ColorPayload.contrastingTextColor(for: swatchColor)
+
+    let container = NSView()
+    container.wantsLayer = true
+    container.layer?.backgroundColor = swatchColor.cgColor
+    container.translatesAutoresizingMaskIntoConstraints = false
+
+    let hex = NSTextField(labelWithString: ColorPayload.displayHex(from: item.payload))
+    hex.font = .monospacedDigitSystemFont(ofSize: layout.isCompact ? 19 : 22, weight: .bold)
+    hex.textColor = textColor
+    hex.alignment = .center
+    hex.maximumNumberOfLines = 1
+    hex.lineBreakMode = .byTruncatingTail
+    hex.toolTip = hex.stringValue
+
+    let components = NSTextField(labelWithString: ColorPayload.componentSummary(from: item.payload))
+    components.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+    components.textColor = textColor.withAlphaComponent(0.72)
+    components.alignment = .center
+    components.maximumNumberOfLines = 1
+    components.lineBreakMode = .byTruncatingTail
+    components.toolTip = components.stringValue
+
+    let labels = NSStackView(views: [hex, components])
+    labels.orientation = .vertical
+    labels.alignment = .centerX
+    labels.spacing = 6
+    labels.translatesAutoresizingMaskIntoConstraints = false
+
+    let outline = NSView()
+    outline.wantsLayer = true
+    outline.layer?.cornerRadius = 16
+    outline.layer?.borderWidth = 1
+    outline.layer?.borderColor = textColor.withAlphaComponent(0.24).cgColor
+    outline.layer?.backgroundColor = NSColor.white.withAlphaComponent(textColor == .white ? 0.10 : 0.26).cgColor
+    outline.translatesAutoresizingMaskIntoConstraints = false
+
+    container.addSubview(outline)
+    outline.addSubview(labels)
+    NSLayoutConstraint.activate([
+      outline.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: layout.inset),
+      outline.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -layout.inset),
+      outline.topAnchor.constraint(equalTo: container.topAnchor, constant: layout.isCompact ? 24 : 28),
+      outline.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: layout.isCompact ? -24 : -28),
+      labels.leadingAnchor.constraint(equalTo: outline.leadingAnchor, constant: 12),
+      labels.trailingAnchor.constraint(equalTo: outline.trailingAnchor, constant: -12),
+      labels.centerYAnchor.constraint(equalTo: outline.centerYAnchor),
+      hex.widthAnchor.constraint(equalTo: labels.widthAnchor),
+      components.widthAnchor.constraint(equalTo: labels.widthAnchor)
+    ])
+    return container
+  }
+
   private func mediaPreviewView(for item: ClipboardItem, thumbnail: NSImage) -> NSView {
     let container = NSView()
     container.translatesAutoresizingMaskIntoConstraints = false
@@ -4109,6 +4172,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return thumbnail == nil ? "file-preview" : "file-media-preview"
     case .audio:
       return "audio-preview"
+    case .color:
+      return "color-preview"
     case .richText:
       return "rich-text-preview"
     case .text:
@@ -4286,6 +4351,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return audioTitle(for: item)
     case .image:
       return imageTitle(for: item)
+    case .color:
+      return ColorPayload.displayHex(from: item.payload)
     default:
       break
     }
@@ -4314,6 +4381,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return fileLocationText(from: item.payload, fallback: "PDF document")
     case .audio:
       return "Sound clip"
+    case .color:
+      return ColorPayload.componentSummary(from: item.payload)
     case .richText:
       let text = normalized(item.displayText)
       return text.isEmpty ? "No preview available" : text
@@ -4345,6 +4414,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return "PDF"
     case .audio:
       return "Audio"
+    case .color:
+      return "Color"
     case .image:
       if item.ocrText?.clipboardTrimmed.isEmpty == false {
         return "OCR text"
@@ -4525,6 +4596,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return NSColor(calibratedRed: 0.55, green: 0.35, blue: 0.88, alpha: 1)
     case .audio:
       return NSColor(calibratedRed: 0.93, green: 0.12, blue: 0.34, alpha: 1)
+    case .color:
+      return NSColor(calibratedRed: 0.00, green: 0.65, blue: 0.74, alpha: 1)
     case .unknown:
       return .systemGray
     }
@@ -4539,6 +4612,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     case .file: return "doc"
     case .pdf: return "doc.text.fill"
     case .audio: return "music.note"
+    case .color: return "paintpalette"
     case .unknown: return "questionmark"
     }
   }
@@ -4610,6 +4684,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     case .unknown: return "Unknown"
     case .pdf: return "PDF"
     case .audio: return "Audio"
+    case .color: return "Color"
     }
   }
 

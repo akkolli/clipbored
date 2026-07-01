@@ -39,6 +39,51 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(pinnedOnly.map(\.payload), ["four", "one"])
   }
 
+  func testComputeVisibleItemsFiltersColorClipsAndStructuredType() {
+    let settings = makeSettings()
+    let store = makeStore(settings: settings)
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: ClipboardCacheService())
+    let color = ClipboardItem(
+      id: UUID(),
+      kind: .color,
+      displayText: "#0A84FF",
+      payload: "#0A84FF",
+      payloadHash: hash("#0A84FF"),
+      createdAt: Date(timeIntervalSince1970: 100),
+      lastUsedAt: Date(timeIntervalSince1970: 100),
+      useCount: 0,
+      sourceApp: "Design Tool",
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+    let text = ClipboardItem(
+      id: UUID(),
+      kind: .text,
+      displayText: "Color note",
+      payload: "Color note",
+      payloadHash: hash("Color note"),
+      createdAt: Date(timeIntervalSince1970: 200),
+      lastUsedAt: Date(timeIntervalSince1970: 200),
+      useCount: 0,
+      sourceApp: "Notes",
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: [text, color], query: "", sortMode: .colors).map(\.payload),
+      ["#0A84FF"]
+    )
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: [text, color], query: "type:swatch", sortMode: .mostRecent).map(\.payload),
+      ["#0A84FF"]
+    )
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: [text, color], query: "hex 0a84ff", sortMode: .mostRecent).map(\.payload),
+      ["#0A84FF"]
+    )
+  }
+
   func testSearchMatchesIndependentTokensCaseInsensitively() {
     let settings = makeSettings()
     let store = makeStore(settings: settings)

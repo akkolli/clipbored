@@ -187,6 +187,35 @@ final class ClipboardMonitorServiceTests: XCTestCase {
     XCTAssertEqual(NSPasteboard.general.data(forType: .sound), audioData)
   }
 
+  func testPollNowCapturesColorAsRestorableSwatch() throws {
+    let settings = SettingsModel(defaults: makeTestDefaults())
+    let (store, cacheService) = makeStoreAndCache(settings: settings)
+    let monitor = ClipboardMonitorService(store: store, cacheService: cacheService, settings: settings)
+    let color = NSColor(deviceRed: 10 / 255, green: 132 / 255, blue: 255 / 255, alpha: 1)
+    let captured = expectation(description: "color captured")
+
+    store.observeItems { items in
+      if items.contains(where: { $0.kind == .color && $0.payload == "#0A84FF" }) {
+        captured.fulfill()
+      }
+    }
+
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    XCTAssertTrue(pasteboard.writeObjects([color]))
+
+    monitor.pollNowAndWait()
+    wait(for: [captured], timeout: 1.0)
+
+    let item = try XCTUnwrap(store.items.first(where: { $0.kind == .color }))
+    XCTAssertEqual(item.displayText, "#0A84FF")
+    XCTAssertEqual(item.payload, "#0A84FF")
+    XCTAssertEqual(PasteActionService(cacheService: cacheService).copy(item), .copied)
+    let restored = try XCTUnwrap(NSColor(from: NSPasteboard.general))
+    XCTAssertEqual(ColorPayload.hexString(from: restored), "#0A84FF")
+    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "#0A84FF")
+  }
+
   func testPollNowCapturesFileReference() throws {
     let settings = SettingsModel(defaults: makeTestDefaults())
     let (store, cacheService) = makeStoreAndCache(settings: settings)
@@ -590,6 +619,24 @@ final class ClipboardMonitorServiceTests: XCTestCase {
 
     XCTAssertTrue(store.items.isEmpty)
     XCTAssertTrue(try imageCacheFileURLs(in: baseURL).isEmpty)
+  }
+
+  func testIgnoredColorKindDoesNotCaptureSwatch() throws {
+    let settings = SettingsModel(defaults: makeTestDefaults())
+    settings.ignoredItemKindsRaw = [ClipboardItemKind.color.rawValue]
+    let (store, cacheService, _) = makeStoreCacheAndBaseURL(settings: settings)
+    let monitor = ClipboardMonitorService(store: store, cacheService: cacheService, settings: settings)
+    let color = NSColor(deviceRed: 10 / 255, green: 132 / 255, blue: 255 / 255, alpha: 1)
+
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    XCTAssertTrue(pasteboard.writeObjects([color]))
+
+    monitor.pollNowAndWait()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+    XCTAssertTrue(store.items.isEmpty)
+    XCTAssertEqual(settings.captureStatusMessage, "Skipped: Color items are ignored in capture settings.")
   }
 
   func testIgnoredPDFKindDoesNotWriteAttachmentFiles() throws {
