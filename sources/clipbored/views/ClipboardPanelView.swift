@@ -575,6 +575,18 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     stackChip.onPress = { [weak self] in
       self?.viewModel.selectStack()
     }
+    stackChip.onAddVisibleToStack = { [weak self] in
+      self?.viewModel.addVisibleItemsToStack()
+    }
+    stackChip.onPasteStackNext = { [weak self] in
+      self?.viewModel.pasteNextStackItem()
+    }
+    stackChip.onCopyStackNext = { [weak self] in
+      self?.viewModel.copyNextStackItem()
+    }
+    stackChip.onClearStack = { [weak self] in
+      self?.viewModel.clearStack()
+    }
     configureCollectionKeyboardNavigation(for: stackChip)
     if viewModel.stackCount > 0 {
       collectionChipOrder.append(stackChip)
@@ -781,6 +793,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
         card.onToggleStack = { [weak self] selected in
           self?.viewModel.selectItem(at: selected)
           self?.viewModel.toggleSelectedStackMembership()
+        }
+        card.onAddVisibleToStack = { [weak self] in
+          self?.viewModel.addVisibleItemsToStack()
         }
         card.onPasteStackNext = { [weak self] in
           self?.viewModel.pasteNextStackItem()
@@ -1630,6 +1645,14 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     stackChip.isSelected
   }
 
+  var debugStackChipMenuTitles: [String] {
+    stackChip.debugMenuTitles
+  }
+
+  func debugAddVisibleClipsToStackFromStackChip() {
+    stackChip.debugPerformMenuItem(titled: "Add Visible Clips to Stack")
+  }
+
   func debugPressStackChip() {
     stackChip.onPress()
   }
@@ -2110,6 +2133,10 @@ private final class CollectionChipView: NSView {
   var onSelectFirst: () -> Void = {}
   var onSelectLast: () -> Void = {}
   var onDropItem: ((UUID) -> Void)?
+  var onAddVisibleToStack: (() -> Void)?
+  var onPasteStackNext: (() -> Void)?
+  var onCopyStackNext: (() -> Void)?
+  var onClearStack: (() -> Void)?
   var onEdit: (() -> Void)?
   var onDelete: (() -> Void)?
 
@@ -2308,13 +2335,45 @@ private final class CollectionChipView: NSView {
   }
 
   override func menu(for event: NSEvent) -> NSMenu? {
-    guard onEdit != nil || onDelete != nil else { return nil }
+    guard hasContextMenuActions else { return nil }
     return contextMenu()
+  }
+
+  private var hasContextMenuActions: Bool {
+    onAddVisibleToStack != nil
+      || onPasteStackNext != nil
+      || onCopyStackNext != nil
+      || onClearStack != nil
+      || onEdit != nil
+      || onDelete != nil
   }
 
   private func contextMenu() -> NSMenu {
     let menu = NSMenu(title: titleText)
     menu.autoenablesItems = false
+    if onAddVisibleToStack != nil {
+      let item = NSMenuItem(title: "Add Visible Clips to Stack", action: #selector(addVisibleToStackFromMenu), keyEquivalent: "")
+      item.target = self
+      menu.addItem(item)
+    }
+    if onPasteStackNext != nil {
+      let item = NSMenuItem(title: "Paste Stack Next", action: #selector(pasteStackNextFromMenu), keyEquivalent: "")
+      item.target = self
+      menu.addItem(item)
+    }
+    if onCopyStackNext != nil {
+      let item = NSMenuItem(title: "Copy Stack Next", action: #selector(copyStackNextFromMenu), keyEquivalent: "")
+      item.target = self
+      menu.addItem(item)
+    }
+    if onClearStack != nil {
+      let item = NSMenuItem(title: "Clear Stack", action: #selector(clearStackFromMenu), keyEquivalent: "")
+      item.target = self
+      menu.addItem(item)
+    }
+    if (onEdit != nil || onDelete != nil) && !menu.items.isEmpty {
+      menu.addItem(NSMenuItem.separator())
+    }
     if onEdit != nil {
       let item = NSMenuItem(title: "Edit Collection...", action: #selector(editFromMenu), keyEquivalent: "")
       item.target = self
@@ -2329,6 +2388,22 @@ private final class CollectionChipView: NSView {
       menu.addItem(item)
     }
     return menu
+  }
+
+  @objc private func addVisibleToStackFromMenu() {
+    onAddVisibleToStack?()
+  }
+
+  @objc private func pasteStackNextFromMenu() {
+    onPasteStackNext?()
+  }
+
+  @objc private func copyStackNextFromMenu() {
+    onCopyStackNext?()
+  }
+
+  @objc private func clearStackFromMenu() {
+    onClearStack?()
   }
 
   @objc private func editFromMenu() {
@@ -2406,6 +2481,11 @@ private final class CollectionChipView: NSView {
 
   var debugMenuTitles: [String] {
     contextMenu().items.map { $0.isSeparatorItem ? "-" : $0.title }
+  }
+
+  func debugPerformMenuItem(titled title: String) {
+    guard let item = contextMenu().items.first(where: { $0.title == title }) else { return }
+    _ = item.target?.perform(item.action, with: item)
   }
   #endif
 }
@@ -2502,6 +2582,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   var onPastePlainText: (Int) -> Void = { _ in }
   var onCopyPlainText: (Int) -> Void = { _ in }
   var onToggleStack: (Int) -> Void = { _ in }
+  var onAddVisibleToStack: () -> Void = {}
   var onPasteStackNext: () -> Void = {}
   var onCopyStackNext: () -> Void = {}
   var onClearStack: () -> Void = {}
@@ -2882,6 +2963,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     }
     addMenuItem("Rename...", action: #selector(renameFromMenu), to: menu)
     addMenuItem(itemIsStacked ? "Remove from Stack" : "Add to Stack", action: #selector(toggleStackFromMenu), to: menu)
+    addMenuItem("Add Visible Clips to Stack", action: #selector(addVisibleToStackFromMenu), to: menu)
     if stackCount > 0 {
       addMenuItem("Paste Stack Next", action: #selector(pasteStackNextFromMenu), to: menu)
       addMenuItem("Copy Stack Next", action: #selector(copyStackNextFromMenu), to: menu)
@@ -3289,6 +3371,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   @objc private func toggleStackFromMenu() {
     onToggleStack(index)
+  }
+
+  @objc private func addVisibleToStackFromMenu() {
+    onAddVisibleToStack()
   }
 
   @objc private func toggleStackFromCornerButton() {

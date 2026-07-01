@@ -855,6 +855,36 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(viewModel.statusMessage, "Cleared Stack")
   }
 
+  func testAddVisibleItemsToStackQueuesFilteredShelfInOrder() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    let olderNeedle = makeTextItem("older visible needle", createdAt: Date(timeIntervalSince1970: 100))
+    let hidden = makeTextItem("hidden meeting note", createdAt: Date(timeIntervalSince1970: 200))
+    let newerNeedle = makeTextItem("newer visible needle", createdAt: Date(timeIntervalSince1970: 300))
+    store.upsert(olderNeedle)
+    store.upsert(hidden)
+    store.upsert(newerNeedle)
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 3)
+    viewModel.searchText = "needle"
+
+    XCTAssertEqual(viewModel.visibleItems.map(\.id), [newerNeedle.id, olderNeedle.id])
+
+    viewModel.addVisibleItemsToStack()
+    XCTAssertEqual(viewModel.stackCount, 2)
+    XCTAssertEqual(viewModel.statusMessage, "Added 2 clips to Stack")
+
+    viewModel.selectStack()
+    XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["newer visible needle", "older visible needle"])
+
+    viewModel.addVisibleItemsToStack()
+    XCTAssertEqual(viewModel.stackCount, 2)
+    XCTAssertEqual(viewModel.statusMessage, "Visible clips are already in Stack")
+  }
+
   func testIgnoreSelectedSourceAppAddsPreciseCaptureRule() {
     let settings = makeSettings()
     let cacheService = makeCacheService()

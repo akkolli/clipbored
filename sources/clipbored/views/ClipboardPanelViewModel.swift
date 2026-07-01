@@ -308,6 +308,27 @@ final class ClipboardPanelViewModel {
     statusMessage = "Added to Stack"
   }
 
+  func addVisibleItemsToStack() {
+    pruneStackItems()
+    guard !visibleItems.isEmpty else {
+      statusMessage = "No visible clips to stack"
+      return
+    }
+
+    let existingIDs = Set(stackItemIDs)
+    let newIDs = visibleItems
+      .map(\.id)
+      .filter { !existingIDs.contains($0) }
+    guard !newIDs.isEmpty else {
+      statusMessage = "Visible clips are already in Stack"
+      return
+    }
+
+    stackItemIDs.append(contentsOf: newIDs)
+    let noun = newIDs.count == 1 ? "clip" : "clips"
+    statusMessage = "Added \(newIDs.count) \(noun) to Stack"
+  }
+
   func selectStack() {
     guard !stackItemIDs.isEmpty else { return }
     selectedCollectionName = nil

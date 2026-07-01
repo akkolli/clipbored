@@ -500,7 +500,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugFirstCardHeaderBadgeFrame.maxY, 220, accuracy: 0.5)
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Paste Plain Text", "Copy Plain Text", "Rename...", "Add to Stack", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Paste Plain Text", "Copy Plain Text", "Rename...", "Add to Stack", "Add Visible Clips to Stack", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
   }
 
@@ -899,7 +899,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Rename...", "Add to Stack", "Edit", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Rename...", "Add to Stack", "Add Visible Clips to Stack", "Edit", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
     XCTAssertEqual(
       fixture.view.debugFirstCardCollectionMenuTitles,
@@ -933,7 +933,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Show in Clipboard", "Rename...", "Add to Stack", "Edit", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Show in Clipboard", "Rename...", "Add to Stack", "Add Visible Clips to Stack", "Edit", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
 
     fixture.view.debugShowFirstCardInClipboard()
@@ -953,7 +953,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Paste Plain Text", "Copy Plain Text", "Rename...", "Add to Stack", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Paste Plain Text", "Copy Plain Text", "Rename...", "Add to Stack", "Add Visible Clips to Stack", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
     XCTAssertEqual(
       fixture.view.debugFirstCardCaptureRuleMenuTitles,
@@ -973,7 +973,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Rename...", "Remove from Stack", "Paste Stack Next", "Copy Stack Next", "Clear Stack", "Edit", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Rename...", "Remove from Stack", "Add Visible Clips to Stack", "Paste Stack Next", "Copy Stack Next", "Clear Stack", "Edit", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Collect", "Edit", "Preview", "Delete"])
     XCTAssertEqual(fixture.view.debugStackCornerLabels, ["Remove from Stack"])
@@ -1044,6 +1044,51 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertFalse(fixture.view.debugStackChipIsVisible)
     XCTAssertEqual(fixture.view.debugStackChipCount, 0)
+  }
+
+  func testStackChipMenuAddsVisibleShelfToQueue() {
+    let fixture = makePanelFixture()
+    var older = makeTextItem("Older batch stack item", store: fixture.store)
+    older.createdAt = Date(timeIntervalSince1970: 100)
+    older.lastUsedAt = older.createdAt
+    var middle = makeTextItem("Middle batch stack item", store: fixture.store)
+    middle.createdAt = Date(timeIntervalSince1970: 200)
+    middle.lastUsedAt = middle.createdAt
+    var newest = makeTextItem("Newest batch stack item", store: fixture.store)
+    newest.createdAt = Date(timeIntervalSince1970: 300)
+    newest.lastUsedAt = newest.createdAt
+    fixture.store.upsert(older)
+    fixture.store.upsert(middle)
+    fixture.store.upsert(newest)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    fixture.viewModel.selectItem(at: 0)
+    fixture.viewModel.toggleSelectedStackMembership()
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.debugStackChipIsVisible)
+    XCTAssertEqual(fixture.view.debugStackChipCount, 1)
+    XCTAssertEqual(
+      fixture.view.debugStackChipMenuTitles,
+      ["Add Visible Clips to Stack", "Paste Stack Next", "Copy Stack Next", "Clear Stack"]
+    )
+
+    fixture.view.debugAddVisibleClipsToStackFromStackChip()
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugStackChipCount, 3)
+    XCTAssertEqual(fixture.view.debugStatusText, "Added 2 clips to Stack")
+
+    fixture.view.debugPressStackChip()
+    drainMainQueue()
+
+    XCTAssertEqual(
+      fixture.viewModel.visibleItems.map(\.payload),
+      ["Newest batch stack item", "Middle batch stack item", "Older batch stack item"]
+    )
   }
 
   func testCollectionMenuOffersExistingCustomCollections() {
