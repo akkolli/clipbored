@@ -64,6 +64,7 @@ private enum ClipboardCollectionVisuals {
     case .files: return NSColor(calibratedRed: 0.11, green: 0.68, blue: 0.36, alpha: 1)
     case .pinned: return NSColor(calibratedRed: 0.94, green: 0.12, blue: 0.48, alpha: 1)
     case .code: return NSColor(calibratedRed: 0.25, green: 0.38, blue: 0.78, alpha: 1)
+    case .videos: return NSColor(calibratedRed: 0.43, green: 0.32, blue: 0.94, alpha: 1)
     }
   }
 
@@ -644,6 +645,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     case .files: return "Files"
     case .pinned: return "Pinned"
     case .code: return "Code"
+    case .videos: return "Videos"
     }
   }
 
@@ -659,6 +661,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     case .files: return "doc.fill"
     case .pinned: return "pin.fill"
     case .code: return "chevron.left.forwardslash.chevron.right"
+    case .videos: return "film"
     }
   }
 
@@ -1159,6 +1162,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       return ("No text clips yet", "Copied text and rich text appear here.")
     case .code:
       return ("No code snippets yet", "Copied code snippets appear here.")
+    case .videos:
+      return ("No videos yet", "Copied movie and video clips appear here.")
     case .files:
       return ("No files yet", "Copied files and PDFs appear here.")
     case .audio:
@@ -1968,7 +1973,7 @@ private enum ClipboardItemDragPasteboard {
     .sound,
     .rtf,
     .color
-  ]
+  ] + VideoPayload.pasteboardTypes
 }
 
 private func shelfSearchText(from event: NSEvent) -> String? {
@@ -3100,7 +3105,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   private var canOpen: Bool {
     switch itemKind {
-    case .url, .file, .image, .pdf, .audio:
+    case .url, .file, .image, .pdf, .audio, .video:
       return true
     case .text, .richText, .unknown, .color, .code:
       return false
@@ -3109,7 +3114,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   private var canPreview: Bool {
     switch itemKind {
-    case .text, .url, .image, .richText, .file, .pdf, .audio, .unknown, .color, .code:
+    case .text, .url, .image, .richText, .file, .pdf, .audio, .unknown, .color, .code, .video:
       return true
     }
   }
@@ -3120,7 +3125,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   private var canPlainText: Bool {
     switch itemKind {
-    case .url, .image, .richText, .file, .pdf, .audio, .color:
+    case .url, .image, .richText, .file, .pdf, .audio, .color, .video:
       return true
     case .text, .unknown, .code:
       return false
@@ -3129,7 +3134,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   private var canReveal: Bool {
     switch itemKind {
-    case .file, .image, .pdf, .audio:
+    case .file, .image, .pdf, .audio, .video:
       return true
     case .text, .richText, .url, .unknown, .color, .code:
       return false
@@ -3710,6 +3715,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return filePreviewView(for: item, thumbnail: thumbnail)
     case .audio:
       return audioPreviewView(for: item)
+    case .video:
+      return videoPreviewView(for: item)
     case .color:
       return colorPreviewView(for: item)
     case .code:
@@ -4149,6 +4156,78 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     return container
   }
 
+  private func videoPreviewView(for item: ClipboardItem) -> NSView {
+    let container = NSView()
+    container.wantsLayer = true
+    container.layer?.backgroundColor = accentColor(for: item.kind).withAlphaComponent(0.10).cgColor
+    container.translatesAutoresizingMaskIntoConstraints = false
+
+    let frame = NSView()
+    frame.wantsLayer = true
+    frame.layer?.cornerRadius = 14
+    frame.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.78).cgColor
+    frame.layer?.borderWidth = 1
+    frame.layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
+    frame.translatesAutoresizingMaskIntoConstraints = false
+
+    let film = headerIcon("film", color: .white)
+    film.translatesAutoresizingMaskIntoConstraints = false
+    let play = headerIcon("play.fill", color: .white)
+    play.translatesAutoresizingMaskIntoConstraints = false
+    frame.addSubview(film)
+    frame.addSubview(play)
+
+    let extensionPill = capsuleLabel(VideoPayload.kindText(from: item.payload), color: accentColor(for: item.kind))
+    extensionPill.translatesAutoresizingMaskIntoConstraints = false
+    frame.addSubview(extensionPill)
+
+    let title = NSTextField(labelWithString: titleText(for: item))
+    title.font = .systemFont(ofSize: 14, weight: .semibold)
+    title.textColor = .labelColor
+    title.maximumNumberOfLines = 1
+    title.lineBreakMode = .byTruncatingTail
+    title.toolTip = title.stringValue
+
+    let detail = NSTextField(labelWithString: previewText(for: item))
+    detail.font = .systemFont(ofSize: 12)
+    detail.textColor = .secondaryLabelColor
+    detail.maximumNumberOfLines = 1
+    detail.lineBreakMode = .byTruncatingTail
+    detail.toolTip = detail.stringValue
+
+    let labels = NSStackView(views: [title, detail])
+    labels.orientation = .vertical
+    labels.alignment = .leading
+    labels.spacing = 3
+    labels.translatesAutoresizingMaskIntoConstraints = false
+
+    container.addSubview(frame)
+    container.addSubview(labels)
+    NSLayoutConstraint.activate([
+      frame.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: layout.inset),
+      frame.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -layout.inset),
+      frame.topAnchor.constraint(equalTo: container.topAnchor, constant: layout.isCompact ? 14 : 16),
+      frame.heightAnchor.constraint(equalToConstant: layout.isCompact ? 82 : 92),
+      film.centerXAnchor.constraint(equalTo: frame.centerXAnchor),
+      film.centerYAnchor.constraint(equalTo: frame.centerYAnchor),
+      film.widthAnchor.constraint(equalToConstant: 38),
+      film.heightAnchor.constraint(equalToConstant: 38),
+      play.centerXAnchor.constraint(equalTo: frame.centerXAnchor, constant: 1),
+      play.centerYAnchor.constraint(equalTo: frame.centerYAnchor),
+      play.widthAnchor.constraint(equalToConstant: 16),
+      play.heightAnchor.constraint(equalToConstant: 16),
+      extensionPill.trailingAnchor.constraint(equalTo: frame.trailingAnchor, constant: -10),
+      extensionPill.bottomAnchor.constraint(equalTo: frame.bottomAnchor, constant: -10),
+      labels.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: layout.inset),
+      labels.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -layout.inset),
+      labels.topAnchor.constraint(equalTo: frame.bottomAnchor, constant: 10),
+      labels.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -8),
+      title.widthAnchor.constraint(equalTo: labels.widthAnchor),
+      detail.widthAnchor.constraint(equalTo: labels.widthAnchor)
+    ])
+    return container
+  }
+
   private func colorPreviewView(for item: ClipboardItem) -> NSView {
     let swatchColor = ColorPayload.color(from: item.payload) ?? accentColor(for: item.kind)
     let textColor = ColorPayload.contrastingTextColor(for: swatchColor)
@@ -4363,6 +4442,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return thumbnail == nil ? "file-preview" : "file-media-preview"
     case .audio:
       return "audio-preview"
+    case .video:
+      return "video-preview"
     case .color:
       return "color-preview"
     case .code:
@@ -4542,6 +4623,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return fileTitle(for: item, fallback: "PDF document")
     case .audio:
       return audioTitle(for: item)
+    case .video:
+      return videoTitle(for: item)
     case .image:
       return imageTitle(for: item)
     case .color:
@@ -4576,6 +4659,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return fileLocationText(from: item.payload, fallback: "PDF document")
     case .audio:
       return "Sound clip"
+    case .video:
+      return "Video clip"
     case .color:
       return ColorPayload.componentSummary(from: item.payload)
     case .code:
@@ -4611,6 +4696,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return "PDF"
     case .audio:
       return "Audio"
+    case .video:
+      return VideoPayload.kindText(from: item.payload)
     case .color:
       return "Color"
     case .code:
@@ -4700,6 +4787,14 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return display
     }
     return "Audio"
+  }
+
+  private func videoTitle(for item: ClipboardItem) -> String {
+    let display = firstUsefulLine(item.displayText)
+    if !display.isEmpty, !looksInternal(display), display.lowercased() != "video" {
+      return display
+    }
+    return "Video"
   }
 
   private func webComponents(from value: String) -> URLComponents? {
@@ -4929,6 +5024,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return NSColor(calibratedRed: 0.55, green: 0.35, blue: 0.88, alpha: 1)
     case .audio:
       return NSColor(calibratedRed: 0.93, green: 0.12, blue: 0.34, alpha: 1)
+    case .video:
+      return NSColor(calibratedRed: 0.43, green: 0.32, blue: 0.94, alpha: 1)
     case .color:
       return NSColor(calibratedRed: 0.00, green: 0.65, blue: 0.74, alpha: 1)
     case .code:
@@ -4947,6 +5044,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     case .file: return "doc"
     case .pdf: return "doc.text.fill"
     case .audio: return "music.note"
+    case .video: return "film"
     case .color: return "paintpalette"
     case .code: return "chevron.left.forwardslash.chevron.right"
     case .unknown: return "questionmark"
@@ -5020,6 +5118,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     case .unknown: return "Unknown"
     case .pdf: return "PDF"
     case .audio: return "Audio"
+    case .video: return "Video"
     case .color: return "Color"
     case .code: return "Code"
     }

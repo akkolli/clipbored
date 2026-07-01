@@ -130,6 +130,13 @@ final class PasteActionService {
       pasteboardItem.setString(dragLabel(for: item), forType: .string)
       return [pasteboardItem]
 
+    case .video:
+      guard let data = cacheService.data(for: item.payload) else { return [] }
+      let pasteboardItem = NSPasteboardItem()
+      pasteboardItem.setData(data, forType: VideoPayload.pasteboardType(forPath: item.payload))
+      pasteboardItem.setString(dragLabel(for: item), forType: .string)
+      return [pasteboardItem]
+
     case .color:
       guard let color = ColorPayload.color(from: item.payload) else { return [] }
       return [color]
@@ -188,6 +195,10 @@ final class PasteActionService {
       guard let data = cacheService.data(for: item.payload) else { return false }
       board.clearContents()
       didWrite = board.setData(data, forType: .sound)
+    case .video:
+      guard let data = cacheService.data(for: item.payload) else { return false }
+      board.clearContents()
+      didWrite = board.setData(data, forType: VideoPayload.pasteboardType(forPath: item.payload))
     case .color:
       guard let color = ColorPayload.color(from: item.payload) else { return false }
       board.clearContents()
@@ -248,7 +259,7 @@ final class PasteActionService {
       return nonEmptyPlainText(richTextFallbackPlainString(for: item))
     case .image:
       return nonEmptyPlainText(item.ocrText) ?? nonEmptyPlainText(item.displayText)
-    case .pdf, .audio:
+    case .pdf, .audio, .video:
       return nonEmptyPlainText(item.displayText)
     case .color:
       return nonEmptyPlainText(ColorPayload.displayHex(from: item.payload)) ?? nonEmptyPlainText(item.displayText)

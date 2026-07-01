@@ -454,6 +454,9 @@ final class ClipboardPanelViewModel {
     case .audio:
       guard let url = cacheService.temporaryReadableURL(for: item) else { return }
       NSWorkspace.shared.open(url)
+    case .video:
+      guard let url = cacheService.temporaryReadableURL(for: item) else { return }
+      NSWorkspace.shared.open(url)
     case .color:
       break
     default:
@@ -475,6 +478,9 @@ final class ClipboardPanelViewModel {
       guard let url = cacheService.temporaryReadableURL(for: item) else { return }
       NSWorkspace.shared.activateFileViewerSelecting([url])
     case .audio:
+      guard let url = cacheService.temporaryReadableURL(for: item) else { return }
+      NSWorkspace.shared.activateFileViewerSelecting([url])
+    case .video:
       guard let url = cacheService.temporaryReadableURL(for: item) else { return }
       NSWorkspace.shared.activateFileViewerSelecting([url])
     case .color:
@@ -792,6 +798,12 @@ final class ClipboardPanelViewModel {
         .sorted(by: sortByUsage)
         .map(\.1)
 
+    case .videos:
+      return collectionFiltered
+        .filter { $0.1.kind == .video }
+        .sorted(by: sortByUsage)
+        .map(\.1)
+
     case .colors:
       return collectionFiltered
         .filter { $0.1.kind == .color }
@@ -1016,6 +1028,8 @@ final class ClipboardPanelViewModel {
       return [.pdf]
     case "audio", "sound", "music":
       return [.audio]
+    case "video", "videos", "movie", "movies", "mp4", "quicktime", "mov":
+      return [.video]
     case "color", "colors", "swatch", "swatches", "hex":
       return [.color]
     case "unknown", "item":

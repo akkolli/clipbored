@@ -23,11 +23,12 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 5. Copy an image and confirm it appears as an Image with a thumbnail.
 6. Enable `Search in image labels`, copy an image containing readable text, and confirm searching for that text finds the Image.
 7. Copy a sound clip and confirm it appears as Audio.
-8. Copy a PDF or PDF selection and confirm it appears as a PDF.
-9. Copy one Finder file and confirm it appears as a File.
-10. Copy multiple Finder files at once and confirm they appear as one grouped File item with the file count.
-11. Copy formatted text from a browser or Mail message and confirm it appears as Rich Text rather than flattened plain text.
-12. Disable Images, Audio, Rich Text, PDFs, or Files in Settings > Capture, copy that type again, and confirm it is not captured.
+8. Copy a movie or video clip and confirm it appears as Video.
+9. Copy a PDF or PDF selection and confirm it appears as a PDF.
+10. Copy one Finder file and confirm it appears as a File.
+11. Copy multiple Finder files at once and confirm they appear as one grouped File item with the file count.
+12. Copy formatted text from a browser or Mail message and confirm it appears as Rich Text rather than flattened plain text.
+13. Disable Images, Audio, Video, Rich Text, PDFs, or Files in Settings > Capture, copy that type again, and confirm it is not captured.
 
 ## Panel
 
@@ -68,7 +69,8 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 35. Confirm the shelf chrome uses one row with compact search, collection chips, and utility buttons; typing a search expands the search field without pushing cards out of view.
 36. Copy a color swatch from a design tool and confirm it appears as a Color card, can be filtered with the Colors chip, and copies back as both a color and hex text.
 37. Copy a code snippet from an editor and confirm it appears as a Code card, remains visible in the Text chip, can be isolated with the Code chip or `type:code`, and copies back as plain text.
-38. Filter to a few clips, right-click a card or the Stack chip, choose Add Visible Clips to Stack, and confirm only the visible clips are queued once in shelf order.
+38. Copy a video/movie clip and confirm it appears as a Video card, filters with the Videos chip or `type:video`, `type:movie`, and `mp4`, previews/opens as a temp movie, and copies back as movie data.
+39. Filter to a few clips, right-click a card or the Stack chip, choose Add Visible Clips to Stack, and confirm only the visible clips are queued once in shelf order.
 
 ## Copy And Paste
 
@@ -76,11 +78,12 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 2. Select a URL item and confirm the system clipboard contains both string and URL data by pasting into a browser address bar.
 3. Select one-file and multi-file File items and paste into Finder or an app that accepts file references. Confirm all files are preserved for the multi-file item.
 4. Select an audio item and paste into an app that accepts sound pasteboard data.
-5. Select a PDF item and paste into Preview, Finder, or an app that accepts PDF pasteboard data.
-6. Select a rich text item and paste into TextEdit rich text mode or Mail. Confirm basic formatting is preserved and plain-text paste still works in a text-only field.
-7. Press `Command + 1` through `Command + 9` on visible numbered cards and confirm the matching card is pasted or copied; add `Shift` and confirm URL/rich items paste as plain text only.
-8. Without Accessibility permission, confirm paste actions copy and show the permission fallback status.
-9. With Accessibility permission granted, confirm paste returns focus to the previous app and inserts the selected item.
+5. Select a Video item and paste into an app that accepts movie pasteboard data.
+6. Select a PDF item and paste into Preview, Finder, or an app that accepts PDF pasteboard data.
+7. Select a rich text item and paste into TextEdit rich text mode or Mail. Confirm basic formatting is preserved and plain-text paste still works in a text-only field.
+8. Press `Command + 1` through `Command + 9` on visible numbered cards and confirm the matching card is pasted or copied; add `Shift` and confirm URL/rich items paste as plain text only.
+9. Without Accessibility permission, confirm paste actions copy and show the permission fallback status.
+10. With Accessibility permission granted, confirm paste returns focus to the previous app and inserts the selected item.
 
 ## Settings
 
@@ -97,11 +100,11 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 1. Open the data folder from Settings > Data.
 2. Confirm `history.sqlite` exists after capture.
 3. Copy unique text and confirm `strings ~/Library/Application\ Support/ClipBored/history.sqlite | grep "unique text"` does not find it.
-4. Copy uniquely identifiable rich text/audio/PDF data and confirm `strings ~/Library/Application\ Support/ClipBored/attachments/* | grep "unique text"` does not find it.
+4. Copy uniquely identifiable rich text/audio/video/PDF data and confirm `strings ~/Library/Application\ Support/ClipBored/attachments/* | grep "unique text"` does not find it.
 5. If `history-encryption.key` exists, confirm it is readable only by the current user.
-6. Confirm image files are under `images/` and rich text/audio/PDF attachments are under `attachments/`.
+6. Confirm image files are under `images/` and rich text/audio/video/PDF attachments are under `attachments/`.
 7. Confirm app storage is local to `~/Library/Application Support/ClipBored`.
-8. Open or reveal an encrypted image/audio/PDF, then quit ClipBored and confirm `/tmp/ClipBored/Previews` is removed.
+8. Open or reveal an encrypted image/audio/video/PDF, then quit ClipBored and confirm `/tmp/ClipBored/Previews` is removed.
 9. Use `Clear Clipboard History` and confirm saved history, app-managed attachments, temporary previews, and `history-encryption.key` are removed when that fallback key exists.
 10. Confirm quitting with `Clear history on quit` enabled removes history and app-managed cache/attachment files.
 

@@ -222,6 +222,15 @@ final class ClipboardMonitorService {
       return pdfItem
     }
 
+    if isIgnored(.video), hasVideo(on: pasteboard) {
+      reportReadFailureStatus(ignoredKindMessage(.video))
+      return nil
+    }
+
+    if let videoItem = itemFromVideo(pasteboard, sourceApp: source.name, sourceBundleId: source.bundleId) {
+      return videoItem
+    }
+
     if isIgnored(.audio), hasAudio(on: pasteboard) {
       reportReadFailureStatus(ignoredKindMessage(.audio))
       return nil
@@ -440,6 +449,10 @@ final class ClipboardMonitorService {
     pasteboard.data(forType: .sound) != nil
   }
 
+  private func hasVideo(on pasteboard: NSPasteboard) -> Bool {
+    VideoPayload.data(from: pasteboard) != nil
+  }
+
   private func hasColor(on pasteboard: NSPasteboard) -> Bool {
     NSColor(from: pasteboard) != nil
   }
@@ -498,6 +511,32 @@ final class ClipboardMonitorService {
       id: id,
       kind: .audio,
       displayText: "Audio (\(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file)))",
+      payload: path,
+      payloadHash: hash,
+      createdAt: Date(),
+      lastUsedAt: Date(),
+      useCount: 1,
+      sourceApp: sourceApp,
+      imagePath: nil,
+      thumbnailPath: nil,
+      isPinned: false,
+      sourceAppBundleId: sourceBundleId
+    )
+  }
+
+  private func itemFromVideo(_ pasteboard: NSPasteboard, sourceApp: String?, sourceBundleId: String?) -> ClipboardItem? {
+    guard let video = VideoPayload.data(from: pasteboard) else { return nil }
+    let id = UUID()
+    let hash = store.hashString(video.data.base64EncodedString())
+    guard let path = cacheService.cacheVideo(video.data, id: id, fileExtension: VideoPayload.fileExtension(for: video.type)) else {
+      reportReadFailureStatus("Failed to cache video for clipboard history.")
+      return nil
+    }
+
+    return ClipboardItem(
+      id: id,
+      kind: .video,
+      displayText: VideoPayload.displayTitle(byteCount: video.data.count),
       payload: path,
       payloadHash: hash,
       createdAt: Date(),

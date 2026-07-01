@@ -129,6 +129,51 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     )
   }
 
+  func testComputeVisibleItemsFiltersVideoClipsAndStructuredType() {
+    let settings = makeSettings()
+    let store = makeStore(settings: settings)
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: ClipboardCacheService())
+    let video = ClipboardItem(
+      id: UUID(),
+      kind: .video,
+      displayText: "Video (12 KB)",
+      payload: "/tmp/clip.mp4",
+      payloadHash: hash("clip-video"),
+      createdAt: Date(timeIntervalSince1970: 200),
+      lastUsedAt: Date(timeIntervalSince1970: 200),
+      useCount: 0,
+      sourceApp: "QuickTime Player",
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+    let image = ClipboardItem(
+      id: UUID(),
+      kind: .image,
+      displayText: "Image",
+      payload: "/tmp/image.png",
+      payloadHash: hash("image"),
+      createdAt: Date(timeIntervalSince1970: 100),
+      lastUsedAt: Date(timeIntervalSince1970: 100),
+      useCount: 0,
+      sourceApp: "Preview",
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: [video, image], query: "", sortMode: .videos).map(\.kind),
+      [.video]
+    )
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: [video, image], query: "type:movie", sortMode: .mostRecent).map(\.kind),
+      [.video]
+    )
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: [video, image], query: "mp4", sortMode: .mostRecent).map(\.kind),
+      [.video]
+    )
+  }
+
   func testSearchMatchesIndependentTokensCaseInsensitively() {
     let settings = makeSettings()
     let store = makeStore(settings: settings)

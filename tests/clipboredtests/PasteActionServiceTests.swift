@@ -534,6 +534,32 @@ final class PasteActionServiceTests: XCTestCase {
     XCTAssertEqual(NSPasteboard.general.data(forType: .sound), audioData)
   }
 
+  func testCopyWritesVideoData() throws {
+    let directory = try makeTempDirectory()
+    let cacheService = ClipboardCacheService(baseURL: directory, encryptionService: fixedEncryptionService())
+    let videoData = Data([0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50])
+    let path = try XCTUnwrap(cacheService.cacheVideo(videoData, id: UUID(), fileExtension: "mp4"))
+    let service = PasteActionService(cacheService: cacheService)
+    let item = ClipboardItem(
+      id: UUID(),
+      kind: .video,
+      displayText: "Video",
+      payload: path,
+      payloadHash: "hash",
+      createdAt: Date(),
+      lastUsedAt: Date(),
+      useCount: 0,
+      sourceApp: nil,
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+
+    XCTAssertEqual(service.copy(item), .copied)
+    XCTAssertEqual(NSPasteboard.general.data(forType: VideoPayload.pasteboardTypes[0]), videoData)
+    XCTAssertEqual(service.copyPlainText(item), .copiedPlainText)
+    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Video")
+  }
+
   func testCopyWritesEncryptedPDFData() throws {
     let directory = try makeTempDirectory()
     let cacheService = ClipboardCacheService(baseURL: directory, encryptionService: fixedEncryptionService())

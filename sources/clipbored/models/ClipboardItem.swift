@@ -11,6 +11,7 @@ enum ClipboardItemKind: Int {
   case audio
   case color
   case code
+  case video
 
   var displayName: String {
     switch self {
@@ -24,6 +25,7 @@ enum ClipboardItemKind: Int {
     case .audio: return "audio"
     case .color: return "color"
     case .code: return "code"
+    case .video: return "video"
     }
   }
 }
@@ -31,7 +33,7 @@ enum ClipboardItemKind: Int {
 extension ClipboardItemKind {
   var canOpen: Bool {
     switch self {
-    case .url, .file, .image, .pdf, .audio:
+    case .url, .file, .image, .pdf, .audio, .video:
       return true
     case .text, .richText, .unknown, .color, .code:
       return false
@@ -40,7 +42,7 @@ extension ClipboardItemKind {
 
   var canReveal: Bool {
     switch self {
-    case .file, .image, .pdf, .audio:
+    case .file, .image, .pdf, .audio, .video:
       return true
     case .text, .richText, .unknown, .url, .color, .code:
       return false
@@ -49,7 +51,7 @@ extension ClipboardItemKind {
 
   var hasManagedCacheReference: Bool {
     switch self {
-    case .url, .image, .pdf, .audio, .richText:
+    case .url, .image, .pdf, .audio, .richText, .video:
       return true
     case .text, .file, .unknown, .color, .code:
       return false
@@ -68,8 +70,9 @@ enum ClipboardSortMode: Int {
   case audio
   case colors
   case code
+  case videos
 
-  static let allCases: [ClipboardSortMode] = [.mostRecent, .mostUsed, .text, .links, .images, .colors, .audio, .files, .pinned, .code]
+  static let allCases: [ClipboardSortMode] = [.mostRecent, .mostUsed, .text, .links, .images, .colors, .audio, .videos, .files, .pinned, .code]
 
   var title: String {
     switch self {
@@ -83,6 +86,7 @@ enum ClipboardSortMode: Int {
     case .audio: return "Audio"
     case .colors: return "Colors"
     case .code: return "Code"
+    case .videos: return "Videos"
     }
   }
 }
@@ -156,6 +160,7 @@ struct ClipboardItem {
     case .audio: return "audio sound"
     case .color: return "color swatch hex"
     case .code: return "code snippet source programming"
+    case .video: return "video movie mp4 quicktime"
     }
   }
 

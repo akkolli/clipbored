@@ -55,6 +55,10 @@ final class ClipboardCacheService {
     cacheAttachment(data, id: id, fileExtension: "sound")
   }
 
+  func cacheVideo(_ data: Data, id: UUID, fileExtension: String) -> String? {
+    cacheAttachment(data, id: id, fileExtension: fileExtension)
+  }
+
   func cacheRichText(_ data: Data, id: UUID) -> String? {
     cacheAttachment(data, id: id, fileExtension: "rtf")
   }
@@ -105,7 +109,7 @@ final class ClipboardCacheService {
     case .file:
       return filePreviewThumbnail(for: item.payload)
 
-    case .text, .unknown, .audio, .richText, .color, .code:
+    case .text, .unknown, .audio, .richText, .color, .code, .video:
       return nil
     }
   }
@@ -174,6 +178,9 @@ final class ClipboardCacheService {
     case .audio:
       guard let data = data(for: item.payload) else { return nil }
       return writeTemporaryCopy(data: data, id: item.id, fileExtension: "sound")
+    case .video:
+      guard let data = data(for: item.payload) else { return nil }
+      return writeTemporaryCopy(data: data, id: item.id, fileExtension: VideoPayload.fileExtension(from: item.payload))
     case .richText:
       guard let data = data(for: item.payload) else { return nil }
       return writeTemporaryCopy(data: data, id: item.id, fileExtension: "rtf")
@@ -197,7 +204,7 @@ final class ClipboardCacheService {
     case .url:
       guard let data = webLocationData(for: item.payload) else { return nil }
       return writeTemporaryCopy(data: data, id: item.id, fileExtension: "webloc")
-    case .image, .pdf, .audio, .richText:
+    case .image, .pdf, .audio, .richText, .video:
       return temporaryReadableURL(for: item)
     }
   }
@@ -212,7 +219,7 @@ final class ClipboardCacheService {
         if let thumbnailPath = item.thumbnailPath {
           _ = self.data(for: thumbnailPath)
         }
-        if (item.kind == .pdf || item.kind == .audio || item.kind == .richText), self.isManagedAttachment(path: item.payload) {
+        if (item.kind == .pdf || item.kind == .audio || item.kind == .richText || item.kind == .video), self.isManagedAttachment(path: item.payload) {
           _ = self.data(for: item.payload)
         }
       }
@@ -230,7 +237,7 @@ final class ClipboardCacheService {
         try? self.fileManager.removeItem(atPath: path)
         self.thumbnailCache.removeObject(forKey: NSString(string: path))
       }
-      if (item.kind == .pdf || item.kind == .audio || item.kind == .richText), self.isManagedAttachment(path: item.payload) {
+      if (item.kind == .pdf || item.kind == .audio || item.kind == .richText || item.kind == .video), self.isManagedAttachment(path: item.payload) {
         try? self.fileManager.removeItem(atPath: item.payload)
       }
     }

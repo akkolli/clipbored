@@ -246,11 +246,11 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugCollectionTitles,
-      ["Clipboard", "Frequent", "Text", "Links", "Images", "Colors", "Audio", "Files", "Pinned", "Code"]
+      ["Clipboard", "Frequent", "Text", "Links", "Images", "Colors", "Audio", "Videos", "Files", "Pinned", "Code"]
     )
     XCTAssertEqual(
       fixture.view.debugCollectionLeadingSymbols,
-      ["doc.on.clipboard", "chart.bar.fill", "text.alignleft", "link", "photo", "paintpalette", "music.note", "doc.fill", "pin.fill", "chevron.left.forwardslash.chevron.right"]
+      ["doc.on.clipboard", "chart.bar.fill", "text.alignleft", "link", "photo", "paintpalette", "music.note", "film", "doc.fill", "pin.fill", "chevron.left.forwardslash.chevron.right"]
     )
     XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Clipboard")
 
@@ -680,6 +680,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     let image = makeItem(kind: .image, text: "image payload", store: fixture.store)
     let color = makeItem(kind: .color, displayText: "#0A84FF", payload: "#0A84FF", store: fixture.store)
     let audio = makeItem(kind: .audio, text: "audio payload", store: fixture.store)
+    let video = makeItem(kind: .video, text: "/tmp/movie.mp4", store: fixture.store)
     let file = makeItem(kind: .file, text: "/tmp/report.pdf", store: fixture.store)
     let code = makeItem(
       kind: .code,
@@ -688,14 +689,14 @@ final class ClipboardPanelViewTests: XCTestCase {
       store: fixture.store
     )
 
-    [pinned, rich, link, image, color, audio, file, code].forEach {
+    [pinned, rich, link, image, color, audio, video, file, code].forEach {
       fixture.store.upsert($0)
       drainMainQueue()
     }
 
-    XCTAssertEqual(fixture.viewModel.visibleItems.count, 8)
-    XCTAssertEqual(ClipboardSortMode.allCases.map { fixture.viewModel.collectionCount(for: $0) }, [8, 8, 3, 1, 1, 1, 1, 1, 1, 1])
-    XCTAssertEqual(fixture.view.debugCollectionCounts, [8, 8, 3, 1, 1, 1, 1, 1, 1, 1])
+    XCTAssertEqual(fixture.viewModel.visibleItems.count, 9)
+    XCTAssertEqual(ClipboardSortMode.allCases.map { fixture.viewModel.collectionCount(for: $0) }, [9, 9, 3, 1, 1, 1, 1, 1, 1, 1, 1])
+    XCTAssertEqual(fixture.view.debugCollectionCounts, [9, 9, 3, 1, 1, 1, 1, 1, 1, 1, 1])
     XCTAssertEqual(fixture.view.debugCollectionCountLabelHiddenStates, Array(repeating: false, count: ClipboardSortMode.allCases.count))
   }
 
@@ -1364,6 +1365,25 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugCardAccessibilityLabels, ["Audio: Audio (14 KB)"])
     XCTAssertEqual(fixture.view.debugCardPreviewSummaries, ["Audio (14 KB)|Sound clip|Audio"])
     XCTAssertEqual(fixture.view.debugCardPreviewStyles, ["audio-preview"])
+  }
+
+  func testVideoCardsUseFilmPreview() {
+    let fixture = makePanelFixture()
+    let item = makeItem(
+      kind: .video,
+      displayText: "Video (24 KB)",
+      payload: "/tmp/clipbored-video.mp4",
+      store: fixture.store
+    )
+
+    fixture.store.upsert(item)
+    fixture.viewModel.sortMode = .videos
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCardAccessibilityLabels, ["Video: Video (24 KB)"])
+    XCTAssertEqual(fixture.view.debugCardPreviewSummaries, ["Video (24 KB)|Video clip|MP4"])
+    XCTAssertEqual(fixture.view.debugCardPreviewStyles, ["video-preview"])
   }
 
   func testColorCardsUseSwatchPreview() {

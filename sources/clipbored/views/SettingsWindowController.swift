@@ -172,6 +172,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSTextViewD
       kindCheckbox("Images", .image),
       kindCheckbox("Colors", .color),
       kindCheckbox("Audio", .audio),
+      kindCheckbox("Videos", .video),
       kindCheckbox("Rich text", .richText),
       kindCheckbox("PDFs", .pdf),
       kindCheckbox("Files", .file)
@@ -201,7 +202,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSTextViewD
   }
 
   private func privacySettingsView() -> NSView {
-    let storageLabel = caption("Clipboard history is stored locally in Application Support. Text, image cache files, audio clips, and PDF attachments are encrypted with Keychain when available, or an owner-only local fallback key if needed.")
+    let storageLabel = caption("Clipboard history is stored locally in Application Support. Text, image cache files, audio clips, video clips, and PDF attachments are encrypted with Keychain when available, or an owner-only local fallback key if needed.")
     let permissionHelpLabel = caption("Clipboard history capture works without this permission. Grant Accessibility to paste selected items into the previous app.")
     configureCheckbox(clearHistoryOnQuitButton, title: "Clear history on quit", action: #selector(clearHistoryOnQuitChanged))
     configureStatusLabel(accessibilityStatusLabel)

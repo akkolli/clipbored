@@ -119,6 +119,20 @@ final class ClipboardCacheServiceTests: XCTestCase {
     XCTAssertEqual(try posixPermissions(URL(fileURLWithPath: path)), 0o600)
   }
 
+  func testVideoCacheFilesAreEncryptedAndReadable() throws {
+    let baseURL = try makeTempDirectory()
+    let cacheService = ClipboardCacheService(baseURL: baseURL, encryptionService: fixedEncryptionService())
+    let videoData = Data([0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50])
+
+    let path = try XCTUnwrap(cacheService.cacheVideo(videoData, id: UUID(), fileExtension: "mp4"))
+    let rawVideo = try Data(contentsOf: URL(fileURLWithPath: path))
+
+    XCTAssertTrue(ClipboardEncryptionService.isProtected(rawVideo))
+    XCTAssertNotEqual(rawVideo, videoData)
+    XCTAssertEqual(cacheService.data(for: path), videoData)
+    XCTAssertEqual(try posixPermissions(URL(fileURLWithPath: path)), 0o600)
+  }
+
   func testRichTextCacheFilesAreEncryptedAndReadable() throws {
     let baseURL = try makeTempDirectory()
     let cacheService = ClipboardCacheService(baseURL: baseURL, encryptionService: fixedEncryptionService())
@@ -175,6 +189,19 @@ final class ClipboardCacheServiceTests: XCTestCase {
 
     XCTAssertEqual(try Data(contentsOf: previewURL), audioData)
     XCTAssertEqual(previewURL.pathExtension, "sound")
+    XCTAssertEqual(try posixPermissions(previewURL), 0o600)
+  }
+
+  func testTemporaryReadableURLWorksForVideo() throws {
+    let baseURL = try makeTempDirectory()
+    let cacheService = ClipboardCacheService(baseURL: baseURL, encryptionService: fixedEncryptionService())
+    let videoData = Data([0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50])
+    let path = try XCTUnwrap(cacheService.cacheVideo(videoData, id: UUID(), fileExtension: "mp4"))
+
+    let previewURL = try XCTUnwrap(cacheService.temporaryReadableURL(for: videoItem(path: path)))
+
+    XCTAssertEqual(try Data(contentsOf: previewURL), videoData)
+    XCTAssertEqual(previewURL.pathExtension, "mp4")
     XCTAssertEqual(try posixPermissions(previewURL), 0o600)
   }
 
@@ -314,6 +341,22 @@ final class ClipboardCacheServiceTests: XCTestCase {
       id: UUID(),
       kind: .audio,
       displayText: "Audio",
+      payload: path,
+      payloadHash: "hash",
+      createdAt: Date(),
+      lastUsedAt: Date(),
+      useCount: 0,
+      sourceApp: nil,
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+  }
+
+  private func videoItem(path: String) -> ClipboardItem {
+    ClipboardItem(
+      id: UUID(),
+      kind: .video,
+      displayText: "Video",
       payload: path,
       payloadHash: "hash",
       createdAt: Date(),

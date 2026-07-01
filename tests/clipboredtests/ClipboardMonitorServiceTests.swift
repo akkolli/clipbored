@@ -218,6 +218,34 @@ final class ClipboardMonitorServiceTests: XCTestCase {
     XCTAssertEqual(NSPasteboard.general.data(forType: .sound), audioData)
   }
 
+  func testPollNowCapturesVideoAsRestorableAttachment() throws {
+    let settings = SettingsModel(defaults: makeTestDefaults())
+    let (store, cacheService) = makeStoreAndCache(settings: settings)
+    let monitor = ClipboardMonitorService(store: store, cacheService: cacheService, settings: settings)
+    let videoData = Data([0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50])
+    let captured = expectation(description: "video captured")
+
+    store.observeItems { items in
+      if items.contains(where: { $0.kind == .video }) {
+        captured.fulfill()
+      }
+    }
+
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    XCTAssertTrue(pasteboard.setData(videoData, forType: VideoPayload.pasteboardTypes[0]))
+
+    monitor.pollNowAndWait()
+    wait(for: [captured], timeout: 1.0)
+
+    let item = try XCTUnwrap(store.items.first(where: { $0.kind == .video }))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: item.payload))
+    XCTAssertEqual(item.displayText, VideoPayload.displayTitle(byteCount: videoData.count))
+    XCTAssertEqual(cacheService.data(for: item.payload), videoData)
+    XCTAssertEqual(PasteActionService(cacheService: cacheService).copy(item), .copied)
+    XCTAssertEqual(NSPasteboard.general.data(forType: VideoPayload.pasteboardTypes[0]), videoData)
+  }
+
   func testPollNowCapturesColorAsRestorableSwatch() throws {
     let settings = SettingsModel(defaults: makeTestDefaults())
     let (store, cacheService) = makeStoreAndCache(settings: settings)
@@ -724,6 +752,25 @@ final class ClipboardMonitorServiceTests: XCTestCase {
     XCTAssertTrue(store.items.isEmpty)
     XCTAssertTrue(try attachmentFileURLs(in: baseURL).isEmpty)
     XCTAssertEqual(settings.captureStatusMessage, "Skipped: Audio items are ignored in capture settings.")
+  }
+
+  func testIgnoredVideoKindDoesNotWriteAttachmentFiles() throws {
+    let settings = SettingsModel(defaults: makeTestDefaults())
+    settings.ignoredItemKindsRaw = [ClipboardItemKind.video.rawValue]
+    let (store, cacheService, baseURL) = makeStoreCacheAndBaseURL(settings: settings)
+    let monitor = ClipboardMonitorService(store: store, cacheService: cacheService, settings: settings)
+
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    XCTAssertTrue(pasteboard.setData(Data([0, 0, 0, 24, 102, 116, 121, 112]), forType: VideoPayload.pasteboardTypes[0]))
+
+    monitor.pollNowAndWait()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    cacheService.flushForTesting()
+
+    XCTAssertTrue(store.items.isEmpty)
+    XCTAssertTrue(try attachmentFileURLs(in: baseURL).isEmpty)
+    XCTAssertEqual(settings.captureStatusMessage, "Skipped: Video items are ignored in capture settings.")
   }
 
   func testIgnoredRichTextKindDoesNotWriteHTMLAttachmentFiles() throws {
