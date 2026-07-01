@@ -1386,6 +1386,39 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugCardPreviewStyles, ["video-preview"])
   }
 
+  func testVideoCardsUseMediaPreviewWhenThumbnailExists() throws {
+    let cacheService = ClipboardCacheService(
+      baseURL: makeTempDirectory(),
+      encryptionService: ClipboardEncryptionService(keyProvider: { nil }),
+      videoThumbnailProvider: { _ in self.sampleImage() }
+    )
+    let fixture = makePanelFixture(cacheService: cacheService)
+    let id = UUID()
+    let path = try XCTUnwrap(cacheService.cacheVideo(Data([0, 1, 2, 3]), id: id, fileExtension: "mp4"))
+    let item = ClipboardItem(
+      id: id,
+      kind: .video,
+      displayText: "Video (24 KB)",
+      payload: path,
+      payloadHash: fixture.store.hashString("video-thumbnail"),
+      createdAt: Date(),
+      lastUsedAt: Date(),
+      useCount: 0,
+      sourceApp: "QuickTime Player",
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+
+    fixture.store.upsert(item)
+    fixture.viewModel.sortMode = .videos
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugCardAccessibilityLabels, ["Video: Video (24 KB)"])
+    XCTAssertEqual(fixture.view.debugCardPreviewSummaries, ["Video (24 KB)|Video clip|MP4"])
+    XCTAssertEqual(fixture.view.debugCardPreviewStyles, ["video-media-preview"])
+  }
+
   func testColorCardsUseSwatchPreview() {
     let fixture = makePanelFixture()
     let item = makeItem(
@@ -1433,9 +1466,9 @@ final class ClipboardPanelViewTests: XCTestCase {
     return (fixture.window, fixture.view)
   }
 
-  private func makePanelFixture() -> PanelFixture {
+  private func makePanelFixture(cacheService: ClipboardCacheService? = nil) -> PanelFixture {
     let settings = makeSettings()
-    let cacheService = ClipboardCacheService()
+    let cacheService = cacheService ?? ClipboardCacheService()
     let store = makeStore(settings: settings, cacheService: cacheService)
     let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
     let previewProbe = PreviewProbe()

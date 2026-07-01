@@ -91,6 +91,32 @@ final class ClipboardCacheServiceTests: XCTestCase {
     XCTAssertNotNil(cacheService.previewThumbnail(for: pdfItem(path: path)))
   }
 
+  func testPreviewThumbnailUsesDecryptedVideoTemporaryCopyAndCachesResult() throws {
+    let baseURL = try makeTempDirectory()
+    let videoData = Data([0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50])
+    var providerURLs: [URL] = []
+    let cacheService = ClipboardCacheService(
+      baseURL: baseURL,
+      encryptionService: fixedEncryptionService(),
+      videoThumbnailProvider: { url in
+        providerURLs.append(url)
+        XCTAssertEqual(url.pathExtension, "mp4")
+        XCTAssertEqual(try? Data(contentsOf: url), videoData)
+        return self.makeImage(color: .systemIndigo)
+      }
+    )
+    let path = try XCTUnwrap(cacheService.cacheVideo(videoData, id: UUID(), fileExtension: "mp4"))
+    let item = videoItem(path: path)
+
+    let thumbnail = cacheService.previewThumbnail(for: item)
+    let cachedThumbnail = cacheService.previewThumbnail(for: item)
+
+    XCTAssertNotNil(thumbnail)
+    XCTAssertNotNil(cachedThumbnail)
+    XCTAssertEqual(providerURLs.count, 1)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: try XCTUnwrap(providerURLs.first).path))
+  }
+
   func testPDFCacheFilesAreEncryptedAndReadable() throws {
     let baseURL = try makeTempDirectory()
     let cacheService = ClipboardCacheService(baseURL: baseURL, encryptionService: fixedEncryptionService())
@@ -389,7 +415,7 @@ final class ClipboardCacheServiceTests: XCTestCase {
   }
 
   private func makeImage(color: NSColor) -> NSImage {
-    let size = NSSize(width: 24, height: 24)
+    let size = NSSize(width: 64, height: 40)
     let image = NSImage(size: size)
     image.lockFocus()
     color.setFill()

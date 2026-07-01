@@ -16,6 +16,7 @@ let package = Package(
       exclude: ["resources"],
       linkerSettings: [
         .linkedFramework("AppKit"),
+        .linkedFramework("AVFoundation"),
         .linkedFramework("Carbon"),
         .linkedFramework("LocalAuthentication"),
         .linkedFramework("QuickLookUI"),

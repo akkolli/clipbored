@@ -15,7 +15,7 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
   - `Command + G` shows a filtered result back in the full clipboard history
   - `Shift + Command + N` creates a new collection
   - `Space` previews the selected card when the focused search field is empty
-- Clipboard history for text, URLs with local preview thumbnails when available, images, audio, RTF/HTML rich text, PDFs, and file references
+- Clipboard history for text, URLs with local preview thumbnails when available, images, audio, video with movie thumbnails when available, RTF/HTML rich text, PDFs, and file references
 - Keyboard-focusable cards and collection chips with type-to-search, Return-to-paste/select, Space-to-preview for text, links, files, and media, vertical wheel/trackpad panning and overflow edge fades in horizontal rails, visible focus chrome, and VoiceOver action hints
 - Shelf navigation keys for focused cards: Left/Right, Page Up/Page Down, Home, and End
 - Shelf navigation keys for focused collection chips: Left/Right, Home, and End
@@ -80,7 +80,7 @@ Project layout:
 
 ClipBored does not use network APIs or telemetry. Clipboard history is stored locally under Application Support.
 
-Textual SQLite fields, image cache files, audio clips, rich text sidecars, and PDF attachments are encrypted with AES-GCM using a Keychain-held key when Keychain access is available. If Keychain access blocks or fails, ClipBored uses an owner-only app-local fallback key so capture does not stall. Full history clears remove the local fallback key when present and reset cached key state for future captures. Temporary decrypted preview files may be created when opening or revealing encrypted media; stale previews are cleared on launch, cache/history clear, and quit. Use sensitive-content exclusion and ignored app settings for high-risk sources. See [docs/SECURITY.md](docs/SECURITY.md) for details and responsible disclosure.
+Textual SQLite fields, image cache files, audio clips, video clips, rich text sidecars, and PDF attachments are encrypted with AES-GCM using a Keychain-held key when Keychain access is available. If Keychain access blocks or fails, ClipBored uses an owner-only app-local fallback key so capture does not stall. Full history clears remove the local fallback key when present and reset cached key state for future captures. Temporary decrypted preview files may be created when thumbnailing, opening, or revealing encrypted media; stale previews are cleared on launch, cache/history clear, and quit. Use sensitive-content exclusion and ignored app settings for high-risk sources. See [docs/SECURITY.md](docs/SECURITY.md) for details and responsible disclosure.
 
 ## Contributing
 

@@ -1,7 +1,10 @@
 import AppKit
+import AVFoundation
 import Foundation
 
 final class ClipboardCacheService {
+  typealias VideoThumbnailProvider = (URL) -> NSImage?
+
   private let thumbnailCache = NSCache<NSString, NSImage>()
   private let fileManager = FileManager.default
   private let queue = DispatchQueue(label: "clipboard.cache.service", qos: .utility)
@@ -9,8 +12,13 @@ final class ClipboardCacheService {
   private let attachmentDirectory: URL
   private let temporaryPreviewDirectory: URL
   private let encryptionService: ClipboardEncryptionService
+  private let videoThumbnailProvider: VideoThumbnailProvider
 
-  init(baseURL: URL? = nil, encryptionService: ClipboardEncryptionService = ClipboardEncryptionService()) {
+  init(
+    baseURL: URL? = nil,
+    encryptionService: ClipboardEncryptionService = ClipboardEncryptionService(),
+    videoThumbnailProvider: VideoThumbnailProvider? = nil
+  ) {
     let base = baseURL ?? ClipboardStore.storageDirectory()
     imageDirectory = base.appendingPathComponent("images", isDirectory: true)
     attachmentDirectory = base.appendingPathComponent("attachments", isDirectory: true)
@@ -18,6 +26,7 @@ final class ClipboardCacheService {
       .appendingPathComponent(AppConfiguration.appName, isDirectory: true)
       .appendingPathComponent("Previews", isDirectory: true)
     self.encryptionService = encryptionService
+    self.videoThumbnailProvider = videoThumbnailProvider ?? Self.makeVideoThumbnail
     thumbnailCache.countLimit = 128
     try? fileManager.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
     try? fileManager.createDirectory(at: attachmentDirectory, withIntermediateDirectories: true)
@@ -109,7 +118,10 @@ final class ClipboardCacheService {
     case .file:
       return filePreviewThumbnail(for: item.payload)
 
-    case .text, .unknown, .audio, .richText, .color, .code, .video:
+    case .video:
+      return videoPreviewThumbnail(for: item)
+
+    case .text, .unknown, .audio, .richText, .color, .code:
       return nil
     }
   }
@@ -152,6 +164,51 @@ final class ClipboardCacheService {
 
     thumbnailCache.setObject(image, forKey: key)
     return image
+  }
+
+  private func videoPreviewThumbnail(for item: ClipboardItem) -> NSImage? {
+    let key = NSString(string: "video-preview:\(item.id.uuidString):\(item.payload)")
+    if let cached = thumbnailCache.object(forKey: key) {
+      return cached
+    }
+
+    guard
+      let data = data(for: item.payload),
+      let temporaryURL = writeTemporaryCopy(
+        data: data,
+        id: item.id,
+        fileExtension: VideoPayload.fileExtension(from: item.payload)
+      )
+    else {
+      return nil
+    }
+    defer { removeTemporaryCopyIfPossible(temporaryURL) }
+
+    guard let image = videoThumbnailProvider(temporaryURL), hasDrawableSize(image) else {
+      return nil
+    }
+    let thumbnail = image.resized(to: CGSize(width: 260, height: 132))
+    thumbnailCache.setObject(thumbnail, forKey: key)
+    return thumbnail
+  }
+
+  private static func makeVideoThumbnail(from url: URL) -> NSImage? {
+    let asset = AVURLAsset(url: url)
+    let generator = AVAssetImageGenerator(asset: asset)
+    generator.appliesPreferredTrackTransform = true
+    generator.maximumSize = CGSize(width: 520, height: 264)
+    generator.requestedTimeToleranceBefore = .zero
+    generator.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 30)
+
+    for time in [CMTime(seconds: 0.08, preferredTimescale: 600), .zero] {
+      if let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) {
+        return NSImage(
+          cgImage: cgImage,
+          size: NSSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height))
+        )
+      }
+    }
+    return nil
   }
 
   private func hasDrawableSize(_ image: NSImage) -> Bool {
@@ -344,6 +401,13 @@ final class ClipboardCacheService {
       return url
     } catch {
       return nil
+    }
+  }
+
+  private func removeTemporaryCopyIfPossible(_ url: URL) {
+    try? fileManager.removeItem(at: url)
+    if ((try? fileManager.contentsOfDirectory(at: temporaryPreviewDirectory, includingPropertiesForKeys: nil)) ?? []).isEmpty {
+      try? fileManager.removeItem(at: temporaryPreviewDirectory)
     }
   }
 

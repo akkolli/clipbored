@@ -10,7 +10,7 @@ ClipBored is designed as a local macOS utility. Its primary privacy promise is t
 - Hardened runtime is applied by the local build script, and the release script supports Developer ID signing plus notarization when credentials are configured.
 - Clipboard persistence uses prepared SQLite statements and bound values.
 - Textual SQLite fields, including optional local image OCR text, are encrypted with AES-GCM using a Keychain-held key when Keychain access is available.
-- App-managed image cache files, audio clips, rich text sidecars, and PDF attachments are encrypted with the same encryption service.
+- App-managed image cache files, audio clips, video clips, rich text sidecars, and PDF attachments are encrypted with the same encryption service.
 - If Keychain access blocks or fails, ClipBored uses an owner-only app-local fallback key so clipboard capture and persistence continue without a Keychain UI stall.
 - Full history clears remove the app-local fallback key when present and reset cached key state after the database clear succeeds.
 - App-owned storage directories are restricted to the current user, and saved history/cache files are written with owner-only permissions where the filesystem supports POSIX modes.
@@ -35,7 +35,7 @@ ClipBored is designed as a local macOS utility. Its primary privacy promise is t
 
 - SQLite item metadata such as identifiers, kinds, timestamps, pin state, and use counts is not encrypted.
 - The app-local fallback key prevents plaintext app-managed history/media files, but it does not protect against a process or user account that can read the full ClipBored Application Support directory before history is cleared.
-- Opening or revealing encrypted images, audio clips, or PDFs creates temporary decrypted preview files so macOS can hand them to other apps. ClipBored clears stale preview files on launch, cache/history clear, and quit.
+- Thumbnailing, opening, or revealing encrypted images, audio clips, video clips, or PDFs creates temporary decrypted preview files so macOS can hand them to system media APIs or other apps. ClipBored clears stale preview files on launch, cache/history clear, and quit.
 - Existing plaintext SQLite rows and legacy sidecar files are migrated when encryption becomes available, but system snapshots, backups, live temporary previews, or filesystem remnants may retain older plaintext copies.
 - The local development build is ad-hoc signed; use `scripts/release-macos-app.sh` with Developer ID credentials for notarized distribution builds.
 - Accessibility permission is required for automatic paste simulation.

@@ -3716,6 +3716,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     case .audio:
       return audioPreviewView(for: item)
     case .video:
+      if let thumbnail {
+        return videoMediaPreviewView(for: item, thumbnail: thumbnail)
+      }
       return videoPreviewView(for: item)
     case .color:
       return colorPreviewView(for: item)
@@ -4382,6 +4385,50 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     return container
   }
 
+  private func videoMediaPreviewView(for item: ClipboardItem, thumbnail: NSImage) -> NSView {
+    let container = NSView()
+    container.translatesAutoresizingMaskIntoConstraints = false
+
+    let imageView = AspectFillImageView(image: thumbnail)
+    imageView.translatesAutoresizingMaskIntoConstraints = false
+
+    let playBadge = NSView()
+    playBadge.wantsLayer = true
+    playBadge.layer?.cornerRadius = 22
+    playBadge.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.48).cgColor
+    playBadge.layer?.borderWidth = 0.8
+    playBadge.layer?.borderColor = NSColor.white.withAlphaComponent(0.30).cgColor
+    playBadge.translatesAutoresizingMaskIntoConstraints = false
+
+    let play = headerIcon("play.fill", color: .white)
+    play.translatesAutoresizingMaskIntoConstraints = false
+    playBadge.addSubview(play)
+
+    let extensionPill = capsuleLabel(VideoPayload.kindText(from: item.payload), color: NSColor.black.withAlphaComponent(0.60))
+    extensionPill.translatesAutoresizingMaskIntoConstraints = false
+
+    container.addSubview(imageView)
+    container.addSubview(playBadge)
+    container.addSubview(extensionPill)
+    NSLayoutConstraint.activate([
+      imageView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      imageView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      imageView.topAnchor.constraint(equalTo: container.topAnchor),
+      imageView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+      playBadge.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+      playBadge.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+      playBadge.widthAnchor.constraint(equalToConstant: 44),
+      playBadge.heightAnchor.constraint(equalToConstant: 44),
+      play.centerXAnchor.constraint(equalTo: playBadge.centerXAnchor, constant: 1),
+      play.centerYAnchor.constraint(equalTo: playBadge.centerYAnchor),
+      play.widthAnchor.constraint(equalToConstant: 16),
+      play.heightAnchor.constraint(equalToConstant: 16),
+      extensionPill.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+      extensionPill.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -10)
+    ])
+    return container
+  }
+
   private func capsuleLabel(_ text: String, color: NSColor) -> NSTextField {
     let label = NSTextField(labelWithString: text)
     label.translatesAutoresizingMaskIntoConstraints = false
@@ -4443,7 +4490,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     case .audio:
       return "audio-preview"
     case .video:
-      return "video-preview"
+      return thumbnail == nil ? "video-preview" : "video-media-preview"
     case .color:
       return "color-preview"
     case .code:
