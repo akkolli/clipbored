@@ -84,6 +84,51 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     )
   }
 
+  func testComputeVisibleItemsFiltersCodeSnippetsAndKeepsThemInTextView() {
+    let settings = makeSettings()
+    let store = makeStore(settings: settings)
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: ClipboardCacheService())
+    let code = ClipboardItem(
+      id: UUID(),
+      kind: .code,
+      displayText: "Swift Snippet",
+      payload: "func greet(name: String) -> String {\n  return \"Hi \\(name)\"\n}",
+      payloadHash: hash("swift-snippet"),
+      createdAt: Date(timeIntervalSince1970: 200),
+      lastUsedAt: Date(timeIntervalSince1970: 200),
+      useCount: 0,
+      sourceApp: "Xcode",
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+    let text = ClipboardItem(
+      id: UUID(),
+      kind: .text,
+      displayText: "Meeting note",
+      payload: "Meeting note",
+      payloadHash: hash("Meeting note"),
+      createdAt: Date(timeIntervalSince1970: 100),
+      lastUsedAt: Date(timeIntervalSince1970: 100),
+      useCount: 0,
+      sourceApp: "Notes",
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: [code, text], query: "", sortMode: .code).map(\.kind),
+      [.code]
+    )
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: [code, text], query: "", sortMode: .text).map(\.kind),
+      [.code, .text]
+    )
+    XCTAssertEqual(
+      viewModel.computeVisibleItems(from: [code, text], query: "type:snippet greet", sortMode: .mostRecent).map(\.kind),
+      [.code]
+    )
+  }
+
   func testSearchMatchesIndependentTokensCaseInsensitively() {
     let settings = makeSettings()
     let store = makeStore(settings: settings)

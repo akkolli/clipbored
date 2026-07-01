@@ -157,6 +157,7 @@ final class ClipboardPanelControllerTests: XCTestCase {
     XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 26, modifiers: [.command, .option]), .pinned)
     XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 28, modifiers: [.command, .option]), .audio)
     XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 25, modifiers: [.command, .option]), .colors)
+    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 29, modifiers: [.command, .option]), .code)
   }
 
   func testCollectionShortcutsRequireCommandOptionSoQuickPasteKeepsCommandNumbers() {

@@ -32,6 +32,27 @@ final class PasteActionServiceTests: XCTestCase {
     XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Hello")
   }
 
+  func testCopyWritesCodeSnippetAsPlainString() {
+    let service = PasteActionService()
+    let snippet = "func greet(name: String) -> String {\n  return \"Hi \\(name)\"\n}"
+    let item = ClipboardItem(
+      id: UUID(),
+      kind: .code,
+      displayText: "Swift Snippet",
+      payload: snippet,
+      payloadHash: "hash",
+      createdAt: Date(),
+      lastUsedAt: Date(),
+      useCount: 0,
+      sourceApp: "Xcode",
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+
+    XCTAssertEqual(service.copy(item), .copied)
+    XCTAssertEqual(NSPasteboard.general.string(forType: .string), snippet)
+  }
+
   func testPasteboardWritersExposeTextForDragOut() {
     let service = PasteActionService()
     let item = ClipboardItem(

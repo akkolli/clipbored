@@ -254,17 +254,23 @@ final class ClipboardMonitorService {
       return htmlPayload
     }
 
-    if isIgnored(.text), let string = pasteboard.string(forType: .string) {
+    if let string = pasteboard.string(forType: .string) {
       let trimmed = string.clipboardTrimmed
       if !trimmed.isEmpty {
-        reportReadFailureStatus(ignoredKindMessage(.text))
-        return nil
+        if CodeSnippetPayload.isLikelyCode(trimmed), isIgnored(.code) {
+          reportReadFailureStatus(ignoredKindMessage(.code))
+          return nil
+        }
+        if !CodeSnippetPayload.isLikelyCode(trimmed), isIgnored(.text) {
+          reportReadFailureStatus(ignoredKindMessage(.text))
+          return nil
+        }
       }
     }
 
     if let string = pasteboard.string(forType: .string),
        let item = itemFromString(string, sourceApp: source.name, sourceBundleId: source.bundleId) {
-      if item.kind == .text, item.payload.isEmpty {
+      if (item.kind == .text || item.kind == .code), item.payload.isEmpty {
         reportReadFailureStatus("Clipboard contains no readable text.")
         return nil
       }
@@ -294,6 +300,24 @@ final class ClipboardMonitorService {
         displayText: url.absoluteString,
         payload: url.absoluteString,
         payloadHash: store.hashString(url.absoluteString),
+        createdAt: Date(),
+        lastUsedAt: Date(),
+        useCount: 1,
+        sourceApp: sourceApp,
+        imagePath: nil,
+        thumbnailPath: nil,
+        isPinned: false,
+        sourceAppBundleId: sourceBundleId
+      )
+    }
+
+    if CodeSnippetPayload.isLikelyCode(trimmed) {
+      return ClipboardItem(
+        id: UUID(),
+        kind: .code,
+        displayText: CodeSnippetPayload.title(from: trimmed),
+        payload: trimmed,
+        payloadHash: store.hashString(trimmed),
         createdAt: Date(),
         lastUsedAt: Date(),
         useCount: 1,

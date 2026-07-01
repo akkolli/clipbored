@@ -63,6 +63,7 @@ private enum ClipboardCollectionVisuals {
     case .audio: return NSColor(calibratedRed: 0.93, green: 0.12, blue: 0.34, alpha: 1)
     case .files: return NSColor(calibratedRed: 0.11, green: 0.68, blue: 0.36, alpha: 1)
     case .pinned: return NSColor(calibratedRed: 0.94, green: 0.12, blue: 0.48, alpha: 1)
+    case .code: return NSColor(calibratedRed: 0.25, green: 0.38, blue: 0.78, alpha: 1)
     }
   }
 
@@ -630,6 +631,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     case .audio: return "Audio"
     case .files: return "Files"
     case .pinned: return "Pinned"
+    case .code: return "Code"
     }
   }
 
@@ -644,6 +646,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     case .audio: return "music.note"
     case .files: return "doc.fill"
     case .pinned: return "pin.fill"
+    case .code: return "chevron.left.forwardslash.chevron.right"
     }
   }
 
@@ -1139,6 +1142,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       return ("No links yet", "Links are detected from copied URLs.")
     case .text:
       return ("No text clips yet", "Copied text and rich text appear here.")
+    case .code:
+      return ("No code snippets yet", "Copied code snippets appear here.")
     case .files:
       return ("No files yet", "Copied files and PDFs appear here.")
     case .audio:
@@ -3015,27 +3020,27 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     switch itemKind {
     case .url, .file, .image, .pdf, .audio:
       return true
-    case .text, .richText, .unknown, .color:
+    case .text, .richText, .unknown, .color, .code:
       return false
     }
   }
 
   private var canPreview: Bool {
     switch itemKind {
-    case .text, .url, .image, .richText, .file, .pdf, .audio, .unknown, .color:
+    case .text, .url, .image, .richText, .file, .pdf, .audio, .unknown, .color, .code:
       return true
     }
   }
 
   private var canEditText: Bool {
-    itemKind == .text
+    itemKind == .text || itemKind == .code
   }
 
   private var canPlainText: Bool {
     switch itemKind {
     case .url, .image, .richText, .file, .pdf, .audio, .color:
       return true
-    case .text, .unknown:
+    case .text, .unknown, .code:
       return false
     }
   }
@@ -3044,7 +3049,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     switch itemKind {
     case .file, .image, .pdf, .audio:
       return true
-    case .text, .richText, .url, .unknown, .color:
+    case .text, .richText, .url, .unknown, .color, .code:
       return false
     }
   }
@@ -3621,6 +3626,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return audioPreviewView(for: item)
     case .color:
       return colorPreviewView(for: item)
+    case .code:
+      return codePreviewView(for: item)
     case .text, .richText, .image, .unknown:
       return textPreviewView(for: item)
     }
@@ -4111,6 +4118,82 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     return container
   }
 
+  private func codePreviewView(for item: ClipboardItem) -> NSView {
+    let container = NSView()
+    container.wantsLayer = true
+    container.layer?.backgroundColor = accentColor(for: item.kind).withAlphaComponent(0.10).cgColor
+    container.translatesAutoresizingMaskIntoConstraints = false
+
+    let editor = NSView()
+    editor.wantsLayer = true
+    editor.layer?.cornerRadius = 10
+    editor.layer?.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.88).cgColor
+    editor.layer?.borderWidth = 0.8
+    editor.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.22).cgColor
+    editor.translatesAutoresizingMaskIntoConstraints = false
+
+    let language = capsuleLabel(CodeSnippetPayload.languageLabel(from: item.payload), color: accentColor(for: item.kind))
+    language.translatesAutoresizingMaskIntoConstraints = false
+
+    let lines = CodeSnippetPayload.previewLines(from: item.payload)
+    let lineRows = lines.isEmpty ? ["Code snippet"] : lines
+    let rowViews = lineRows.enumerated().map { offset, line in
+      codeLineRow(number: offset + 1, text: line)
+    }
+    let rows = NSStackView(views: rowViews)
+    rows.orientation = .vertical
+    rows.alignment = .leading
+    rows.spacing = 3
+    rows.translatesAutoresizingMaskIntoConstraints = false
+
+    editor.addSubview(rows)
+    container.addSubview(editor)
+    container.addSubview(language)
+    for row in rowViews {
+      row.widthAnchor.constraint(equalTo: rows.widthAnchor).isActive = true
+    }
+
+    NSLayoutConstraint.activate([
+      editor.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: layout.inset),
+      editor.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -layout.inset),
+      editor.topAnchor.constraint(equalTo: container.topAnchor, constant: layout.isCompact ? 13 : 16),
+      editor.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: layout.isCompact ? -13 : -16),
+      rows.leadingAnchor.constraint(equalTo: editor.leadingAnchor, constant: 12),
+      rows.trailingAnchor.constraint(equalTo: editor.trailingAnchor, constant: -12),
+      rows.topAnchor.constraint(equalTo: editor.topAnchor, constant: 13),
+      rows.bottomAnchor.constraint(lessThanOrEqualTo: editor.bottomAnchor, constant: -12),
+      language.trailingAnchor.constraint(equalTo: editor.trailingAnchor, constant: -10),
+      language.bottomAnchor.constraint(equalTo: editor.bottomAnchor, constant: -9)
+    ])
+    return container
+  }
+
+  private func codeLineRow(number: Int, text: String) -> NSView {
+    let numberLabel = NSTextField(labelWithString: "\(number)")
+    numberLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+    numberLabel.textColor = .tertiaryLabelColor
+    numberLabel.alignment = .right
+    numberLabel.maximumNumberOfLines = 1
+    numberLabel.translatesAutoresizingMaskIntoConstraints = false
+    numberLabel.widthAnchor.constraint(equalToConstant: 20).isActive = true
+
+    let codeLabel = NSTextField(labelWithString: text)
+    codeLabel.font = .monospacedSystemFont(ofSize: layout.isCompact ? 11 : 12, weight: .regular)
+    codeLabel.textColor = .labelColor
+    codeLabel.maximumNumberOfLines = 1
+    codeLabel.lineBreakMode = .byTruncatingTail
+    codeLabel.toolTip = text
+    codeLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+    let row = NSStackView(views: [numberLabel, codeLabel])
+    row.orientation = .horizontal
+    row.alignment = .firstBaseline
+    row.spacing = 8
+    row.translatesAutoresizingMaskIntoConstraints = false
+    codeLabel.widthAnchor.constraint(equalTo: row.widthAnchor, constant: -28).isActive = true
+    return row
+  }
+
   private func mediaPreviewView(for item: ClipboardItem, thumbnail: NSImage) -> NSView {
     let container = NSView()
     container.translatesAutoresizingMaskIntoConstraints = false
@@ -4196,6 +4279,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return "audio-preview"
     case .color:
       return "color-preview"
+    case .code:
+      return "code-preview"
     case .richText:
       return "rich-text-preview"
     case .text:
@@ -4375,6 +4460,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return imageTitle(for: item)
     case .color:
       return ColorPayload.displayHex(from: item.payload)
+    case .code:
+      return CodeSnippetPayload.title(from: item.payload)
     default:
       break
     }
@@ -4405,6 +4492,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return "Sound clip"
     case .color:
       return ColorPayload.componentSummary(from: item.payload)
+    case .code:
+      return CodeSnippetPayload.previewText(from: item.payload)
     case .richText:
       let text = normalized(item.displayText)
       return text.isEmpty ? "No preview available" : text
@@ -4438,6 +4527,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return "Audio"
     case .color:
       return "Color"
+    case .code:
+      return CodeSnippetPayload.languageLabel(from: item.payload)
     case .image:
       if item.ocrText?.clipboardTrimmed.isEmpty == false {
         return "OCR text"
@@ -4754,6 +4845,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       return NSColor(calibratedRed: 0.93, green: 0.12, blue: 0.34, alpha: 1)
     case .color:
       return NSColor(calibratedRed: 0.00, green: 0.65, blue: 0.74, alpha: 1)
+    case .code:
+      return NSColor(calibratedRed: 0.25, green: 0.38, blue: 0.78, alpha: 1)
     case .unknown:
       return .systemGray
     }
@@ -4769,6 +4862,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     case .pdf: return "doc.text.fill"
     case .audio: return "music.note"
     case .color: return "paintpalette"
+    case .code: return "chevron.left.forwardslash.chevron.right"
     case .unknown: return "questionmark"
     }
   }
@@ -4841,6 +4935,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     case .pdf: return "PDF"
     case .audio: return "Audio"
     case .color: return "Color"
+    case .code: return "Code"
     }
   }
 

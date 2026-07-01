@@ -165,7 +165,7 @@ final class PasteActionService {
       }
       return [pasteboardItem]
 
-    case .text, .unknown:
+    case .text, .code, .unknown:
       guard !item.payload.isEmpty else { return [] }
       return [stringPasteboardItem(item.payload)]
     }
@@ -222,7 +222,7 @@ final class PasteActionService {
       guard !item.payload.isEmpty else { return false }
       board.clearContents()
       didWrite = writeURL(item.payload, title: item.displayText, to: board)
-    case .text, .unknown:
+    case .text, .code, .unknown:
       guard !item.payload.isEmpty else { return false }
       board.clearContents()
       didWrite = board.setString(item.payload, forType: .string)
@@ -236,7 +236,7 @@ final class PasteActionService {
 
   func plainText(for item: ClipboardItem) -> String? {
     switch item.kind {
-    case .text, .unknown:
+    case .text, .code, .unknown:
       return nonEmptyPlainText(item.payload) ?? nonEmptyPlainText(item.displayText)
     case .url, .file:
       return nonEmptyPlainText(item.payload) ?? nonEmptyPlainText(item.displayText)

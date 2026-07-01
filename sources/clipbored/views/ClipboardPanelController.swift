@@ -83,7 +83,8 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     22: .files,
     26: .pinned,
     28: .audio,
-    25: .colors
+    25: .colors,
+    29: .code
   ]
 
   private let viewModel: ClipboardPanelViewModel

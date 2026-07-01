@@ -358,14 +358,14 @@ final class ClipboardPanelViewModel {
   }
 
   func editableTextForSelected() -> String? {
-    guard let item = selectedItem, item.kind == .text else { return nil }
+    guard let item = selectedItem, item.kind == .text || item.kind == .code else { return nil }
     return item.payload
   }
 
   func editableTextForItem(at index: Int) -> String? {
     guard index >= 0 && index < visibleItems.count else { return nil }
     let item = visibleItems[index]
-    guard item.kind == .text else { return nil }
+    guard item.kind == .text || item.kind == .code else { return nil }
     return item.payload
   }
 
@@ -388,7 +388,7 @@ final class ClipboardPanelViewModel {
   }
 
   func updateSelectedText(to text: String) {
-    guard let item = selectedItem, item.kind == .text else { return }
+    guard let item = selectedItem, item.kind == .text || item.kind == .code else { return }
     let trimmed = text.clipboardTrimmed
     guard !trimmed.isEmpty else {
       statusMessage = "Text clip cannot be empty"
@@ -401,7 +401,7 @@ final class ClipboardPanelViewModel {
 
     selectedItemID = item.id
     if store.updateText(item.id, text: text) {
-      statusMessage = "Updated text clip"
+      statusMessage = item.kind == .code ? "Updated code clip" : "Updated text clip"
     }
   }
 
@@ -755,7 +755,7 @@ final class ClipboardPanelViewModel {
 
     case .text:
       return collectionFiltered
-        .filter { $0.1.kind == .text || $0.1.kind == .richText }
+        .filter { $0.1.kind == .text || $0.1.kind == .richText || $0.1.kind == .code }
         .sorted(by: sortByUsage)
         .map(\.1)
 
@@ -774,6 +774,12 @@ final class ClipboardPanelViewModel {
     case .colors:
       return collectionFiltered
         .filter { $0.1.kind == .color }
+        .sorted(by: sortByUsage)
+        .map(\.1)
+
+    case .code:
+      return collectionFiltered
+        .filter { $0.1.kind == .code }
         .sorted(by: sortByUsage)
         .map(\.1)
 
@@ -977,6 +983,8 @@ final class ClipboardPanelViewModel {
       return [.richText]
     case "note", "notes", "writing":
       return [.text, .richText]
+    case "code", "snippet", "snippets", "source", "programming", "script", "scripts", "json", "css", "sql":
+      return [.code]
     case "link", "links", "url", "urls", "web":
       return [.url]
     case "image", "images", "photo", "photos", "picture", "pictures":

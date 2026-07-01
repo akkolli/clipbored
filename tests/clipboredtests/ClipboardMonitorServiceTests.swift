@@ -108,6 +108,37 @@ final class ClipboardMonitorServiceTests: XCTestCase {
     XCTAssertEqual(store.items.filter { $0.payload == text }.count, 1)
   }
 
+  func testPollNowCapturesCodeSnippetAsCode() {
+    let settings = SettingsModel(defaults: makeTestDefaults())
+    settings.pruneDuplicates = false
+    let (store, cacheService) = makeStoreAndCache(settings: settings)
+    let monitor = ClipboardMonitorService(
+      store: store,
+      cacheService: cacheService,
+      settings: settings
+    )
+    let snippet = "func greet(name: String) -> String {\n  return \"Hi \\(name)\"\n}"
+
+    let captured = expectation(description: "code snippet captured")
+    store.observeItems { items in
+      if items.contains(where: { $0.kind == .code && $0.payload == snippet }) {
+        captured.fulfill()
+      }
+    }
+
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    XCTAssertTrue(pasteboard.setString(snippet, forType: .string))
+
+    monitor.pollNowAndWait()
+    wait(for: [captured], timeout: 1.0)
+
+    let item = store.items.first
+    XCTAssertEqual(item?.kind, .code)
+    XCTAssertEqual(item?.displayText, "Swift Snippet")
+    XCTAssertEqual(item?.payload, snippet)
+  }
+
   func testPollNowIgnoresClipBoredPasteboardWrites() {
     let settings = SettingsModel(defaults: makeTestDefaults())
     let (store, cacheService) = makeStoreAndCache(settings: settings)
@@ -637,6 +668,24 @@ final class ClipboardMonitorServiceTests: XCTestCase {
 
     XCTAssertTrue(store.items.isEmpty)
     XCTAssertEqual(settings.captureStatusMessage, "Skipped: Color items are ignored in capture settings.")
+  }
+
+  func testIgnoredCodeKindDoesNotCaptureSnippet() throws {
+    let settings = SettingsModel(defaults: makeTestDefaults())
+    settings.ignoredItemKindsRaw = [ClipboardItemKind.code.rawValue]
+    let (store, cacheService, _) = makeStoreCacheAndBaseURL(settings: settings)
+    let monitor = ClipboardMonitorService(store: store, cacheService: cacheService, settings: settings)
+    let snippet = "const title = \"ClipBored\";\nreturn title.toUpperCase();"
+
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    XCTAssertTrue(pasteboard.setString(snippet, forType: .string))
+
+    monitor.pollNowAndWait()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+    XCTAssertTrue(store.items.isEmpty)
+    XCTAssertEqual(settings.captureStatusMessage, "Skipped: Code items are ignored in capture settings.")
   }
 
   func testIgnoredPDFKindDoesNotWriteAttachmentFiles() throws {

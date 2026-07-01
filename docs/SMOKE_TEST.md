@@ -67,6 +67,7 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 34. Confirm multi-file cards show a stacked file preview, while single-file cards keep the regular file layout.
 35. Confirm the shelf chrome uses one row with compact search, collection chips, and utility buttons; typing a search expands the search field without pushing cards out of view.
 36. Copy a color swatch from a design tool and confirm it appears as a Color card, can be filtered with the Colors chip, and copies back as both a color and hex text.
+37. Copy a code snippet from an editor and confirm it appears as a Code card, remains visible in the Text chip, can be isolated with the Code chip or `type:code`, and copies back as plain text.
 
 ## Copy And Paste
 

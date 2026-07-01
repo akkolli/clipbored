@@ -10,6 +10,7 @@ enum ClipboardItemKind: Int {
   case pdf
   case audio
   case color
+  case code
 
   var displayName: String {
     switch self {
@@ -22,6 +23,7 @@ enum ClipboardItemKind: Int {
     case .pdf: return "PDF"
     case .audio: return "audio"
     case .color: return "color"
+    case .code: return "code"
     }
   }
 }
@@ -31,7 +33,7 @@ extension ClipboardItemKind {
     switch self {
     case .url, .file, .image, .pdf, .audio:
       return true
-    case .text, .richText, .unknown, .color:
+    case .text, .richText, .unknown, .color, .code:
       return false
     }
   }
@@ -40,7 +42,7 @@ extension ClipboardItemKind {
     switch self {
     case .file, .image, .pdf, .audio:
       return true
-    case .text, .richText, .unknown, .url, .color:
+    case .text, .richText, .unknown, .url, .color, .code:
       return false
     }
   }
@@ -49,7 +51,7 @@ extension ClipboardItemKind {
     switch self {
     case .url, .image, .pdf, .audio, .richText:
       return true
-    case .text, .file, .unknown, .color:
+    case .text, .file, .unknown, .color, .code:
       return false
     }
   }
@@ -65,8 +67,9 @@ enum ClipboardSortMode: Int {
   case files
   case audio
   case colors
+  case code
 
-  static let allCases: [ClipboardSortMode] = [.mostRecent, .mostUsed, .text, .links, .images, .colors, .audio, .files, .pinned]
+  static let allCases: [ClipboardSortMode] = [.mostRecent, .mostUsed, .text, .links, .images, .colors, .audio, .files, .pinned, .code]
 
   var title: String {
     switch self {
@@ -79,6 +82,7 @@ enum ClipboardSortMode: Int {
     case .files: return "Files"
     case .audio: return "Audio"
     case .colors: return "Colors"
+    case .code: return "Code"
     }
   }
 }
@@ -151,6 +155,7 @@ struct ClipboardItem {
     case .pdf: return "pdf document"
     case .audio: return "audio sound"
     case .color: return "color swatch hex"
+    case .code: return "code snippet source programming"
     }
   }
 

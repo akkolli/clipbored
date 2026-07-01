@@ -111,7 +111,7 @@ final class ClipboardStore {
   func updateText(_ id: UUID, text: String) -> Bool {
     guard !text.isEmpty,
           let index = items.firstIndex(where: { $0.id == id }),
-          items[index].kind == .text else {
+          items[index].kind == .text || items[index].kind == .code else {
       return false
     }
 

@@ -167,6 +167,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSTextViewD
 
     let allowedRows = [
       kindCheckbox("Text", .text),
+      kindCheckbox("Code", .code),
       kindCheckbox("Links", .url),
       kindCheckbox("Images", .image),
       kindCheckbox("Colors", .color),
