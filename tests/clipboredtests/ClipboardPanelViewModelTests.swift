@@ -874,6 +874,35 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(viewModel.stackCount, 0)
   }
 
+  func testStackCopiesQueuedClipsAsPlainTextBatchAndConsumesThem() {
+    let settings = makeSettings()
+    let cacheService = makeCacheService()
+    let store = makeStore(settings: settings, cacheService: cacheService)
+    let first = makeTextItem("first reusable stack clip", createdAt: Date(timeIntervalSince1970: 100))
+    let second = makeTextItem("second reusable stack clip", createdAt: Date(timeIntervalSince1970: 200))
+    store.upsert(first)
+    store.upsert(second)
+    store.flushPersistenceForTesting()
+
+    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
+    waitForVisibleItems(in: viewModel, count: 2)
+    NSPasteboard.general.clearContents()
+
+    viewModel.selectItem(at: 1)
+    viewModel.toggleSelectedStackMembership()
+    viewModel.selectItem(at: 0)
+    viewModel.toggleSelectedStackMembership()
+
+    viewModel.copyStackAsText()
+    store.flushPersistenceForTesting()
+
+    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "first reusable stack clip\n\nsecond reusable stack clip")
+    XCTAssertEqual(viewModel.statusMessage, "Copied 2 Stack clips as Text")
+    XCTAssertEqual(viewModel.stackCount, 0)
+    XCTAssertEqual(store.items.first(where: { $0.id == first.id })?.useCount, 1)
+    XCTAssertEqual(store.items.first(where: { $0.id == second.id })?.useCount, 1)
+  }
+
   func testStackToggleAndClearUpdateCount() {
     let settings = makeSettings()
     let cacheService = makeCacheService()

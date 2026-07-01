@@ -71,6 +71,7 @@ Use this checklist before a release or after changes to panel, pasteboard, setti
 37. Copy a code snippet from an editor and confirm it appears as a Code card, remains visible in the Text chip, can be isolated with the Code chip or `type:code`, and copies back as plain text.
 38. Copy a video/movie clip and confirm it appears as a Video card, uses a movie-frame thumbnail when available, filters with the Videos chip or `type:video`, `type:movie`, and `mp4`, previews/opens as a temp movie, and copies back as movie data.
 39. Filter to a few clips, right-click a card or the Stack chip, choose Add Visible Clips to Stack, and confirm only the visible clips are queued once in shelf order.
+40. With multiple text-like clips in Stack, choose Copy Stack as Text or Paste Stack as Text and confirm the queued text is written in stack order with blank lines between clips and consumed from Stack.
 
 ## Copy And Paste
 

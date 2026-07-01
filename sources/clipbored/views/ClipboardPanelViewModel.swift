@@ -373,6 +373,29 @@ final class ClipboardPanelViewModel {
     handleStackActionResult(result, item: item)
   }
 
+  func copyStackAsText() {
+    guard let package = stackPlainTextPackage() else {
+      statusMessage = "Stack has no text to copy"
+      return
+    }
+
+    let result = pasteService.copyPlainText(package.text)
+    handleStackPlainTextActionResult(result, items: package.items)
+  }
+
+  func pasteStackAsText() {
+    guard let package = stackPlainTextPackage() else {
+      statusMessage = "Stack has no text to paste"
+      return
+    }
+
+    let result = pasteService.pastePlainText(package.text, targetApp: targetApplicationProvider())
+    if case .pastedPlainText = result {
+      willPasteToTarget()
+    }
+    handleStackPlainTextActionResult(result, items: package.items)
+  }
+
   func pasteboardWriters(forItemAt index: Int) -> [NSPasteboardWriting] {
     guard index >= 0 && index < visibleItems.count else { return [] }
     return pasteService.pasteboardWriters(for: visibleItems[index])
@@ -659,6 +682,20 @@ final class ClipboardPanelViewModel {
     return items.first { $0.id == id }
   }
 
+  private func stackPlainTextPackage() -> (text: String, items: [ClipboardItem])? {
+    pruneStackItems()
+    let pairs: [(item: ClipboardItem, text: String)] = stackItemIDs.compactMap { id in
+      guard let item = items.first(where: { $0.id == id }),
+            let text = pasteService.plainText(for: item)?.clipboardTrimmed,
+            !text.isEmpty else {
+        return nil
+      }
+      return (item, text)
+    }
+    guard !pairs.isEmpty else { return nil }
+    return (pairs.map(\.text).joined(separator: "\n\n"), pairs.map(\.item))
+  }
+
   private func handleStackActionResult(_ result: PasteActionService.PasteActionResult, item: ClipboardItem) {
     if case .failed(let message) = result {
       statusMessage = message
@@ -675,6 +712,34 @@ final class ClipboardPanelViewModel {
       statusMessage = "Pasted from Stack"
     case .copied:
       statusMessage = "Copied from Stack"
+    default:
+      statusMessage = result.message
+    }
+    settings.setPasteStatus(message: statusMessage)
+  }
+
+  private func handleStackPlainTextActionResult(_ result: PasteActionService.PasteActionResult, items: [ClipboardItem]) {
+    if case .failed(let message) = result {
+      statusMessage = message
+      return
+    }
+
+    for item in items {
+      store.markUsed(item.id)
+      consumeStackItem(item.id)
+    }
+    if stackItemIDs.isEmpty {
+      isStackFilterSelected = false
+    }
+    selectedItemID = items.first?.id
+    let noun = items.count == 1 ? "clip" : "clips"
+    switch result {
+    case .pastedPlainText:
+      statusMessage = "Pasted \(items.count) Stack \(noun) as Text"
+    case .copiedPlainTextNeedsPermission:
+      statusMessage = "Copied \(items.count) Stack \(noun) as Text. Grant Accessibility access to paste automatically."
+    case .copiedPlainText:
+      statusMessage = "Copied \(items.count) Stack \(noun) as Text"
     default:
       statusMessage = result.message
     }

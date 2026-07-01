@@ -24,7 +24,7 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
 - Sort modes for recent, most used, images, links, text, files, audio, and pinned items
 - Custom named collections, including empty color-coded collections, for organizing clips from the card Collect control, context menu, keyboard-focusable collection rail, or by dragging cards onto collection chips; collection chips can be edited or deleted from their context menu
 - Searchable custom titles for clips, so media, files, links, PDFs, audio, and text can be renamed without changing the copied payload
-- Copy and paste actions with Accessibility permission fallback
+- Copy and paste actions with Accessibility permission fallback, including Stack next-item actions and Stack-as-text batch copy/paste
 - Image thumbnail cache with byte and file-count pruning
 - Configurable history length, cache limit, polling profile, ignored apps, content kinds, launch-at-login, Dock/menu-bar presence, and clear-on-quit behavior, with card-level capture rules for ignoring a source app or content type
 - Local-only storage, with optional sensitive-content exclusion for common secrets

@@ -585,6 +585,12 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     stackChip.onCopyStackNext = { [weak self] in
       self?.viewModel.copyNextStackItem()
     }
+    stackChip.onPasteStackText = { [weak self] in
+      self?.viewModel.pasteStackAsText()
+    }
+    stackChip.onCopyStackText = { [weak self] in
+      self?.viewModel.copyStackAsText()
+    }
     stackChip.onClearStack = { [weak self] in
       self?.viewModel.clearStack()
     }
@@ -805,6 +811,12 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
         }
         card.onCopyStackNext = { [weak self] in
           self?.viewModel.copyNextStackItem()
+        }
+        card.onPasteStackText = { [weak self] in
+          self?.viewModel.pasteStackAsText()
+        }
+        card.onCopyStackText = { [weak self] in
+          self?.viewModel.copyStackAsText()
         }
         card.onClearStack = { [weak self] in
           self?.viewModel.clearStack()
@@ -2141,6 +2153,8 @@ private final class CollectionChipView: NSView {
   var onAddVisibleToStack: (() -> Void)?
   var onPasteStackNext: (() -> Void)?
   var onCopyStackNext: (() -> Void)?
+  var onPasteStackText: (() -> Void)?
+  var onCopyStackText: (() -> Void)?
   var onClearStack: (() -> Void)?
   var onEdit: (() -> Void)?
   var onDelete: (() -> Void)?
@@ -2348,6 +2362,8 @@ private final class CollectionChipView: NSView {
     onAddVisibleToStack != nil
       || onPasteStackNext != nil
       || onCopyStackNext != nil
+      || onPasteStackText != nil
+      || onCopyStackText != nil
       || onClearStack != nil
       || onEdit != nil
       || onDelete != nil
@@ -2368,6 +2384,16 @@ private final class CollectionChipView: NSView {
     }
     if onCopyStackNext != nil {
       let item = NSMenuItem(title: "Copy Stack Next", action: #selector(copyStackNextFromMenu), keyEquivalent: "")
+      item.target = self
+      menu.addItem(item)
+    }
+    if onPasteStackText != nil {
+      let item = NSMenuItem(title: "Paste Stack as Text", action: #selector(pasteStackTextFromMenu), keyEquivalent: "")
+      item.target = self
+      menu.addItem(item)
+    }
+    if onCopyStackText != nil {
+      let item = NSMenuItem(title: "Copy Stack as Text", action: #selector(copyStackTextFromMenu), keyEquivalent: "")
       item.target = self
       menu.addItem(item)
     }
@@ -2405,6 +2431,14 @@ private final class CollectionChipView: NSView {
 
   @objc private func copyStackNextFromMenu() {
     onCopyStackNext?()
+  }
+
+  @objc private func pasteStackTextFromMenu() {
+    onPasteStackText?()
+  }
+
+  @objc private func copyStackTextFromMenu() {
+    onCopyStackText?()
   }
 
   @objc private func clearStackFromMenu() {
@@ -2590,6 +2624,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   var onAddVisibleToStack: () -> Void = {}
   var onPasteStackNext: () -> Void = {}
   var onCopyStackNext: () -> Void = {}
+  var onPasteStackText: () -> Void = {}
+  var onCopyStackText: () -> Void = {}
   var onClearStack: () -> Void = {}
   var onShowInClipboard: (Int) -> Void = { _ in }
   var onRename: (Int) -> Void = { _ in }
@@ -2972,6 +3008,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     if stackCount > 0 {
       addMenuItem("Paste Stack Next", action: #selector(pasteStackNextFromMenu), to: menu)
       addMenuItem("Copy Stack Next", action: #selector(copyStackNextFromMenu), to: menu)
+      addMenuItem("Paste Stack as Text", action: #selector(pasteStackTextFromMenu), to: menu)
+      addMenuItem("Copy Stack as Text", action: #selector(copyStackTextFromMenu), to: menu)
       addMenuItem("Clear Stack", action: #selector(clearStackFromMenu), to: menu)
     }
     if canEditText {
@@ -3393,6 +3431,14 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   @objc private func copyStackNextFromMenu() {
     onCopyStackNext()
+  }
+
+  @objc private func pasteStackTextFromMenu() {
+    onPasteStackText()
+  }
+
+  @objc private func copyStackTextFromMenu() {
+    onCopyStackText()
   }
 
   @objc private func clearStackFromMenu() {

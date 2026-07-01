@@ -974,7 +974,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
-      ["Paste", "Copy", "Rename...", "Remove from Stack", "Add Visible Clips to Stack", "Paste Stack Next", "Copy Stack Next", "Clear Stack", "Edit", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
+      ["Paste", "Copy", "Rename...", "Remove from Stack", "Add Visible Clips to Stack", "Paste Stack Next", "Copy Stack Next", "Paste Stack as Text", "Copy Stack as Text", "Clear Stack", "Edit", "Quick Look", "Pin", "Add to Collection", "Capture Rules", "-", "Open", "Reveal in Finder", "-", "Delete"]
     )
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, ["Paste", "Copy", "Pin", "Collect", "Edit", "Preview", "Delete"])
     XCTAssertEqual(fixture.view.debugStackCornerLabels, ["Remove from Stack"])
@@ -1073,7 +1073,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugStackChipCount, 1)
     XCTAssertEqual(
       fixture.view.debugStackChipMenuTitles,
-      ["Add Visible Clips to Stack", "Paste Stack Next", "Copy Stack Next", "Clear Stack"]
+      ["Add Visible Clips to Stack", "Paste Stack Next", "Copy Stack Next", "Paste Stack as Text", "Copy Stack as Text", "Clear Stack"]
     )
 
     fixture.view.debugAddVisibleClipsToStackFromStackChip()

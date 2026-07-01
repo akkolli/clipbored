@@ -77,27 +77,19 @@ final class PasteActionService {
   }
 
   func pastePlainText(_ item: ClipboardItem, targetApp: NSRunningApplication?) -> PasteActionResult {
-    guard writePlainTextToPasteboard(item) else {
+    guard let text = plainText(for: item), writePlainTextToPasteboard(text) else {
       return .failed("Could not write plain text to clipboard.")
     }
 
-    guard let targetApp,
-          !targetApp.isTerminated else {
-      return .copiedPlainText
+    return completePlainTextPaste(targetApp: targetApp)
+  }
+
+  func pastePlainText(_ value: String, targetApp: NSRunningApplication?) -> PasteActionResult {
+    guard writePlainTextToPasteboard(value) else {
+      return .failed("Could not write plain text to clipboard.")
     }
 
-    guard accessibilityPermissionProvider() else {
-      return .copiedPlainTextNeedsPermission
-    }
-
-    guard targetActivator(targetApp) else {
-      return .copiedPlainText
-    }
-
-    keyboardPasteScheduler { [weak self] in
-      self?.pasteViaKeyboard()
-    }
-    return .pastedPlainText
+    return completePlainTextPaste(targetApp: targetApp)
   }
 
   @discardableResult
@@ -108,6 +100,11 @@ final class PasteActionService {
   @discardableResult
   func copyPlainText(_ item: ClipboardItem) -> PasteActionResult {
     writePlainTextToPasteboard(item) ? .copiedPlainText : .failed("Could not write plain text to clipboard.")
+  }
+
+  @discardableResult
+  func copyPlainText(_ value: String) -> PasteActionResult {
+    writePlainTextToPasteboard(value) ? .copiedPlainText : .failed("Could not write plain text to clipboard.")
   }
 
   func pasteboardWriters(for item: ClipboardItem) -> [NSPasteboardWriting] {
@@ -269,6 +266,12 @@ final class PasteActionService {
   @discardableResult
   func writePlainTextToPasteboard(_ item: ClipboardItem) -> Bool {
     guard let text = plainText(for: item) else { return false }
+    return writePlainTextToPasteboard(text)
+  }
+
+  @discardableResult
+  private func writePlainTextToPasteboard(_ text: String) -> Bool {
+    guard !text.clipboardTrimmed.isEmpty else { return false }
     let board = NSPasteboard.general
     board.clearContents()
     let didWrite = board.setString(text, forType: .string)
@@ -276,6 +279,26 @@ final class PasteActionService {
       ClipboardSelfWriteTracker.mark(changeCount: board.changeCount)
     }
     return didWrite
+  }
+
+  private func completePlainTextPaste(targetApp: NSRunningApplication?) -> PasteActionResult {
+    guard let targetApp,
+          !targetApp.isTerminated else {
+      return .copiedPlainText
+    }
+
+    guard accessibilityPermissionProvider() else {
+      return .copiedPlainTextNeedsPermission
+    }
+
+    guard targetActivator(targetApp) else {
+      return .copiedPlainText
+    }
+
+    keyboardPasteScheduler { [weak self] in
+      self?.pasteViaKeyboard()
+    }
+    return .pastedPlainText
   }
 
   private func stringPasteboardItem(_ value: String) -> NSPasteboardItem {

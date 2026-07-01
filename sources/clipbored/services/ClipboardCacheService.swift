@@ -32,7 +32,7 @@ final class ClipboardCacheService {
     try? fileManager.createDirectory(at: attachmentDirectory, withIntermediateDirectories: true)
     hardenDirectory(imageDirectory)
     hardenDirectory(attachmentDirectory)
-    clearTemporaryPreviews()
+    clearTemporaryPreviews(wait: true)
   }
 
   func cacheImage(_ image: NSImage, id: UUID) -> (full: String, thumb: String)? {
