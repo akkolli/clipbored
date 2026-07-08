@@ -518,6 +518,34 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugCardExpandedDetailFramesInPanel[1].height, 0, accuracy: 0.5)
   }
 
+  func testHoverDuringCollapseUsesVisualCardUnderMouseInsteadOfCollapsedTargetSlot() {
+    let fixture = makePanelFixture()
+    fixture.window.setFrame(NSRect(x: 0, y: 0, width: 336, height: 760), display: true)
+    for index in 0..<8 {
+      fixture.store.upsert(makeTextItem("Visual hover row \(index)", store: fixture.store))
+    }
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    fixture.view.debugHoverCard(at: 1)
+    RunLoop.main.run(until: Date().addingTimeInterval(fixture.view.debugCardExpansionAnimationDuration + 0.04))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+    XCTAssertEqual(fixture.view.debugHoveredCardIndexes, [1])
+
+    fixture.view.debugUnhoverCard(at: 1)
+    RunLoop.main.run(until: Date().addingTimeInterval(0.06))
+    let visualRowFrame = fixture.view.debugCardSlotPresentationFramesInPanel[2]
+    let visualRowPoint = NSPoint(x: visualRowFrame.midX, y: visualRowFrame.midY)
+
+    fixture.view.debugHoverCard(at: 6, mouseLocationInPanel: visualRowPoint)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugHoveredCardIndexes, [2])
+    XCTAssertEqual(fixture.viewModel.selectedIndex, 2)
+  }
+
   func testToolbarControlsExposeVoiceOverActionHints() {
     let fixture = makePanelFixture()
 

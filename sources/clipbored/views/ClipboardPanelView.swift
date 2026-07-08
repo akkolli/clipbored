@@ -2094,14 +2094,17 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     }
     card.onHover = { [weak self, weak card] selected, mouseLocation in
       guard let self else { return false }
-      guard self.claimMouseHoverSelection(at: selected, mouseLocation: mouseLocation) else {
+      guard let hoverIndex = self.claimMouseHoverSelection(at: selected, mouseLocation: mouseLocation) else {
         return false
       }
-      self.viewModel.selectItem(at: selected, mode: .hover)
-      if !self.isSearchFieldEditing, let card {
-        self.window?.makeFirstResponder(card)
+      self.viewModel.selectItem(at: hoverIndex, mode: .hover)
+      if !self.isSearchFieldEditing {
+        let focusedCard = self.cardView(at: hoverIndex) ?? (hoverIndex == selected ? card : nil)
+        if let focusedCard {
+          self.window?.makeFirstResponder(focusedCard)
+        }
       }
-      return true
+      return hoverIndex == selected
     }
     card.onHoverExit = { [weak self] index in
       self?.handleCardHoverExit(at: index)
@@ -3821,6 +3824,14 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     cardView(at: index)?.debugSetHovered(true)
   }
 
+  func debugHoverCard(at index: Int, mouseLocationInPanel location: NSPoint) {
+    guard index >= 0, index < cardItemCount else { return }
+    renderCardIfNeeded(at: index)
+    hoverSelectionRequiresFreshMouseMovement = false
+    hoverSelectionKeyboardBarrierLocation = nil
+    cardView(at: index)?.debugSetHovered(true, mouseLocation: convert(location, to: nil))
+  }
+
   func debugUnhoverCard(at index: Int) {
     guard index >= 0, index < cardItemCount else { return }
     renderCardIfNeeded(at: index)
@@ -4367,22 +4378,61 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     clearCardHoverStates()
   }
 
-  private func claimMouseHoverSelection(at index: Int, mouseLocation: NSPoint?) -> Bool {
+  private func claimMouseHoverSelection(at candidateIndex: Int, mouseLocation: NSPoint?) -> Int? {
     if hoverSelectionRequiresFreshMouseMovement {
-      guard let location = mouseLocation else { return false }
+      guard let location = mouseLocation else { return nil }
       if let barrier = hoverSelectionKeyboardBarrierLocation,
          abs(location.x - barrier.x) < 0.5,
          abs(location.y - barrier.y) < 0.5 {
-        return false
+        return nil
       }
       hoverSelectionRequiresFreshMouseMovement = false
       hoverSelectionKeyboardBarrierLocation = nil
+    }
+
+    guard let index = visualHoverIndex(candidateIndex: candidateIndex, mouseLocation: mouseLocation) else {
+      return nil
     }
     cardSelectionInputSource = .mouse
     selectionScrollSuppressionCount = 3
     hoveredCardIndex = index
     clearCardHoverStates(except: index)
-    return true
+    if index != candidateIndex {
+      cardView(at: index)?.setHoverState(true, notifySelection: false, mouseLocation: mouseLocation)
+    }
+    return index
+  }
+
+  private func visualHoverIndex(candidateIndex: Int, mouseLocation: NSPoint?) -> Int? {
+    guard currentPanelLayout == .vertical,
+          let mouseLocation else {
+      return candidateIndex
+    }
+    return visualCardIndex(atWindowLocation: mouseLocation)
+  }
+
+  private func visualCardIndex(atWindowLocation location: NSPoint) -> Int? {
+    let point = convert(location, from: nil)
+    let hitSlop: CGFloat = 1
+    let hits = cardSlots.compactMap { index, slot -> (index: Int, zPosition: CGFloat)? in
+      guard slot.card != nil,
+            let frame = visualSlotFrameInPanel(slot),
+            frame.insetBy(dx: -hitSlop, dy: -hitSlop).contains(point) else {
+        return nil
+      }
+      return (index, slot.visualZPosition)
+    }
+    return hits.sorted { lhs, rhs in
+      if lhs.zPosition == rhs.zPosition {
+        return lhs.index < rhs.index
+      }
+      return lhs.zPosition > rhs.zPosition
+    }.first?.index
+  }
+
+  private func visualSlotFrameInPanel(_ slot: ClipboardItemCardSlotView) -> NSRect? {
+    guard let superview = slot.superview else { return nil }
+    return superview.convert(slot.visualFrame, to: self)
   }
 
   private func clearCardHoverStates(except retainedIndex: Int? = nil) {
@@ -5698,7 +5748,19 @@ private final class ClipboardItemCardSlotView: NSView {
     }
   }
 
+  fileprivate var visualFrame: NSRect {
+    layer?.presentation()?.frame ?? frame
+  }
+
+  fileprivate var visualZPosition: CGFloat {
+    CGFloat(layer?.presentation()?.zPosition ?? layer?.zPosition ?? 0)
+  }
+
   #if DEBUG
+  var debugPresentationFrame: NSRect {
+    visualFrame
+  }
+
   var debugCardTopOffset: CGFloat {
     topConstraint?.constant ?? inactiveTopOffset
   }
@@ -5707,9 +5769,6 @@ private final class ClipboardItemCardSlotView: NSView {
     CGFloat(layer?.zPosition ?? 0)
   }
 
-  var debugPresentationFrame: NSRect {
-    layer?.presentation()?.frame ?? frame
-  }
   #endif
 }
 
@@ -6612,8 +6671,8 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     }
   }
 
-  func debugSetHovered(_ hovered: Bool) {
-    setHoverState(hovered, notifySelection: hovered)
+  func debugSetHovered(_ hovered: Bool, mouseLocation: NSPoint? = nil) {
+    setHoverState(hovered, notifySelection: hovered, mouseLocation: mouseLocation)
   }
 
   var debugBorderWidth: CGFloat {
