@@ -15,6 +15,7 @@ final class ClipboardMonitorService {
   private var scheduledInterval: TimeInterval = 0
   private var didReportReadFailure = false
   private(set) var isPaused = false
+  var onCapturedItem: (ClipboardItem) -> Void = { _ in }
 
   init(
     store: ClipboardStore,
@@ -143,7 +144,9 @@ final class ClipboardMonitorService {
     if let item = readCurrentItem(from: pasteboard) {
       reportCaptured(item)
       DispatchQueue.main.async { [weak self] in
-        self?.store.upsert(item)
+        guard let self else { return }
+        let storedItem = self.store.upsert(item)
+        self.onCapturedItem(storedItem)
       }
     } else if !didReportReadFailure {
       reportCaptureStatus("Clipboard changed, but ClipBored could not read a supported item.")
@@ -431,10 +434,7 @@ final class ClipboardMonitorService {
       return nil
     }
 
-    let normalized = text
-      .split(whereSeparator: \.isWhitespace)
-      .joined(separator: " ")
-    return String(normalized.prefix(AppConfiguration.maxRecognizedImageTextLength))
+    return ImageTextExtractor.normalizedRecognizedText(text)
   }
 
   private func hasImage(on pasteboard: NSPasteboard) -> Bool {

@@ -1,13 +1,19 @@
 import AppKit
 import Foundation
-import UniformTypeIdentifiers
 
 enum VideoPayload {
+  private enum TypeIdentifier {
+    static let mpeg4Movie = "public.mpeg-4"
+    static let quickTimeMovie = "com.apple.quicktime-movie"
+    static let movie = "public.movie"
+    static let video = "public.video"
+  }
+
   static let pasteboardTypes: [NSPasteboard.PasteboardType] = [
-    NSPasteboard.PasteboardType(rawValue: UTType.mpeg4Movie.identifier),
-    NSPasteboard.PasteboardType(rawValue: UTType.quickTimeMovie.identifier),
-    NSPasteboard.PasteboardType(rawValue: UTType.movie.identifier),
-    NSPasteboard.PasteboardType(rawValue: UTType.video.identifier),
+    NSPasteboard.PasteboardType(rawValue: TypeIdentifier.mpeg4Movie),
+    NSPasteboard.PasteboardType(rawValue: TypeIdentifier.quickTimeMovie),
+    NSPasteboard.PasteboardType(rawValue: TypeIdentifier.movie),
+    NSPasteboard.PasteboardType(rawValue: TypeIdentifier.video),
     NSPasteboard.PasteboardType(rawValue: "com.apple.m4v-video")
   ]
 
@@ -22,9 +28,9 @@ enum VideoPayload {
 
   static func fileExtension(for type: NSPasteboard.PasteboardType) -> String {
     switch type.rawValue {
-    case UTType.mpeg4Movie.identifier:
+    case TypeIdentifier.mpeg4Movie:
       return "mp4"
-    case UTType.quickTimeMovie.identifier, UTType.movie.identifier, UTType.video.identifier:
+    case TypeIdentifier.quickTimeMovie, TypeIdentifier.movie, TypeIdentifier.video:
       return "mov"
     case "com.apple.m4v-video":
       return "m4v"
@@ -36,13 +42,13 @@ enum VideoPayload {
   static func pasteboardType(forPath path: String) -> NSPasteboard.PasteboardType {
     switch URL(fileURLWithPath: path).pathExtension.lowercased() {
     case "mp4":
-      return NSPasteboard.PasteboardType(rawValue: UTType.mpeg4Movie.identifier)
+      return NSPasteboard.PasteboardType(rawValue: TypeIdentifier.mpeg4Movie)
     case "m4v":
       return NSPasteboard.PasteboardType(rawValue: "com.apple.m4v-video")
     case "mov", "qt":
-      return NSPasteboard.PasteboardType(rawValue: UTType.quickTimeMovie.identifier)
+      return NSPasteboard.PasteboardType(rawValue: TypeIdentifier.quickTimeMovie)
     default:
-      return NSPasteboard.PasteboardType(rawValue: UTType.movie.identifier)
+      return NSPasteboard.PasteboardType(rawValue: TypeIdentifier.movie)
     }
   }
 

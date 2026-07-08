@@ -20,8 +20,13 @@ final class ClipboardEncryptionService {
   private let resetProvider: () -> Void
 
   init() {
-    keyProvider = { ClipboardEncryptionKeychain.shared.symmetricKey() }
-    resetProvider = { ClipboardEncryptionKeychain.shared.resetStoredKey() }
+    if Self.shouldBypassSystemKeychain() {
+      keyProvider = { nil }
+      resetProvider = {}
+    } else {
+      keyProvider = { ClipboardEncryptionKeychain.shared.symmetricKey() }
+      resetProvider = { ClipboardEncryptionKeychain.shared.resetStoredKey() }
+    }
   }
 
   init(keyProvider: @escaping () -> SymmetricKey?, resetProvider: @escaping () -> Void = {}) {
@@ -101,6 +106,20 @@ final class ClipboardEncryptionService {
 
   func resetStoredKey() {
     resetProvider()
+  }
+
+  static func shouldBypassSystemKeychain(
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    arguments: [String] = ProcessInfo.processInfo.arguments
+  ) -> Bool {
+    if environment["CLIPBORED_DISABLE_KEYCHAIN"] == "1" ||
+      environment["XCTestConfigurationFilePath"] != nil {
+      return true
+    }
+
+    return arguments.contains { argument in
+      argument.contains(".xctest") || argument.hasSuffix("/xctest")
+    }
   }
 }
 

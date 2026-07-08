@@ -16,14 +16,22 @@ struct ClipboardPanelReflowPlan {
 enum ClipboardPanelShortcutAction: Equatable {
   case copy
   case copyPlainText
+  case edit
+  case focusSearch
   case newCollection
+  case nextCollection
   case open
   case pastePlainText
   case pasteStackNext
   case preview
+  case previousCollection
+  case rename
   case reveal
   case showInClipboard
+  case toggleCapturePause
   case toggleStack
+  case toggleStackCapture
+  case undoDelete
 }
 
 enum ClipboardPanelNavigationAction: Equatable {
@@ -35,23 +43,41 @@ enum ClipboardPanelNavigationAction: Equatable {
   case previous
 }
 
+enum ClipboardPanelSelectionAction: Equatable {
+  case extendFirst
+  case extendLast
+  case extendNext
+  case extendPageNext
+  case extendPagePrevious
+  case extendPrevious
+  case selectAll
+}
+
 final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
   private enum Animation {
-    static let showDuration: TimeInterval = 0.16
-    static let hideDuration: TimeInterval = 0.12
-    static let reflowDuration: TimeInterval = 0.10
+    static let showDuration: TimeInterval = 0.22
+    static let hideDuration: TimeInterval = 0.16
+    static let reflowDuration: TimeInterval = 0.18
     static let easing: CAMediaTimingFunctionName = .easeInEaseOut
   }
   private enum Metrics {
-    static let shelfHeightRatio: CGFloat = 0.42
-    static let minimumShelfHeight: CGFloat = 408
-    static let maximumShelfHeight: CGFloat = 430
+    static let shelfHeightRatio: CGFloat = 0.18
+    static let minimumShelfHeight: CGFloat = 156
+    static let maximumShelfHeight: CGFloat = 176
+    static let minimumUserShelfHeight: CGFloat = 150
+    static let maximumUserShelfHeight: CGFloat = 680
+    static let maximumUserShelfHeightRatio: CGFloat = 0.72
+    static let preferredVerticalShelfWidth: CGFloat = 336
+    static let minimumVerticalShelfWidth: CGFloat = 320
+    static let maximumVerticalShelfWidthRatio: CGFloat = 0.30
     static let minimumBottomInset: CGFloat = 18
     static let maximumBottomInset: CGFloat = 20
+    static let hiddenDockRevealInsetLimit: CGFloat = 8
   }
 
   private var panel: NSPanel!
   private var panelView: ClipboardPanelView!
+  private let settings: SettingsModel
   private(set) var isVisible = false
   private var clickMonitor: Any?
   private var keyMonitor: Any?
@@ -62,6 +88,7 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
   private let openSettings: () -> Void
   private var isAnimating = false
   private var quickLookURL: URL?
+  private var linkPreviewController: LinkPreviewWindowController?
   private var screenParametersObserver: NSObjectProtocol?
   private static let quickPasteKeyCodes: [UInt16: Int] = [
     18: 0,
@@ -97,6 +124,7 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     pollClipboardNow: @escaping () -> Void = {},
     openSettings: @escaping () -> Void = {}
   ) {
+    self.settings = settings
     self.viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
     self.pollClipboardNow = pollClipboardNow
     self.openSettings = openSettings
@@ -117,7 +145,7 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
       onPreview: { [weak self] in self?.previewSelected() }
     )
 
-    let contentSize = NSSize(width: 1200, height: 420)
+    let contentSize = NSSize(width: 336, height: 760)
     panel = KeyablePanel(
       contentRect: NSRect(x: 0, y: 0, width: contentSize.width, height: contentSize.height),
       styleMask: [.nonactivatingPanel, .fullSizeContentView],
@@ -132,13 +160,25 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     panel.delegate = self
     panel.isOpaque = false
     panel.backgroundColor = NSColor.clear
-    panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+    panel.collectionBehavior = Self.panelCollectionBehavior
     panel.becomesKeyOnlyIfNeeded = false
     panel.titlebarAppearsTransparent = true
     panel.titleVisibility = .hidden
     panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
     panel.standardWindowButton(.zoomButton)?.isHidden = true
     panel.standardWindowButton(.closeButton)?.isHidden = true
+    applyPanelSharingSetting()
+
+    settings.observe { [weak self] change in
+      guard change == .hideFromScreenCapture || change == .panelLayout else { return }
+      DispatchQueue.main.async {
+        if change == .hideFromScreenCapture {
+          self?.applyPanelSharingSetting()
+        } else {
+          self?.reflowPanelForScreenChange()
+        }
+      }
+    }
 
     screenParametersObserver = NotificationCenter.default.addObserver(
       forName: NSApplication.didChangeScreenParametersNotification,
@@ -157,15 +197,37 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     }
   }
 
-  func toggle() {
+  func toggle(preferredScreen explicitScreen: NSScreen? = nil) {
     if isVisible {
       hide()
     } else {
-      show()
+      show(preferredScreen: explicitScreen)
     }
   }
 
-  func show() {
+  func createTextClip() {
+    performWhenVisible { [weak self] in
+      guard let self else { return }
+      self.panelView.createTextClip()
+    }
+  }
+
+  func createCollection() {
+    performWhenVisible { [weak self] in
+      guard let self else { return }
+      self.panelView.createCollection()
+    }
+  }
+
+  func toggleStackCaptureMode() {
+    viewModel.toggleStackCaptureMode()
+  }
+
+  func addCapturedItemToStack(_ item: ClipboardItem) {
+    viewModel.addCapturedItemToStack(item)
+  }
+
+  func show(preferredScreen explicitScreen: NSScreen? = nil) {
     if isVisible || isAnimating { return }
     isAnimating = true
     isVisible = true
@@ -173,7 +235,7 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     rememberTargetApplication()
     pollClipboardNow()
 
-    guard let screen = preferredScreen() else {
+    guard let screen = preferredScreen(explicitScreen: explicitScreen) else {
       isVisible = false
       isAnimating = false
       return
@@ -181,7 +243,8 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     activeScreenSnapshot = (screen.frame, screen.visibleFrame)
     let frames = Self.panelFrames(
       forScreenFrame: screen.frame,
-      visibleFrame: screen.visibleFrame
+      visibleFrame: screen.visibleFrame,
+      side: settings.panelSide
     )
     panelView.setBottomSafeInset(Self.contentBottomInset(forScreenFrame: screen.frame, visibleFrame: screen.visibleFrame))
     panel.setFrame(frames.hidden, display: false)
@@ -204,7 +267,7 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
       self.panelView.finishOpeningTransition()
       guard self.isVisible else { return }
       self.installClickMonitor()
-      self.panelView.focusSearchField()
+      self.panelView.focusSelectedCardForKeyboardNavigation()
     }
 
     installKeyMonitor()
@@ -230,7 +293,8 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     let screenFrames = activeScreenSnapshot ?? activeScreenFrames()
     let hidden = Self.panelFrames(
       forScreenFrame: screenFrames.screenFrame,
-      visibleFrame: screenFrames.visibleFrame
+      visibleFrame: screenFrames.visibleFrame,
+      side: settings.panelSide
     ).hidden
     isAnimating = true
 
@@ -252,60 +316,118 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     }
   }
 
+  private func performWhenVisible(_ action: @escaping () -> Void) {
+    if isVisible, !isAnimating {
+      action()
+      return
+    }
+
+    show()
+    DispatchQueue.main.asyncAfter(deadline: .now() + Animation.showDuration + 0.03) { [weak self] in
+      guard let self, self.isVisible else { return }
+      action()
+    }
+  }
+
   func windowDidResignKey(_ notification: Notification) {
     hide()
   }
 
   func windowDidBecomeKey(_ notification: Notification) {
-    panelView.focusSearchField()
+    panelView.focusSelectedCardForKeyboardNavigation()
   }
 
-  private func preferredScreen() -> NSScreen? {
-    if let menuBarScreen = preferredScreenProvider() {
-      return menuBarScreen
-    }
-
+  private func preferredScreen(explicitScreen: NSScreen? = nil) -> NSScreen? {
     let point = NSEvent.mouseLocation
-    return NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.screens.first
+    let pointerScreen = NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) }
+    return Self.selectedOpenScreen(
+      explicit: explicitScreen,
+      preferred: preferredScreenProvider(),
+      pointer: pointerScreen,
+      fallback: NSScreen.screens.first
+    )
+  }
+
+  static func selectedOpenScreen<Screen>(
+    explicit: Screen?,
+    preferred: Screen?,
+    pointer: Screen?,
+    fallback: Screen?
+  ) -> Screen? {
+    explicit ?? preferred ?? pointer ?? fallback
+  }
+
+  static func selectedReflowScreen<Screen>(
+    currentPanel: Screen?,
+    lastKnown: Screen?,
+    preferred: Screen?,
+    pointer: Screen?,
+    fallback: Screen?
+  ) -> Screen? {
+    currentPanel ?? lastKnown ?? preferred ?? pointer ?? fallback
   }
 
   static func panelFrames(forScreenFrame screenFrame: CGRect) -> (shown: NSRect, hidden: NSRect) {
     return panelFrames(forScreenFrame: screenFrame, visibleFrame: screenFrame)
   }
 
-  static func panelFrames(forScreenFrame screenFrame: CGRect, visibleFrame: CGRect) -> (shown: NSRect, hidden: NSRect) {
+  static func panelFrames(
+    forScreenFrame screenFrame: CGRect,
+    visibleFrame: CGRect,
+    preferredHeight _: CGFloat? = nil,
+    side: ClipboardPanelSide = .right
+  ) -> (shown: NSRect, hidden: NSRect) {
     let intersectedFrame = visibleFrame.intersection(screenFrame)
     let effectiveFrame = intersectedFrame.width > 0 && intersectedFrame.height > 0 ? intersectedFrame : screenFrame
-    let frameHeight = effectiveFrame.height > 0 ? effectiveFrame.height : max(1, screenFrame.height)
-    let height = panelHeight(within: frameHeight)
-    let targetWidth = max(1, floor(effectiveFrame.width))
-    let shownMinX = effectiveFrame.minX
-    let shownMinY = max(screenFrame.minY, visibleFrame.minY)
+    return verticalPanelFrames(forScreenFrame: screenFrame, effectiveFrame: effectiveFrame, side: side)
+  }
+
+  private static func verticalPanelFrames(
+    forScreenFrame screenFrame: CGRect,
+    effectiveFrame: CGRect,
+    side: ClipboardPanelSide
+  ) -> (shown: NSRect, hidden: NSRect) {
+    let targetWidth = panelWidth(within: max(1, effectiveFrame.width))
+    let targetHeight = max(1, floor(effectiveFrame.maxY - screenFrame.minY))
+    let shownX: CGFloat
+    let hiddenX: CGFloat
+    switch side {
+    case .left:
+      shownX = effectiveFrame.minX
+      hiddenX = shownX - targetWidth - 1
+    case .right:
+      shownX = effectiveFrame.maxX - targetWidth
+      hiddenX = effectiveFrame.maxX + 1
+    }
     let shown = NSRect(
-      x: shownMinX,
-      y: shownMinY,
+      x: shownX,
+      y: screenFrame.minY,
       width: targetWidth,
-      height: height
+      height: targetHeight
     )
     let hidden = NSRect(
-      x: shown.minX,
-      y: shown.minY - height - 1,
+      x: hiddenX,
+      y: shown.minY,
       width: shown.width,
-      height: height
+      height: targetHeight
     )
     return (shown, hidden)
   }
 
-  private static func panelHeight(within visibleHeight: CGFloat) -> CGFloat {
-    let available = max(1, visibleHeight)
-    let preferred = floor(available * Metrics.shelfHeightRatio)
-    let clamped = min(max(preferred, Metrics.minimumShelfHeight), Metrics.maximumShelfHeight)
-    return min(available, clamped)
+  private static func panelWidth(within visibleWidth: CGFloat) -> CGFloat {
+    let available = max(1, visibleWidth)
+    let preferred = min(Metrics.preferredVerticalShelfWidth, floor(available * Metrics.maximumVerticalShelfWidthRatio))
+    return min(available, max(Metrics.minimumVerticalShelfWidth, preferred))
   }
 
   static func contentBottomInset(forScreenFrame screenFrame: CGRect, visibleFrame: CGRect) -> CGFloat {
-    let dockInset = max(0, visibleFrame.minY - screenFrame.minY)
+    let dockInset = visibleBottomDockInset(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
     return max(Metrics.minimumBottomInset, min(Metrics.maximumBottomInset, dockInset + 2))
+  }
+
+  private static func visibleBottomDockInset(forScreenFrame screenFrame: CGRect, visibleFrame: CGRect) -> CGFloat {
+    let inset = max(0, visibleFrame.minY - screenFrame.minY)
+    return inset > Metrics.hiddenDockRevealInsetLimit ? inset : 0
   }
 
   static var animationProfile: ClipboardPanelAnimationProfile {
@@ -317,12 +439,41 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     )
   }
 
+  static var panelCollectionBehavior: NSWindow.CollectionBehavior {
+    [.moveToActiveSpace, .fullScreenAuxiliary, .transient]
+  }
+
   static func reflowPlan(forScreenFrame screenFrame: CGRect, visibleFrame: CGRect) -> ClipboardPanelReflowPlan {
     let frames = panelFrames(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
     return ClipboardPanelReflowPlan(
       frame: frames.shown,
       bottomSafeInset: contentBottomInset(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
     )
+  }
+
+  static func reflowPlan(
+    forScreenFrame screenFrame: CGRect,
+    visibleFrame: CGRect,
+    preferredHeight _: CGFloat? = nil,
+    side: ClipboardPanelSide = .right
+  ) -> ClipboardPanelReflowPlan {
+    let frames = panelFrames(
+      forScreenFrame: screenFrame,
+      visibleFrame: visibleFrame,
+      side: side
+    )
+    return ClipboardPanelReflowPlan(
+      frame: frames.shown,
+      bottomSafeInset: contentBottomInset(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
+    )
+  }
+
+  static func panelSharingType(hideFromScreenCapture: Bool) -> NSWindow.SharingType {
+    hideFromScreenCapture ? .none : .readOnly
+  }
+
+  private func applyPanelSharingSetting() {
+    panel.sharingType = Self.panelSharingType(hideFromScreenCapture: settings.hideFromScreenCapture)
   }
 
   private func rememberTargetApplication() {
@@ -385,6 +536,11 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
         self.performShortcutAction(action)
         return nil
       }
+      if self.shouldHandlePanelKeyEvent(event),
+         let action = Self.selectionShortcutAction(forKeyCode: event.keyCode, modifiers: event.modifierFlags) {
+        self.performSelectionAction(action)
+        return nil
+      }
       guard self.shouldHandlePanelKeyEvent(event) else { return event }
       if let action = Self.navigationShortcutAction(forKeyCode: event.keyCode, modifiers: event.modifierFlags) {
         self.performNavigationAction(action)
@@ -432,14 +588,47 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     panelView.focusSelectedCardForKeyboardNavigation()
   }
 
+  private func performSelectionAction(_ action: ClipboardPanelSelectionAction) {
+    switch action {
+    case .extendFirst:
+      viewModel.selectItem(at: 0, mode: .range)
+    case .extendLast:
+      viewModel.selectItem(at: viewModel.visibleItems.count - 1, mode: .range)
+    case .extendNext:
+      extendSelection(by: 1)
+    case .extendPageNext:
+      extendSelection(by: panelView.visibleCardPageStep)
+    case .extendPagePrevious:
+      extendSelection(by: -panelView.visibleCardPageStep)
+    case .extendPrevious:
+      extendSelection(by: -1)
+    case .selectAll:
+      viewModel.selectAllVisibleItems()
+    }
+    panelView.focusSelectedCardForKeyboardNavigation()
+  }
+
+  private func extendSelection(by delta: Int) {
+    let count = viewModel.visibleItems.count
+    guard count > 0 else { return }
+    let target = max(0, min(count - 1, viewModel.selectedIndex + delta))
+    viewModel.selectItem(at: target, mode: .range)
+  }
+
   private func performShortcutAction(_ action: ClipboardPanelShortcutAction) {
     switch action {
     case .copy:
       viewModel.copySelected()
     case .copyPlainText:
       viewModel.copySelectedPlainText()
+    case .edit:
+      panelView.editSelectedClip()
+    case .focusSearch:
+      panelView.focusSearchOrShowFilters()
     case .newCollection:
       panelView.createCollection()
+    case .nextCollection:
+      viewModel.selectAdjacentCollection(delta: 1)
     case .open:
       viewModel.openSelected()
     case .pastePlainText:
@@ -448,17 +637,46 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
       viewModel.pasteNextStackItem()
     case .preview:
       previewSelected()
+    case .previousCollection:
+      viewModel.selectAdjacentCollection(delta: -1)
+    case .rename:
+      panelView.renameSelectedClip()
     case .reveal:
       viewModel.revealSelected()
     case .showInClipboard:
       panelView.showSelectedInClipboard()
+    case .toggleCapturePause:
+      toggleCapturePauseFromShortcut()
     case .toggleStack:
       viewModel.toggleSelectedStackMembership()
+    case .toggleStackCapture:
+      viewModel.toggleStackCaptureMode()
+    case .undoDelete:
+      viewModel.undoLastDelete()
+    }
+  }
+
+  private func toggleCapturePauseFromShortcut() {
+    settings.pauseCaptureUntil = nil
+    if settings.pauseCapture {
+      settings.pauseCapture = false
+      settings.setCaptureStatus(message: "Capture resumed.")
+    } else {
+      settings.pauseCapture = true
+      settings.setCaptureStatus(message: "Capture is paused.")
     }
   }
 
   private func previewSelected() {
+    if let request = viewModel.linkPreviewRequestForSelected() {
+      quickLookURL = nil
+      QLPreviewPanel.shared()?.orderOut(nil)
+      showLinkPreview(request)
+      return
+    }
+
     guard let url = viewModel.previewURLForSelected() else { return }
+    linkPreviewController?.close()
     quickLookURL = url
     guard let previewPanel = QLPreviewPanel.shared() else {
       NSWorkspace.shared.open(url)
@@ -468,6 +686,12 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     previewPanel.delegate = self
     previewPanel.currentPreviewItemIndex = 0
     previewPanel.makeKeyAndOrderFront(nil)
+  }
+
+  private func showLinkPreview(_ request: LinkPreviewRequest) {
+    let controller = linkPreviewController ?? LinkPreviewWindowController()
+    linkPreviewController = controller
+    controller.show(request, relativeTo: panel)
   }
 
   private func shouldHandlePanelKeyEvent(_ event: NSEvent) -> Bool {
@@ -498,6 +722,13 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
 
   static func navigationShortcutAction(forKeyCode keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> ClipboardPanelNavigationAction? {
     let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
+    if relevantModifiers == .command {
+      switch keyCode {
+      case 126: return .first
+      case 125: return .last
+      default: return nil
+      }
+    }
     guard relevantModifiers.isEmpty else { return nil }
     switch keyCode {
     case 115: return .first
@@ -506,6 +737,23 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     case 121: return .pageNext
     case 116: return .pagePrevious
     case 123: return .previous
+    default: return nil
+    }
+  }
+
+  static func selectionShortcutAction(forKeyCode keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> ClipboardPanelSelectionAction? {
+    let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
+    if relevantModifiers == .command {
+      return keyCode == 0 ? .selectAll : nil
+    }
+    guard relevantModifiers == .shift else { return nil }
+    switch keyCode {
+    case 115: return .extendFirst
+    case 119: return .extendLast
+    case 124: return .extendNext
+    case 121: return .extendPageNext
+    case 116: return .extendPagePrevious
+    case 123: return .extendPrevious
     default: return nil
     }
   }
@@ -533,6 +781,10 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     switch keyCode {
     case 8:
       return .copy
+    case 3:
+      return .focusSearch
+    case 14:
+      return .edit
     case 31:
       return .open
     case 5:
@@ -540,7 +792,15 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     case 16:
       return .preview
     case 15:
-      return .reveal
+      return .rename
+    case 17:
+      return .toggleCapturePause
+    case 6:
+      return .undoDelete
+    case 123:
+      return .previousCollection
+    case 124:
+      return .nextCollection
     default:
       return nil
     }
@@ -548,12 +808,15 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
 
   static func modifiedShortcutAction(forKeyCode keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> ClipboardPanelShortcutAction? {
     let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
+    if relevantModifiers == .shift {
+      return keyCode == 36 ? .pastePlainText : nil
+    }
     guard relevantModifiers == [.command, .shift] else { return nil }
     switch keyCode {
     case 1:
       return .toggleStack
     case 8:
-      return .copyPlainText
+      return .toggleStackCapture
     case 45:
       return .newCollection
     case 9:
@@ -585,6 +848,34 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
   var debugIsAnimating: Bool {
     isAnimating
   }
+
+  func debugSetSearchFieldText(_ text: String) {
+    panelView.debugSetSearchFieldText(text)
+  }
+
+  var debugSearchFieldText: String {
+    panelView.debugSearchFieldText
+  }
+
+  var debugSearchFieldWidth: CGFloat {
+    panelView.debugSearchFieldWidth
+  }
+
+  var debugSearchFieldPlaceholderText: String {
+    panelView.debugSearchFieldPlaceholderText
+  }
+
+  var debugSearchFieldIsVisible: Bool {
+    panelView.debugSearchFieldIsVisible
+  }
+
+  var debugSearchIconButtonIsVisible: Bool {
+    panelView.debugSearchIconButtonIsVisible
+  }
+
+  var debugIsSearchFieldEditing: Bool {
+    panelView.isSearchFieldEditing
+  }
   #endif
 
   private func installClickMonitor() {
@@ -613,10 +904,22 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
   private func reflowPanelForScreenChange() {
     guard isVisible else { return }
     guard !isAnimating else { return }
-    guard let screen = preferredScreen() ?? panel.screen ?? NSScreen.screens.first else { return }
+    let point = NSEvent.mouseLocation
+    let pointerScreen = NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) }
+    guard let screen = Self.selectedReflowScreen(
+      currentPanel: panel.screen,
+      lastKnown: screen(matchingFrame: activeScreenSnapshot?.screenFrame),
+      preferred: preferredScreenProvider(),
+      pointer: pointerScreen,
+      fallback: NSScreen.screens.first
+    ) else { return }
 
     activeScreenSnapshot = (screen.frame, screen.visibleFrame)
-    let plan = Self.reflowPlan(forScreenFrame: screen.frame, visibleFrame: screen.visibleFrame)
+    let plan = Self.reflowPlan(
+      forScreenFrame: screen.frame,
+      visibleFrame: screen.visibleFrame,
+      side: settings.panelSide
+    )
     panelView.setBottomSafeInset(plan.bottomSafeInset)
 
     isAnimating = true
@@ -646,6 +949,11 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
 
     let fallback = preferredScreen() ?? NSScreen.screens.first
     return (fallback?.frame ?? .zero, fallback?.visibleFrame ?? .zero)
+  }
+
+  private func screen(matchingFrame frame: CGRect?) -> NSScreen? {
+    guard let frame else { return nil }
+    return NSScreen.screens.first { $0.frame == frame }
   }
 }
 

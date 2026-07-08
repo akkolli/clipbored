@@ -89,6 +89,31 @@ enum ClipboardSortMode: Int {
     case .videos: return "Videos"
     }
   }
+
+  func includes(_ item: ClipboardItem) -> Bool {
+    switch self {
+    case .mostRecent, .mostUsed:
+      return true
+    case .images:
+      return item.kind == .image
+    case .links:
+      return item.kind == .url
+    case .text:
+      return item.kind == .text || item.kind == .richText || item.kind == .code
+    case .pinned:
+      return item.isPinned
+    case .files:
+      return item.kind == .file || item.kind == .pdf
+    case .audio:
+      return item.kind == .audio
+    case .colors:
+      return item.kind == .color
+    case .code:
+      return item.kind == .code
+    case .videos:
+      return item.kind == .video
+    }
+  }
 }
 
 enum ClipboardCollectionDefaults {
@@ -127,6 +152,7 @@ struct ClipboardItem {
   var ocrText: String?
   var collectionName: String?
   var customTitle: String?
+  var sourceDeviceName: String?
 
   var searchableText: String {
     var text = kindLabel + " " + displayText.lowercased() + " " + payload.lowercased()
@@ -136,16 +162,20 @@ struct ClipboardItem {
     if let sourceApp {
       text += " " + sourceApp.lowercased()
     }
-    if let ocrText {
-      text += " " + ocrText.lowercased()
-    }
     if let sourceAppBundleId {
       text += " " + sourceAppBundleId.lowercased()
     }
     if let collectionName {
       text += " " + collectionName.lowercased()
     }
+    if let sourceDeviceName {
+      text += " " + sourceDeviceName.lowercased()
+    }
     return text
+  }
+
+  var effectiveSourceDeviceName: String {
+    ClipboardItem.normalizedDeviceName(sourceDeviceName) ?? Self.localDeviceName
   }
 
   private var kindLabel: String {
@@ -180,7 +210,8 @@ struct ClipboardItem {
     sourceAppBundleId: String? = nil,
     ocrText: String? = nil,
     collectionName: String? = nil,
-    customTitle: String? = nil
+    customTitle: String? = nil,
+    sourceDeviceName: String? = ClipboardItem.localDeviceName
   ) {
     self.id = id
     self.kind = kind
@@ -198,6 +229,7 @@ struct ClipboardItem {
     self.ocrText = ocrText
     self.collectionName = collectionName
     self.customTitle = ClipboardItem.normalizedCustomTitle(customTitle)
+    self.sourceDeviceName = ClipboardItem.normalizedDeviceName(sourceDeviceName)
   }
 
   static func normalizedCustomTitle(_ value: String?) -> String? {
@@ -208,5 +240,22 @@ struct ClipboardItem {
       .clipboardTrimmed
     guard !title.isEmpty else { return nil }
     return String(title.prefix(80))
+  }
+
+  static var localDeviceName: String {
+    normalizedDeviceName(Host.current().localizedName)
+      ?? normalizedDeviceName(Host.current().name)
+      ?? normalizedDeviceName(ProcessInfo.processInfo.hostName)
+      ?? "This Mac"
+  }
+
+  static func normalizedDeviceName(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let name = value
+      .split { $0.isWhitespace }
+      .joined(separator: " ")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty else { return nil }
+    return String(name.prefix(60))
   }
 }

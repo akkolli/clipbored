@@ -7,7 +7,9 @@ enum AppConfiguration {
   static let defaultHistoryLength = 300
   static let minHistoryLength = 50
   static let maxHistoryLength = 2000
+  static let minCacheMaxBytes: Int64 = 2 * 1024 * 1024
   static let defaultCacheMaxBytes: Int64 = 120 * 1024 * 1024
+  static let maxCacheMaxBytes: Int64 = 512 * 1024 * 1024
   static let maxPinnedItems = 250
   static let maxFullImagePixelSize: CGFloat = 1600
   static let maxRecognizedImageTextLength = 4096

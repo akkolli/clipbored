@@ -57,6 +57,18 @@ final class PasteActionService {
       return .failed("Could not write item to clipboard.")
     }
 
+    return completePaste(targetApp: targetApp)
+  }
+
+  func paste(_ items: [ClipboardItem], targetApp: NSRunningApplication?) -> PasteActionResult {
+    guard writeToPasteboard(items) else {
+      return .failed("Could not write items to clipboard.")
+    }
+
+    return completePaste(targetApp: targetApp)
+  }
+
+  private func completePaste(targetApp: NSRunningApplication?) -> PasteActionResult {
     guard let targetApp,
           !targetApp.isTerminated else {
       return .copied
@@ -95,6 +107,11 @@ final class PasteActionService {
   @discardableResult
   func copy(_ item: ClipboardItem) -> PasteActionResult {
     writeToPasteboard(item) ? .copied : .failed("Could not write item to clipboard.")
+  }
+
+  @discardableResult
+  func copy(_ items: [ClipboardItem]) -> PasteActionResult {
+    writeToPasteboard(items) ? .copied : .failed("Could not write items to clipboard.")
   }
 
   @discardableResult
@@ -236,6 +253,26 @@ final class PasteActionService {
       didWrite = board.setString(item.payload, forType: .string)
     }
 
+    if didWrite {
+      ClipboardSelfWriteTracker.mark(changeCount: board.changeCount)
+    }
+    return didWrite
+  }
+
+  @discardableResult
+  func writeToPasteboard(_ items: [ClipboardItem]) -> Bool {
+    guard !items.isEmpty else { return false }
+    var writers: [NSPasteboardWriting] = []
+    for item in items {
+      let itemWriters = pasteboardWriters(for: item)
+      guard !itemWriters.isEmpty else { return false }
+      writers.append(contentsOf: itemWriters)
+    }
+    guard !writers.isEmpty else { return false }
+
+    let board = NSPasteboard.general
+    board.clearContents()
+    let didWrite = board.writeObjects(writers)
     if didWrite {
       ClipboardSelfWriteTracker.mark(changeCount: board.changeCount)
     }

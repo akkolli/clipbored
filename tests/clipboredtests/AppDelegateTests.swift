@@ -78,9 +78,14 @@ final class AppDelegateTests: XCTestCase {
         "Captured text from Safari.",
         "-",
         "Show Clipboard",
+        "New Collection",
+        "Stack Capture",
         settingsTitle,
         "-",
         "Pause Capture",
+        "Pause for 5 Minutes",
+        "Pause for 30 Minutes",
+        "Pause for 1 Hour",
         "-",
         "Quit ClipBored"
       ]
@@ -91,9 +96,25 @@ final class AppDelegateTests: XCTestCase {
     XCTAssertTrue(showClipboard?.keyEquivalentModifierMask.contains(.command) == true)
     XCTAssertTrue(showClipboard?.keyEquivalentModifierMask.contains(.option) == true)
 
+    XCTAssertNil(menu.items.first { $0.title == "New Text Clip" })
+
+    let newCollection = menu.items.first { $0.title == "New Collection" }
+    XCTAssertEqual(newCollection?.keyEquivalent, "n")
+    XCTAssertTrue(newCollection?.keyEquivalentModifierMask.contains(.command) == true)
+    XCTAssertTrue(newCollection?.keyEquivalentModifierMask.contains(.shift) == true)
+
+    let stackCapture = menu.items.first { $0.title == "Stack Capture" }
+    XCTAssertEqual(stackCapture?.keyEquivalent, "c")
+    XCTAssertTrue(stackCapture?.keyEquivalentModifierMask.contains(.command) == true)
+    XCTAssertTrue(stackCapture?.keyEquivalentModifierMask.contains(.shift) == true)
+
     let settings = menu.items.first { $0.title == settingsTitle }
     XCTAssertEqual(settings?.keyEquivalent, ",")
     XCTAssertTrue(settings?.keyEquivalentModifierMask.contains(.command) == true)
+
+    let pauseCapture = menu.items.first { $0.title == "Pause Capture" }
+    XCTAssertEqual(pauseCapture?.keyEquivalent, "t")
+    XCTAssertTrue(pauseCapture?.keyEquivalentModifierMask.contains(.command) == true)
   }
 
   func testStatusMenuPausedStateTakesPriorityOverOlderCaptureStatus() {
@@ -116,8 +137,55 @@ final class AppDelegateTests: XCTestCase {
 
     XCTAssertEqual(presentation.summary, "Capture Paused - 1 clip")
     XCTAssertEqual(presentation.detail, "Capture is paused.")
-    XCTAssertEqual(menu.items.first { $0.title == "Resume Capture" }?.state, .on)
+    let resumeCapture = menu.items.first { $0.title == "Resume Capture" }
+    XCTAssertEqual(resumeCapture?.state, .on)
+    XCTAssertEqual(resumeCapture?.keyEquivalent, "t")
+    XCTAssertTrue(resumeCapture?.keyEquivalentModifierMask.contains(.command) == true)
     XCTAssertNil(menu.items.first { $0.title == "Pause Capture" })
+    XCTAssertNil(menu.items.first { $0.title == "Pause for 5 Minutes" })
+  }
+
+  func testStatusMenuPresentationShowsTimedPauseRemainingBeforeOlderStatuses() {
+    let now = Date(timeIntervalSince1970: 1_000)
+    let presentation = AppDelegate.statusMenuPresentation(
+      historyCount: 12,
+      isCapturePaused: true,
+      pauseCaptureUntil: now.addingTimeInterval(5 * 60),
+      now: now,
+      captureStatus: "Captured text from Safari.",
+      pasteStatus: "",
+      shortcutStatus: "",
+      accessibilityStatus: "",
+      launchAtLoginStatus: ""
+    )
+
+    XCTAssertEqual(presentation.summary, "Capture Paused - 12 clips")
+    XCTAssertEqual(presentation.detail, "Capture is paused for 5 more minutes.")
+  }
+
+  func testCapturePauseExpiryOnlyAppliesToExpiredTimedPauses() {
+    let now = Date(timeIntervalSince1970: 1_000)
+
+    XCTAssertTrue(AppDelegate.shouldResumeExpiredCapturePause(
+      isCapturePaused: true,
+      pauseCaptureUntil: now,
+      now: now
+    ))
+    XCTAssertFalse(AppDelegate.shouldResumeExpiredCapturePause(
+      isCapturePaused: true,
+      pauseCaptureUntil: now.addingTimeInterval(1),
+      now: now
+    ))
+    XCTAssertFalse(AppDelegate.shouldResumeExpiredCapturePause(
+      isCapturePaused: false,
+      pauseCaptureUntil: now.addingTimeInterval(-1),
+      now: now
+    ))
+    XCTAssertFalse(AppDelegate.shouldResumeExpiredCapturePause(
+      isCapturePaused: true,
+      pauseCaptureUntil: nil,
+      now: now
+    ))
   }
 
   func testStatusMenuPresentationTruncatesLongStatusText() {

@@ -29,12 +29,20 @@ enum ImageTextExtractor {
     return normalized(lines)
   }
 
-  private static func normalized(_ lines: [String]) -> String? {
-    let text = lines
-      .filter { !$0.isEmpty }
-      .joined(separator: " ")
+  static func normalizedRecognizedText(_ text: String?) -> String? {
+    guard let text else { return nil }
+    let normalized = text
       .split(whereSeparator: \.isWhitespace)
       .joined(separator: " ")
-    return text.isEmpty ? nil : text
+    guard !normalized.isEmpty else { return nil }
+    return String(normalized.prefix(AppConfiguration.maxRecognizedImageTextLength))
+  }
+
+  private static func normalized(_ lines: [String]) -> String? {
+    normalizedRecognizedText(
+      lines
+      .filter { !$0.isEmpty }
+      .joined(separator: " ")
+    )
   }
 }

@@ -20,10 +20,11 @@ final class ClipboardMonitorServiceTests: XCTestCase {
   func testClampedIntervalEnforcesResponsiveMinimum() {
     let settings = SettingsModel(defaults: makeTestDefaults())
     settings.pollProfile = .responsive
+    let (store, cacheService) = makeStoreAndCache(settings: settings)
 
     let monitor = ClipboardMonitorService(
-      store: makeStore(settings: settings),
-      cacheService: ClipboardCacheService(),
+      store: store,
+      cacheService: cacheService,
       settings: settings
     )
 
@@ -36,10 +37,11 @@ final class ClipboardMonitorServiceTests: XCTestCase {
   func testClampedIntervalDoesNotIncreaseBalancedProfileWindow() {
     let settings = SettingsModel(defaults: makeTestDefaults())
     settings.pollProfile = .balanced
+    let (store, cacheService) = makeStoreAndCache(settings: settings)
 
     let monitor = ClipboardMonitorService(
-      store: makeStore(settings: settings),
-      cacheService: ClipboardCacheService(),
+      store: store,
+      cacheService: cacheService,
       settings: settings
     )
 
@@ -108,6 +110,50 @@ final class ClipboardMonitorServiceTests: XCTestCase {
     XCTAssertEqual(store.items.filter { $0.payload == text }.count, 1)
   }
 
+  func testPollNowReportsStoredCapturedItemForStackCapture() {
+    let settings = SettingsModel(defaults: makeTestDefaults())
+    settings.pruneDuplicates = true
+    let (store, cacheService) = makeStoreAndCache(settings: settings)
+    let monitor = ClipboardMonitorService(
+      store: store,
+      cacheService: cacheService,
+      settings: settings
+    )
+    let text = "Stack capture duplicate merge \(UUID().uuidString)"
+    let existing = ClipboardItem(
+      id: UUID(),
+      kind: .text,
+      displayText: text,
+      payload: text,
+      payloadHash: store.hashString(text),
+      createdAt: Date(timeIntervalSince1970: 100),
+      lastUsedAt: Date(timeIntervalSince1970: 100),
+      useCount: 0,
+      sourceApp: nil,
+      imagePath: nil,
+      thumbnailPath: nil
+    )
+    store.upsert(existing)
+
+    let reported = expectation(description: "stored captured item reported")
+    var reportedItem: ClipboardItem?
+    monitor.onCapturedItem = { item in
+      guard item.payload == text else { return }
+      reportedItem = item
+      reported.fulfill()
+    }
+
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    XCTAssertTrue(pasteboard.setString(text, forType: .string))
+
+    monitor.pollNowAndWait()
+    wait(for: [reported], timeout: 1.0)
+
+    XCTAssertEqual(reportedItem?.id, existing.id)
+    XCTAssertEqual(store.items.filter { $0.payload == text }.count, 1)
+  }
+
   func testPollNowCapturesCodeSnippetAsCode() {
     let settings = SettingsModel(defaults: makeTestDefaults())
     settings.pruneDuplicates = false
@@ -157,7 +203,7 @@ final class ClipboardMonitorServiceTests: XCTestCase {
       thumbnailPath: nil
     )
 
-    XCTAssertEqual(PasteActionService().copy(item), .copied)
+    XCTAssertEqual(PasteActionService(cacheService: cacheService).copy(item), .copied)
     monitor.pollNowAndWait()
     RunLoop.main.run(until: Date().addingTimeInterval(0.05))
 
@@ -798,7 +844,9 @@ final class ClipboardMonitorServiceTests: XCTestCase {
   private func makeTestDefaults() -> UserDefaults {
     let suiteName = "com.clipbored.testmonitor.\(UUID().uuidString)"
     suiteNames.append(suiteName)
-    return UserDefaults(suiteName: suiteName)!
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defaults.set(HistoryRetention.forever.rawValue, forKey: SettingsModel.Keys.historyRetention)
+    return defaults
   }
 
   private func makeStore(settings: SettingsModel) -> ClipboardStore {

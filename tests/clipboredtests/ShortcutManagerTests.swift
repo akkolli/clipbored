@@ -56,6 +56,13 @@ final class ShortcutManagerTests: XCTestCase {
     manager.stop()
   }
 
+  func testRejectsConfiguredShortcutConflictWithFixedStackCaptureShortcut() {
+    let manager = makeManager(openShortcut: ShortcutManager.stackCaptureShortcut)
+
+    XCTAssertEqual(manager.start(), .conflict(ShortcutManager.stackCaptureShortcut.displayText))
+    manager.stop()
+  }
+
   private func makeManager(
     openShortcut: ShortcutBinding,
     settingsShortcut: ShortcutBinding = AppConfiguration.defaultSettingsShortcut

@@ -66,6 +66,25 @@ final class ClipboardEncryptionServiceTests: XCTestCase {
     XCTAssertEqual(service.protectData(Data("available only in memory".utf8)), Data("available only in memory".utf8))
   }
 
+  func testSystemKeychainBypassIsEnabledForTestsAndExplicitEnvironment() {
+    XCTAssertTrue(ClipboardEncryptionService.shouldBypassSystemKeychain(
+      environment: ["XCTestConfigurationFilePath": "/tmp/ClipBoredTests.xctestconfiguration"],
+      arguments: ["/tmp/ClipBoredTests"]
+    ))
+    XCTAssertTrue(ClipboardEncryptionService.shouldBypassSystemKeychain(
+      environment: ["CLIPBORED_DISABLE_KEYCHAIN": "1"],
+      arguments: ["/tmp/ClipBored"]
+    ))
+    XCTAssertTrue(ClipboardEncryptionService.shouldBypassSystemKeychain(
+      environment: [:],
+      arguments: ["/tmp/ClipBoredPackageTests.xctest/Contents/MacOS/ClipBoredPackageTests"]
+    ))
+    XCTAssertFalse(ClipboardEncryptionService.shouldBypassSystemKeychain(
+      environment: [:],
+      arguments: ["/Applications/ClipBored.app/Contents/MacOS/ClipBored"]
+    ))
+  }
+
   private func makeService(byte: UInt8) -> ClipboardEncryptionService {
     let keyData = Data(repeating: byte, count: 32)
     return ClipboardEncryptionService(keyProvider: { SymmetricKey(data: keyData) })

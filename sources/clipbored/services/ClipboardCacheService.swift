@@ -57,19 +57,46 @@ final class ClipboardCacheService {
   }
 
   func cachePDF(_ data: Data, id: UUID) -> String? {
-    cacheAttachment(data, id: id, fileExtension: "pdf")
+    cacheAttachmentData(data, id: id, fileExtension: "pdf")
   }
 
   func cacheAudio(_ data: Data, id: UUID) -> String? {
-    cacheAttachment(data, id: id, fileExtension: "sound")
+    cacheAttachmentData(data, id: id, fileExtension: "sound")
   }
 
   func cacheVideo(_ data: Data, id: UUID, fileExtension: String) -> String? {
-    cacheAttachment(data, id: id, fileExtension: fileExtension)
+    cacheAttachmentData(data, id: id, fileExtension: fileExtension)
   }
 
   func cacheRichText(_ data: Data, id: UUID) -> String? {
-    cacheAttachment(data, id: id, fileExtension: "rtf")
+    cacheAttachmentData(data, id: id, fileExtension: "rtf")
+  }
+
+  func cacheAttachmentData(_ data: Data, id: UUID, fileExtension: String) -> String? {
+    let sanitizedExtension = fileExtension
+      .split { $0 == "." || $0 == "/" || $0 == "\\" }
+      .last
+      .map(String.init) ?? "dat"
+    let normalizedExtension = sanitizedExtension.clipboardTrimmed.isEmpty ? "dat" : sanitizedExtension
+    return cacheAttachment(data, id: id, fileExtension: normalizedExtension)
+  }
+
+  func cacheImageSidecarData(_ data: Data, id: UUID, fileNamePrefix: String? = nil) -> String? {
+    let prefix = fileNamePrefix?.clipboardTrimmed ?? ""
+    let fileName = prefix.isEmpty
+      ? "\(id.uuidString).png"
+      : "\(prefix)-\(id.uuidString).png"
+    let url = imageDirectory.appendingPathComponent(fileName)
+    do {
+      try encrypted(data).write(to: url, options: .atomic)
+      hardenFile(url)
+      if let image = thumbImage(data) {
+        thumbnailCache.setObject(image, forKey: url.path as NSString)
+      }
+      return url.path
+    } catch {
+      return nil
+    }
   }
 
   private func cacheAttachment(_ data: Data, id: UUID, fileExtension: String) -> String? {

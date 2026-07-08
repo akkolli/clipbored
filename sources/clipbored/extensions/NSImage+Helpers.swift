@@ -25,6 +25,42 @@ extension NSImage {
     let rep = NSBitmapImageRep(cgImage: cgImage)
     return rep.representation(using: .png, properties: [:])
   }
+
+  func rotatedClockwise() -> NSImage? {
+    guard let cgImage = cgImage(forProposedRect: nil, context: nil, hints: nil),
+          cgImage.width > 0,
+          cgImage.height > 0 else {
+      return nil
+    }
+
+    let colorSpace = cgImage.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+    let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+    guard let context = CGContext(
+      data: nil,
+      width: cgImage.height,
+      height: cgImage.width,
+      bitsPerComponent: 8,
+      bytesPerRow: 0,
+      space: colorSpace,
+      bitmapInfo: bitmapInfo
+    ) else {
+      return nil
+    }
+
+    context.interpolationQuality = .high
+    context.translateBy(x: CGFloat(cgImage.height), y: 0)
+    context.rotate(by: .pi / 2)
+    context.draw(
+      cgImage,
+      in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height)
+    )
+
+    guard let output = context.makeImage() else { return nil }
+    return NSImage(
+      cgImage: output,
+      size: NSSize(width: cgImage.height, height: cgImage.width)
+    )
+  }
 }
 
 extension NSView {

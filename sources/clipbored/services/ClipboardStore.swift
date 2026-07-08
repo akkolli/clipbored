@@ -4,6 +4,22 @@ import Foundation
 import CommonCrypto
 import SQLite3
 
+struct ClipboardStoreRemoval {
+  let item: ClipboardItem
+  let index: Int
+}
+
+enum ClipboardStoreArchiveError: LocalizedError {
+  case persistenceFailed
+
+  var errorDescription: String? {
+    switch self {
+    case .persistenceFailed:
+      return "ClipBored could not save the imported archive."
+    }
+  }
+}
+
 final class ClipboardStore {
   private(set) var items: [ClipboardItem] = [] {
     didSet { notifyItemsChanged() }
@@ -62,18 +78,17 @@ final class ClipboardStore {
     return base
   }
 
-  func upsert(_ incoming: ClipboardItem) {
+  @discardableResult
+  func upsert(_ incoming: ClipboardItem) -> ClipboardItem {
     guard let index = items.firstIndex(where: { settings.pruneDuplicates ? $0.payloadHash == incoming.payloadHash : false }) else {
-      insertNewItem(incoming)
-      return
+      return insertNewItem(incoming)
     }
 
     if settings.keepFirstImage, incoming.kind == .image {
-      updateExistingKeepImage(incoming, at: index)
-      return
+      return updateExistingKeepImage(incoming, at: index)
     }
 
-    updateExistingItem(incoming, at: index)
+    return updateExistingItem(incoming, at: index)
   }
 
   func markUsed(_ id: UUID) {
@@ -98,7 +113,11 @@ final class ClipboardStore {
   func setCollection(_ id: UUID, name: String?) {
     guard let index = items.firstIndex(where: { $0.id == id }) else { return }
     items[index].collectionName = ClipboardCollectionDefaults.normalizedName(name)
-    persistAsync(.upsert(items[index]))
+    let updated = items[index]
+    normalizeHistoryLength()
+    if items.contains(where: { $0.id == updated.id }) {
+      persistAsync(.upsert(updated))
+    }
   }
 
   func setCustomTitle(_ id: UUID, title: String?) {
@@ -123,21 +142,74 @@ final class ClipboardStore {
     return true
   }
 
-  func remove(_ id: UUID) {
-    guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+  @discardableResult
+  func updateImage(_ id: UUID, imagePath: String, thumbnailPath: String, payloadHash: String) -> Bool {
+    guard let index = items.firstIndex(where: { $0.id == id }),
+          items[index].kind == .image,
+          !imagePath.clipboardTrimmed.isEmpty,
+          !thumbnailPath.clipboardTrimmed.isEmpty,
+          !payloadHash.clipboardTrimmed.isEmpty else {
+      return false
+    }
+
+    items[index].payload = imagePath
+    items[index].imagePath = imagePath
+    items[index].thumbnailPath = thumbnailPath
+    items[index].payloadHash = payloadHash
+    persistAsync(.upsert(items[index]), purgeCache: true)
+    return true
+  }
+
+  @discardableResult
+  func updateImageText(_ id: UUID, ocrText: String) -> Bool {
+    guard let normalizedText = ImageTextExtractor.normalizedRecognizedText(ocrText) else {
+      return false
+    }
+    guard let index = items.firstIndex(where: { $0.id == id }),
+          items[index].kind == .image else {
+      return false
+    }
+
+    items[index].ocrText = normalizedText
+    persistAsync(.upsert(items[index]))
+    return true
+  }
+
+  @discardableResult
+  func remove(_ id: UUID, purgeManagedCache: Bool = true) -> ClipboardStoreRemoval? {
+    guard let index = items.firstIndex(where: { $0.id == id }) else { return nil }
     let removed = items.remove(at: index)
-    if removed.kind.hasManagedCacheReference {
-      cacheService.removeCachedReferences(removed)
+    if purgeManagedCache {
+      purgeManagedCacheReferences(for: [removed])
     }
     persistAsync(.delete(id))
+    return ClipboardStoreRemoval(item: removed, index: index)
+  }
+
+  func restore(_ removals: [ClipboardStoreRemoval]) {
+    guard !removals.isEmpty else { return }
+
+    var restoredItems: [ClipboardItem] = []
+    for removal in removals.sorted(by: { $0.index < $1.index }) {
+      guard !items.contains(where: { $0.id == removal.item.id }) else { continue }
+      let insertionIndex = max(0, min(removal.index, items.count))
+      items.insert(removal.item, at: insertionIndex)
+      restoredItems.append(removal.item)
+    }
+
+    guard !restoredItems.isEmpty else { return }
+    normalizeHistoryLength()
+    let retainedIDs = Set(items.map(\.id))
+    let retainedRestoredItems = restoredItems.filter { retainedIDs.contains($0.id) }
+    persistAsync(.upsertMany(retainedRestoredItems))
+  }
+
+  func purgeManagedCacheReferences(for removals: [ClipboardStoreRemoval]) {
+    purgeManagedCacheReferences(for: removals.map(\.item))
   }
 
   func removeAll() {
-    for item in items {
-      if item.kind.hasManagedCacheReference {
-        cacheService.removeCachedReferences(item)
-      }
-    }
+    purgeManagedCacheReferences(for: items)
     items.removeAll()
     persistAsync(.deleteAll)
   }
@@ -155,27 +227,9 @@ final class ClipboardStore {
   }
 
   func normalizeHistoryLength() {
-    var pinnedCount = 0
-    var unpinnedCount = 0
-    var kept: [ClipboardItem] = []
-    var overflow: [ClipboardItem] = []
-
-    kept.reserveCapacity(items.count)
-    for item in items {
-      if item.isPinned {
-        if pinnedCount < AppConfiguration.maxPinnedItems {
-          pinnedCount += 1
-          kept.append(item)
-        } else {
-          overflow.append(item)
-        }
-      } else if unpinnedCount < settings.maxHistoryItems {
-        unpinnedCount += 1
-        kept.append(item)
-      } else {
-        overflow.append(item)
-      }
-    }
+    let plan = retentionPlan(for: items)
+    let kept = plan.kept
+    let overflow = plan.overflow
 
     guard !overflow.isEmpty else { return }
 
@@ -199,15 +253,80 @@ final class ClipboardStore {
     dataQueue.sync {}
   }
 
-  private func insertNewItem(_ incoming: ClipboardItem) {
-    items.insert(incoming, at: 0)
-    normalizeHistoryLength()
-    persistAsync(.upsert(incoming), purgeCache: incoming.imagePath != nil)
+  @discardableResult
+  func exportArchive(to url: URL) throws -> ClipboardArchiveSummary {
+    dataQueue.sync {}
+    let collections = settings.customCollectionNames
+      .map { name in
+        ClipboardArchiveCollection(
+          name: name,
+          colorHex: settings.collectionColorHex(forCollectionNamed: name)
+        )
+      }
+    return try ClipboardArchiveService().exportArchive(
+      items: items,
+      to: url,
+      cacheService: cacheService,
+      collections: collections
+    )
   }
 
-  private func updateExistingKeepImage(_ incoming: ClipboardItem, at index: Int) {
+  @discardableResult
+  func exportCollection(named name: String, to url: URL) throws -> ClipboardArchiveSummary {
+    guard let normalizedName = ClipboardCollectionDefaults.normalizedName(name) else {
+      return try ClipboardArchiveService().exportArchive(items: [], to: url, cacheService: cacheService)
+    }
+    dataQueue.sync {}
+    let collectionItems = items.filter {
+      $0.collectionName?.caseInsensitiveCompare(normalizedName) == .orderedSame
+    }
+    let collection = ClipboardArchiveCollection(
+      name: normalizedName,
+      colorHex: settings.collectionColorHex(forCollectionNamed: normalizedName)
+    )
+    return try ClipboardArchiveService().exportArchive(
+      items: collectionItems,
+      to: url,
+      cacheService: cacheService,
+      collections: [collection]
+    )
+  }
+
+  @discardableResult
+  func importArchive(from url: URL) throws -> ClipboardArchiveSummary {
+    dataQueue.sync {}
+    let archiveImport = try ClipboardArchiveService().importArchive(
+      from: url,
+      cacheService: cacheService
+    )
+    for collection in archiveImport.collections {
+      settings.ensureCollection(named: collection.name, colorHex: collection.colorHex)
+    }
+    for item in archiveImport.items {
+      if let collectionName = item.collectionName {
+        settings.ensureCollection(named: collectionName)
+      }
+    }
+    guard saveImportedItems(archiveImport.items) else {
+      throw ClipboardStoreArchiveError.persistenceFailed
+    }
+    return archiveImport.summary
+  }
+
+  private func insertNewItem(_ incoming: ClipboardItem) -> ClipboardItem {
+    items.insert(incoming, at: 0)
+    normalizeHistoryLength()
+    if let retained = items.first(where: { $0.id == incoming.id }) {
+      persistAsync(.upsert(retained), purgeCache: retained.imagePath != nil)
+      return retained
+    }
+    return incoming
+  }
+
+  private func updateExistingKeepImage(_ incoming: ClipboardItem, at index: Int) -> ClipboardItem {
     cacheService.removeCachedReferences(incoming)
     var existing = items.remove(at: index)
+    existing.createdAt = Date()
     existing.lastUsedAt = Date()
     existing.useCount += 1
     if !incoming.displayText.isEmpty {
@@ -215,15 +334,22 @@ final class ClipboardStore {
     }
     existing.sourceApp = incoming.sourceApp
     existing.sourceAppBundleId = incoming.sourceAppBundleId
+    existing.sourceDeviceName = incoming.sourceDeviceName
+    existing.collectionName = incoming.collectionName ?? existing.collectionName
     existing.customTitle = incoming.customTitle ?? existing.customTitle
     items.insert(existing, at: 0)
     normalizeHistoryLength()
-    persistAsync(.upsert(existing), purgeCache: existing.kind == .image)
+    if let retained = items.first(where: { $0.id == existing.id }) {
+      persistAsync(.upsert(retained), purgeCache: retained.kind == .image)
+      return retained
+    }
+    return existing
   }
 
-  private func updateExistingItem(_ incoming: ClipboardItem, at index: Int) {
+  private func updateExistingItem(_ incoming: ClipboardItem, at index: Int) -> ClipboardItem {
     var existing = items.remove(at: index)
     let previousCachedItem = existing
+    existing.createdAt = Date()
     existing.lastUsedAt = Date()
     existing.useCount += 1
     if !incoming.displayText.isEmpty {
@@ -234,6 +360,8 @@ final class ClipboardStore {
     existing.kind = incoming.kind
     existing.sourceApp = incoming.sourceApp
     existing.sourceAppBundleId = incoming.sourceAppBundleId
+    existing.sourceDeviceName = incoming.sourceDeviceName
+    existing.collectionName = incoming.collectionName ?? existing.collectionName
     existing.customTitle = incoming.customTitle ?? existing.customTitle
 
     if incoming.kind == .image || incoming.kind == .url {
@@ -252,7 +380,94 @@ final class ClipboardStore {
 
     items.insert(existing, at: 0)
     normalizeHistoryLength()
-    persistAsync(.upsert(existing), purgeCache: existing.imagePath != nil)
+    if let retained = items.first(where: { $0.id == existing.id }) {
+      persistAsync(.upsert(retained), purgeCache: retained.imagePath != nil)
+      return retained
+    }
+    return existing
+  }
+
+  private func purgeManagedCacheReferences(for items: [ClipboardItem]) {
+    for item in items where item.kind.hasManagedCacheReference {
+      cacheService.removeCachedReferences(item)
+    }
+  }
+
+  private func saveImportedItems(_ importedItems: [ClipboardItem]) -> Bool {
+    guard !importedItems.isEmpty else { return true }
+
+    var mergedByID: [UUID: ClipboardItem] = [:]
+    mergedByID.reserveCapacity(items.count + importedItems.count)
+    for item in items {
+      mergedByID[item.id] = item
+    }
+    for item in importedItems {
+      mergedByID[item.id] = item
+    }
+
+    let merged = mergedByID.values.sorted(by: historySort)
+    let plan = retentionPlan(for: merged)
+    guard saveAll(plan.kept) else { return false }
+
+    items = plan.kept
+    if !plan.overflow.isEmpty {
+      purgeManagedCacheReferences(for: plan.overflow)
+      cacheService.purgeIfNeeded(maxBytes: settings.imageCacheMaxBytes)
+    }
+    hardenStoragePermissions()
+    return true
+  }
+
+  private func retentionPlan(for sourceItems: [ClipboardItem]) -> (kept: [ClipboardItem], overflow: [ClipboardItem]) {
+    var pinnedCount = 0
+    var unpinnedCount = 0
+    var kept: [ClipboardItem] = []
+    var overflow: [ClipboardItem] = []
+    let retentionCutoff = settings.historyRetention.cutoffDate()
+
+    kept.reserveCapacity(sourceItems.count)
+    for item in sourceItems {
+      if item.isPinned {
+        if pinnedCount < AppConfiguration.maxPinnedItems {
+          pinnedCount += 1
+          kept.append(item)
+        } else if isCollectionRetained(item) {
+          kept.append(item)
+        } else {
+          overflow.append(item)
+        }
+      } else if isCollectionRetained(item) {
+        kept.append(item)
+      } else if isExpiredByRetention(item, cutoff: retentionCutoff) {
+        overflow.append(item)
+      } else if unpinnedCount < settings.maxHistoryItems {
+        unpinnedCount += 1
+        kept.append(item)
+      } else {
+        overflow.append(item)
+      }
+    }
+
+    return (kept, overflow)
+  }
+
+  private func historySort(_ lhs: ClipboardItem, _ rhs: ClipboardItem) -> Bool {
+    if lhs.createdAt != rhs.createdAt {
+      return lhs.createdAt > rhs.createdAt
+    }
+    if lhs.lastUsedAt != rhs.lastUsedAt {
+      return lhs.lastUsedAt > rhs.lastUsedAt
+    }
+    return lhs.id.uuidString < rhs.id.uuidString
+  }
+
+  private func isCollectionRetained(_ item: ClipboardItem) -> Bool {
+    ClipboardCollectionDefaults.normalizedName(item.collectionName) != nil
+  }
+
+  private func isExpiredByRetention(_ item: ClipboardItem, cutoff: Date?) -> Bool {
+    guard let cutoff else { return false }
+    return item.createdAt < cutoff
   }
 
   private func persistAsync(_ mutation: PersistenceMutation, purgeCache: Bool = false) {
@@ -341,7 +556,8 @@ final class ClipboardStore {
         is_pinned INTEGER NOT NULL DEFAULT 0,
         ocr_text TEXT,
         collection_name TEXT,
-        custom_title TEXT
+        custom_title TEXT,
+        source_device_name TEXT
       );
     """
 
@@ -357,6 +573,7 @@ final class ClipboardStore {
     _ = execute(createTable)
     _ = execute("ALTER TABLE clipboard_items ADD COLUMN collection_name TEXT;")
     _ = execute("ALTER TABLE clipboard_items ADD COLUMN custom_title TEXT;")
+    _ = execute("ALTER TABLE clipboard_items ADD COLUMN source_device_name TEXT;")
     _ = execute(createIndexes)
   }
 
@@ -422,7 +639,8 @@ final class ClipboardStore {
       sourceAppBundleId: row["sourceAppBundleId"] as? String,
       ocrText: row["ocrText"] as? String,
       collectionName: row["collectionName"] as? String,
-      customTitle: row["customTitle"] as? String
+      customTitle: row["customTitle"] as? String,
+      sourceDeviceName: row["sourceDeviceName"] as? String ?? ClipboardItem.localDeviceName
     )
   }
 
@@ -535,7 +753,7 @@ final class ClipboardStore {
         id, kind, display_text, payload, payload_hash, created_at,
         last_used_at, use_count, source_app, source_app_bundle_id,
         image_path, thumbnail_path, is_pinned, ocr_text, collection_name,
-        custom_title
+        custom_title, source_device_name
       FROM clipboard_items
       ORDER BY created_at DESC, last_used_at DESC
     """
@@ -617,6 +835,7 @@ final class ClipboardStore {
       let ocrTextValue = stringValue(13)
       let collectionNameValue = stringValue(14)
       let customTitleValue = stringValue(15)
+      let sourceDeviceNameValue = stringValue(16)
 
       needsEncryptionMigration = needsEncryptionMigration
         || sourceAppValue.migrationNeeded
@@ -626,6 +845,7 @@ final class ClipboardStore {
         || ocrTextValue.migrationNeeded
         || collectionNameValue.migrationNeeded
         || customTitleValue.migrationNeeded
+        || sourceDeviceNameValue.migrationNeeded
       hadDecodeFailure = hadDecodeFailure
         || sourceAppValue.decodeFailed
         || sourceAppBundleIdValue.decodeFailed
@@ -634,6 +854,7 @@ final class ClipboardStore {
         || ocrTextValue.decodeFailed
         || collectionNameValue.decodeFailed
         || customTitleValue.decodeFailed
+        || sourceDeviceNameValue.decodeFailed
 
       loaded.append(
         ClipboardItem(
@@ -652,7 +873,8 @@ final class ClipboardStore {
           sourceAppBundleId: sourceAppBundleIdValue.value,
           ocrText: ocrTextValue.value,
           collectionName: collectionNameValue.value,
-          customTitle: customTitleValue.value
+          customTitle: customTitleValue.value,
+          sourceDeviceName: sourceDeviceNameValue.value ?? ClipboardItem.localDeviceName
         )
       )
     }
@@ -671,6 +893,7 @@ final class ClipboardStore {
 
   private enum PersistenceMutation {
     case upsert(ClipboardItem)
+    case upsertMany([ClipboardItem])
     case delete(UUID)
     case deleteMany([UUID])
     case deleteAll
@@ -684,8 +907,8 @@ final class ClipboardStore {
         id, kind, display_text, payload, payload_hash,
         created_at, last_used_at, use_count, source_app,
         source_app_bundle_id, image_path, thumbnail_path, is_pinned, ocr_text,
-        collection_name, custom_title
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        collection_name, custom_title, source_device_name
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """
 
     switch mutation {
@@ -713,6 +936,40 @@ final class ClipboardStore {
       if stepResult != SQLITE_DONE {
         shouldRollback = true
         return
+      }
+
+      if !execute("COMMIT;") {
+        shouldRollback = true
+      }
+
+    case .upsertMany(let items):
+      guard !items.isEmpty else { return }
+      var statement: OpaquePointer?
+      var shouldRollback = false
+      defer {
+        if let statement {
+          sqlite3_finalize(statement)
+        }
+        if shouldRollback {
+          _ = execute("ROLLBACK;")
+        }
+      }
+
+      guard execute("BEGIN IMMEDIATE TRANSACTION;") else { return }
+      guard sqlite3_prepare_v2(db, insertSQL, -1, &statement, nil) == SQLITE_OK else {
+        shouldRollback = true
+        return
+      }
+
+      for item in items {
+        bindItem(item, to: statement)
+        let stepResult = sqlite3_step(statement)
+        if stepResult != SQLITE_DONE {
+          shouldRollback = true
+          return
+        }
+        sqlite3_reset(statement)
+        sqlite3_clear_bindings(statement)
       }
 
       if !execute("COMMIT;") {
@@ -784,8 +1041,8 @@ final class ClipboardStore {
         id, kind, display_text, payload, payload_hash,
         created_at, last_used_at, use_count, source_app,
         source_app_bundle_id, image_path, thumbnail_path, is_pinned, ocr_text,
-        collection_name, custom_title
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        collection_name, custom_title, source_device_name
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """
 
     guard execute("BEGIN IMMEDIATE TRANSACTION;") else {
@@ -870,5 +1127,6 @@ final class ClipboardStore {
     bindText(statement, 14, encryptionService.protect(item.ocrText))
     bindText(statement, 15, encryptionService.protect(item.collectionName))
     bindText(statement, 16, encryptionService.protect(item.customTitle))
+    bindText(statement, 17, encryptionService.protect(item.sourceDeviceName))
   }
 }

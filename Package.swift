@@ -22,6 +22,7 @@ let package = Package(
         .linkedFramework("QuickLookUI"),
         .linkedFramework("Security"),
         .linkedFramework("Vision"),
+        .linkedFramework("WebKit"),
         .linkedLibrary("sqlite3")
       ]
     ),

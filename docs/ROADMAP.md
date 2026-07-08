@@ -1,6 +1,6 @@
 # Roadmap
 
-This roadmap keeps future work aligned with the project's constraints: small executable, low idle power, local-only storage, native macOS UI, and no feature regressions.
+This roadmap keeps future work aligned with the project's constraints: small executable, low idle power, local-first storage, native macOS UI, and no feature regressions.
 
 ## Near Term
 
@@ -10,12 +10,14 @@ This roadmap keeps future work aligned with the project's constraints: small exe
 ## Privacy And Security
 
 - Keep improving secure cleanup semantics for cleared cache/history/key material where macOS storage behavior allows it.
-- Keep the current no-network/no-telemetry posture unless the project explicitly changes direction.
+- Keep the current no-telemetry posture. Keep remote movement limited to explicit user-controlled sync/export paths.
+- Add encrypted archive and iCloud-sync payload options before treating sync archives as safe for high-risk clipboard history.
 
 ## Product Polish
 
 - Improve keyboard focus states and VoiceOver labels.
-- Add import/export only if the storage and privacy story remains clear.
+- Consider optional password-protected archive exports if migration needs outgrow owner-only local archive files.
+- Design true shared Pinboard collaboration separately from private iCloud archive sync.
 
 ## Performance
 

@@ -10,7 +10,7 @@ Run:
 ./scripts/check.sh
 ```
 
-This runs the unit test suite, builds `build/ClipBored.app`, applies an ad-hoc hardened-runtime signature, enforces size gates, and verifies the app signature.
+This runs the unit test suite, builds `build/ClipBored.app`, applies an ad-hoc hardened-runtime signature, enforces the 2 MiB executable and bundle size gates, and verifies the app signature.
 
 ## Local Archive
 
@@ -39,6 +39,10 @@ export DEVELOPER_ID_APPLICATION="Developer ID Application: Example, Inc. (TEAMID
 ```
 
 The script rebuilds the app, re-signs it with hardened runtime and timestamping, verifies the signature, and writes `build/ClipBored.zip`.
+
+## iCloud Sync Entitlements
+
+The default local and release scripts do not add iCloud entitlements. `Sync history with iCloud` will report unavailable in those builds. To ship iCloud Sync, sign with an entitlement file that grants the app's ubiquity container, then repeat the signature, smoke, and notarization checks.
 
 ## Notarization
 

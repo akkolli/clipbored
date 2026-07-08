@@ -25,27 +25,32 @@ final class ShortcutManager {
   private enum HotKeyID: UInt32 {
     case openPanel = 1
     case openSettings = 2
+    case stackCapture = 3
   }
 
   private let onOpenClipboardPanel: () -> Void
   private let onOpenSettings: () -> Void
+  private let onToggleStackCapture: () -> Void
   private let onStatusChange: (RegistrationStatus) -> Void
 
   private var openBinding: ShortcutBinding
   private var settingsBinding: ShortcutBinding
   private var openHotKey: EventHotKeyRef?
   private var settingsHotKey: EventHotKeyRef?
+  private var stackCaptureHotKey: EventHotKeyRef?
   private var eventHandler: EventHandlerRef?
 
   init(
     onOpenClipboardPanel: @escaping () -> Void,
     onOpenSettings: @escaping () -> Void,
+    onToggleStackCapture: @escaping () -> Void = {},
     onStatusChange: @escaping (RegistrationStatus) -> Void = { _ in },
     openShortcut: ShortcutBinding,
     settingsShortcut: ShortcutBinding
   ) {
     self.onOpenClipboardPanel = onOpenClipboardPanel
     self.onOpenSettings = onOpenSettings
+    self.onToggleStackCapture = onToggleStackCapture
     self.onStatusChange = onStatusChange
     self.openBinding = openShortcut
     self.settingsBinding = settingsShortcut
@@ -59,12 +64,17 @@ final class ShortcutManager {
   func start() -> RegistrationStatus {
     stop()
 
-    if let status = validationFailure(for: openBinding) ?? validationFailure(for: settingsBinding) {
+    if let status = Self.validationFailure(for: openBinding) ?? Self.validationFailure(for: settingsBinding) {
       onStatusChange(status)
       return status
     }
     if openBinding == settingsBinding {
       let status = RegistrationStatus.conflict(openBinding.displayText)
+      onStatusChange(status)
+      return status
+    }
+    if openBinding == Self.stackCaptureShortcut || settingsBinding == Self.stackCaptureShortcut {
+      let status = RegistrationStatus.conflict(Self.stackCaptureShortcut.displayText)
       onStatusChange(status)
       return status
     }
@@ -104,6 +114,13 @@ final class ShortcutManager {
       return settingsStatus
     }
 
+    let stackCaptureStatus = register(binding: Self.stackCaptureShortcut, id: .stackCapture, target: &stackCaptureHotKey)
+    guard stackCaptureStatus == .registered else {
+      stop()
+      onStatusChange(stackCaptureStatus)
+      return stackCaptureStatus
+    }
+
     onStatusChange(.registered)
     return .registered
   }
@@ -122,12 +139,16 @@ final class ShortcutManager {
     if let settingsHotKey {
       UnregisterEventHotKey(settingsHotKey)
     }
+    if let stackCaptureHotKey {
+      UnregisterEventHotKey(stackCaptureHotKey)
+    }
     if let eventHandler {
       RemoveEventHandler(eventHandler)
     }
 
     openHotKey = nil
     settingsHotKey = nil
+    stackCaptureHotKey = nil
     eventHandler = nil
   }
 
@@ -157,7 +178,7 @@ final class ShortcutManager {
     return .registrationFailed(osStatusMessage(status))
   }
 
-  private func validationFailure(for binding: ShortcutBinding) -> RegistrationStatus? {
+  static func validationFailure(for binding: ShortcutBinding) -> RegistrationStatus? {
     guard Self.virtualKeyCode(for: binding.key) != nil else {
       return .unsupportedShortcut(binding.displayText)
     }
@@ -187,6 +208,8 @@ final class ShortcutManager {
       onOpenClipboardPanel()
     case .openSettings:
       onOpenSettings()
+    case .stackCapture:
+      onToggleStackCapture()
     case nil:
       break
     }
@@ -259,6 +282,11 @@ final class ShortcutManager {
   }
 
   private static let hotKeySignature: OSType = 0x436C7042
+
+  static let stackCaptureShortcut = ShortcutBinding(
+    key: "c",
+    modifierFlags: NSEvent.ModifierFlags([.command, .shift]).rawValue
+  )
 
   private func osStatusMessage(_ status: OSStatus) -> String {
     "OSStatus \(status)"
