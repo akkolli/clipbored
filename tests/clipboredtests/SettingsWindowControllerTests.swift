@@ -20,10 +20,10 @@ final class SettingsWindowControllerTests: XCTestCase {
     let (controller, _) = makeController()
 
     XCTAssertTrue(controller.debugWindowStyleMask.contains(.resizable))
-    XCTAssertEqual(controller.debugWindowMinSize.width, 620, accuracy: 0.5)
-    XCTAssertEqual(controller.debugWindowMinSize.height, 560, accuracy: 0.5)
-    XCTAssertGreaterThanOrEqual(controller.debugWindowContentSize.width, 700)
-    XCTAssertGreaterThanOrEqual(controller.debugWindowContentSize.height, 600)
+    XCTAssertEqual(controller.debugWindowMinSize.width, 560, accuracy: 0.5)
+    XCTAssertEqual(controller.debugWindowMinSize.height, 440, accuracy: 0.5)
+    XCTAssertGreaterThanOrEqual(controller.debugWindowContentSize.width, 600)
+    XCTAssertGreaterThanOrEqual(controller.debugWindowContentSize.height, 500)
   }
 
   func testSettingsTabsUsePinnedScrollableDocuments() {
@@ -40,12 +40,12 @@ final class SettingsWindowControllerTests: XCTestCase {
     }
   }
 
-  func testSettingsDataTabKeepsExtraNativeHighlightPadding() {
+  func testSettingsTabsUseUnpaddedLabelsWithCustomSelector() {
     let (controller, _) = makeController()
 
     XCTAssertEqual(controller.debugSettingsTabLayoutMetrics.map { $0.label }, ["General", "Shortcuts", "Capture", "Privacy", "Performance", "Data"])
     XCTAssertEqual(controller.debugRawSettingsTabLabels.last?.clipboardTrimmed, "Data")
-    XCTAssertGreaterThan(controller.debugRawSettingsTabLabels.last?.count ?? 0, "Data".count)
+    XCTAssertEqual(controller.debugRawSettingsTabLabels.last, "Data")
   }
 
   func testSettingsTabsKeepContentAnchoredToTopLeadingCorner() {
@@ -64,7 +64,7 @@ final class SettingsWindowControllerTests: XCTestCase {
 
   func testSettingsTabsAvoidHorizontalOverflowAtMinimumWindowSize() {
     let (controller, _) = makeController()
-    controller.debugSetWindowContentSize(NSSize(width: 620, height: 560))
+    controller.debugSetWindowContentSize(NSSize(width: 560, height: 440))
 
     let metrics = controller.debugSettingsTabLayoutAuditMetrics
 
@@ -73,6 +73,63 @@ final class SettingsWindowControllerTests: XCTestCase {
       XCTAssertEqual(metric.overflowingViewCount, 0, metric.label)
       XCTAssertEqual(metric.zeroSizedControlCount, 0, metric.label)
     }
+  }
+
+  func testSettingsGeneralTabUsesCompactVerticalLayout() {
+    let (controller, _) = makeController()
+    let metrics = controller.debugSettingsTabContentPlacementMetrics
+    let general = try! XCTUnwrap(metrics.first { $0.label == "General" })
+
+    XCTAssertLessThan(general.contentBounds.maxY, 380)
+  }
+
+  func testShortcutModifiersExposeHumanAccessibilityNames() {
+    let (controller, _) = makeController()
+
+    XCTAssertEqual(
+      controller.debugOpenShortcutModifierAccessibilityLabels,
+      ["Command modifier", "Option modifier", "Control modifier", "Shift modifier"]
+    )
+    XCTAssertEqual(
+      controller.debugOpenShortcutModifierAccessibilityHelps,
+      [
+        "Include or remove the Command key from this shortcut.",
+        "Include or remove the Option key from this shortcut.",
+        "Include or remove the Control key from this shortcut.",
+        "Include or remove the Shift key from this shortcut."
+      ]
+    )
+  }
+
+  func testWritesSettingsVisualSnapshotWhenRequested() throws {
+    guard ProcessInfo.processInfo.environment["CLIPBORED_WRITE_SETTINGS_SNAPSHOT"] == "1" else {
+      throw XCTSkip("Set CLIPBORED_WRITE_SETTINGS_SNAPSHOT=1 to write a Settings snapshot.")
+    }
+
+    let (controller, _) = makeController()
+    controller.debugSelectSettingsTab(at: 5)
+    controller.debugPrepareWindowForSnapshot()
+    drainMainQueue()
+    let view = try XCTUnwrap(controller.debugSettingsContentView)
+    view.layoutSubtreeIfNeeded()
+    view.displayIfNeeded()
+
+    let output = URL(
+      fileURLWithPath: ProcessInfo.processInfo.environment["CLIPBORED_SETTINGS_SNAPSHOT_PATH"]
+        ?? "build/visual-snapshots/settings-data.png"
+    )
+    try FileManager.default.createDirectory(
+      at: output.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+    rep.size = view.bounds.size
+    view.cacheDisplay(in: view.bounds, to: rep)
+    let image = NSImage(size: view.bounds.size)
+    image.addRepresentation(rep)
+    let bitmap = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(image.tiffRepresentation)))
+    let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+    try png.write(to: output)
   }
 
   func testCloudSyncStatusIsCachedAcrossUnrelatedSettingsRefreshes() {

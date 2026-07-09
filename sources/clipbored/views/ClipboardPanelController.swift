@@ -59,14 +59,12 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     static let hideDuration: TimeInterval = 0.16
     static let reflowDuration: TimeInterval = 0.18
     static let easing: CAMediaTimingFunctionName = .easeInEaseOut
+
+    static func duration(_ preferredDuration: TimeInterval) -> TimeInterval {
+      NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : preferredDuration
+    }
   }
   private enum Metrics {
-    static let shelfHeightRatio: CGFloat = 0.18
-    static let minimumShelfHeight: CGFloat = 156
-    static let maximumShelfHeight: CGFloat = 176
-    static let minimumUserShelfHeight: CGFloat = 150
-    static let maximumUserShelfHeight: CGFloat = 680
-    static let maximumUserShelfHeightRatio: CGFloat = 0.72
     static let preferredVerticalShelfWidth: CGFloat = 336
     static let minimumVerticalShelfWidth: CGFloat = 320
     static let maximumVerticalShelfWidthRatio: CGFloat = 0.30
@@ -170,7 +168,7 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     applyPanelSharingSetting()
 
     settings.observe { [weak self] change in
-      guard change == .hideFromScreenCapture || change == .panelLayout else { return }
+      guard change == .hideFromScreenCapture || change == .panelSide else { return }
       DispatchQueue.main.async {
         if change == .hideFromScreenCapture {
           self?.applyPanelSharingSetting()
@@ -202,13 +200,6 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
       hide()
     } else {
       show(preferredScreen: explicitScreen)
-    }
-  }
-
-  func createTextClip() {
-    performWhenVisible { [weak self] in
-      guard let self else { return }
-      self.panelView.createTextClip()
     }
   }
 
@@ -256,7 +247,7 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     panelView.beginOpeningTransition()
 
     NSAnimationContext.runAnimationGroup { context in
-      context.duration = Animation.showDuration
+      context.duration = Animation.duration(Animation.showDuration)
       context.allowsImplicitAnimation = true
       context.timingFunction = CAMediaTimingFunction(name: Animation.easing)
       panel.animator().setFrame(frames.shown, display: true)
@@ -299,7 +290,7 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     isAnimating = true
 
     NSAnimationContext.runAnimationGroup { context in
-      context.duration = Animation.hideDuration
+      context.duration = Animation.duration(Animation.hideDuration)
       context.allowsImplicitAnimation = true
       context.timingFunction = CAMediaTimingFunction(name: Animation.easing)
       panel.animator().alphaValue = 0.0
@@ -323,7 +314,9 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     }
 
     show()
-    DispatchQueue.main.asyncAfter(deadline: .now() + Animation.showDuration + 0.03) { [weak self] in
+    let animationDelay = Animation.duration(Animation.showDuration)
+    let deadline = DispatchTime.now() + animationDelay + (animationDelay > 0 ? 0.03 : 0)
+    DispatchQueue.main.asyncAfter(deadline: deadline) { [weak self] in
       guard let self, self.isVisible else { return }
       action()
     }
@@ -374,7 +367,6 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
   static func panelFrames(
     forScreenFrame screenFrame: CGRect,
     visibleFrame: CGRect,
-    preferredHeight _: CGFloat? = nil,
     side: ClipboardPanelSide = .right
   ) -> (shown: NSRect, hidden: NSRect) {
     let intersectedFrame = visibleFrame.intersection(screenFrame)
@@ -454,7 +446,6 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
   static func reflowPlan(
     forScreenFrame screenFrame: CGRect,
     visibleFrame: CGRect,
-    preferredHeight _: CGFloat? = nil,
     side: ClipboardPanelSide = .right
   ) -> ClipboardPanelReflowPlan {
     let frames = panelFrames(
@@ -524,6 +515,15 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
       if self.shouldHandlePanelKeyEvent(event, allowSearchFieldEditing: true),
          let mode = Self.collectionShortcutMode(forKeyCode: event.keyCode, modifiers: event.modifierFlags) {
         self.viewModel.sortMode = mode
+        return nil
+      }
+      if self.shouldHandlePanelKeyEvent(event, allowSearchFieldEditing: true),
+         Self.matchesShortcut(
+           keyCode: event.keyCode,
+           modifiers: event.modifierFlags,
+           binding: self.settings.settingsShortcut
+         ) {
+        self.openSettings()
         return nil
       }
       if self.shouldHandlePanelKeyEvent(event, allowSearchFieldEditing: true),
@@ -624,7 +624,7 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     case .edit:
       panelView.editSelectedClip()
     case .focusSearch:
-      panelView.focusSearchOrShowFilters()
+      panelView.focusSearch()
     case .newCollection:
       panelView.createCollection()
     case .nextCollection:
@@ -773,6 +773,18 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
   static func searchFieldPreviewShortcut(forKeyCode keyCode: UInt16, modifiers: NSEvent.ModifierFlags, searchText: String) -> Bool {
     let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
     return keyCode == 49 && relevantModifiers.isEmpty && searchText.clipboardTrimmed.isEmpty
+  }
+
+  static func matchesShortcut(
+    keyCode: UInt16,
+    modifiers: NSEvent.ModifierFlags,
+    binding: ShortcutBinding
+  ) -> Bool {
+    guard ShortcutManager.virtualKeyCode(for: binding.key) == keyCode else { return false }
+    let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
+    let bindingModifiers = NSEvent.ModifierFlags(rawValue: binding.modifierFlags)
+      .intersection(.deviceIndependentFlagsMask)
+    return relevantModifiers == bindingModifiers
   }
 
   static func commandShortcutAction(forKeyCode keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> ClipboardPanelShortcutAction? {
@@ -924,7 +936,7 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
 
     isAnimating = true
     NSAnimationContext.runAnimationGroup { context in
-      context.duration = Animation.reflowDuration
+      context.duration = Animation.duration(Animation.reflowDuration)
       context.allowsImplicitAnimation = true
       context.timingFunction = CAMediaTimingFunction(name: Animation.easing)
       panel.animator().setFrame(plan.frame, display: true)

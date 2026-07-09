@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import XCTest
 @testable import ClipBored
 
@@ -140,59 +141,6 @@ final class ClipboardPanelControllerTests: XCTestCase {
     XCTAssertEqual(frames.hidden.minX, screenFrame.maxX + 1)
   }
 
-  func testPanelFrameIgnoresLegacyPreferredResizableHeight() {
-    let screenFrame = CGRect(x: 0, y: 0, width: 1512, height: 982)
-    let visibleFrame = CGRect(x: 0, y: 96, width: 1512, height: 861)
-
-    let frames = ClipboardPanelController.panelFrames(
-      forScreenFrame: screenFrame,
-      visibleFrame: visibleFrame,
-      preferredHeight: 600
-    )
-
-    XCTAssertEqual(frames.shown.minY, screenFrame.minY)
-    XCTAssertEqual(frames.shown.maxY, visibleFrame.maxY)
-    XCTAssertEqual(frames.shown.height, 957)
-    XCTAssertEqual(frames.hidden.minX, visibleFrame.maxX + 1)
-  }
-
-  func testPanelFrameLegacyPreferredHeightDoesNotAffectSideShelf() {
-    let screenFrame = CGRect(x: 0, y: 0, width: 1512, height: 982)
-    let visibleFrame = CGRect(x: 0, y: 0, width: 1512, height: 982)
-
-    let tooTall = ClipboardPanelController.panelFrames(
-      forScreenFrame: screenFrame,
-      visibleFrame: visibleFrame,
-      preferredHeight: 900
-    )
-    let tooShort = ClipboardPanelController.panelFrames(
-      forScreenFrame: screenFrame,
-      visibleFrame: visibleFrame,
-      preferredHeight: 120
-    )
-
-    XCTAssertEqual(tooTall.shown.height, 982)
-    XCTAssertEqual(tooShort.shown.height, 982)
-    XCTAssertEqual(tooTall.shown.width, 336)
-    XCTAssertEqual(tooShort.shown.width, 336)
-  }
-
-  func testPanelFrameLegacyPreferredHeightDoesNotOverflowTinyVisibleFrame() {
-    let screenFrame = CGRect(x: 0, y: 0, width: 640, height: 320)
-    let visibleFrame = CGRect(x: 0, y: 48, width: 640, height: 220)
-
-    let frames = ClipboardPanelController.panelFrames(
-      forScreenFrame: screenFrame,
-      visibleFrame: visibleFrame,
-      preferredHeight: 620
-    )
-
-    XCTAssertEqual(frames.shown.height, 268)
-    XCTAssertEqual(frames.shown.width, 320)
-    XCTAssertLessThanOrEqual(frames.shown.height, visibleFrame.maxY - screenFrame.minY)
-    XCTAssertEqual(frames.shown.minY, screenFrame.minY)
-  }
-
   func testPanelFramePlanningIsDeterministicAcrossRepeatedToggles() {
     let screenFrame = CGRect(x: -1512, y: -120, width: 1512, height: 982)
     let visibleFrame = CGRect(x: -1512, y: -24, width: 1512, height: 861)
@@ -234,10 +182,10 @@ final class ClipboardPanelControllerTests: XCTestCase {
     controller.debugSetSearchFieldText("stale query")
     drainMainQueue()
     XCTAssertEqual(controller.debugSearchFieldText, "stale query")
-    XCTAssertEqual(controller.debugSearchFieldWidth, 164, accuracy: 0.5)
+    XCTAssertEqual(controller.debugSearchFieldWidth, 238, accuracy: 1)
     XCTAssertEqual(controller.debugSearchFieldPlaceholderText, "Search clips")
     XCTAssertTrue(controller.debugSearchFieldIsVisible)
-    XCTAssertFalse(controller.debugSearchIconButtonIsVisible)
+    XCTAssertTrue(controller.debugSearchIconButtonIsVisible)
 
     controller.show(preferredScreen: screen)
     defer { controller.hide(immediate: true) }
@@ -275,22 +223,6 @@ final class ClipboardPanelControllerTests: XCTestCase {
     XCTAssertEqual(plan.frame.maxY, visibleFrame.maxY)
     XCTAssertEqual(plan.frame.width, 336)
     XCTAssertEqual(plan.bottomSafeInset, 18)
-  }
-
-  func testReflowPlanIgnoresLegacyPreferredResizableHeight() {
-    let screenFrame = CGRect(x: 0, y: 0, width: 1512, height: 982)
-    let visibleFrame = CGRect(x: 0, y: 96, width: 1512, height: 861)
-
-    let plan = ClipboardPanelController.reflowPlan(
-      forScreenFrame: screenFrame,
-      visibleFrame: visibleFrame,
-      preferredHeight: 600
-    )
-
-    XCTAssertEqual(plan.frame.minY, screenFrame.minY)
-    XCTAssertEqual(plan.frame.height, 957)
-    XCTAssertEqual(plan.frame.width, 336)
-    XCTAssertEqual(plan.bottomSafeInset, 20)
   }
 
   func testReflowPlanTracksSideDockVisibleFrameWithoutBottomInsetInflation() {
@@ -494,6 +426,32 @@ final class ClipboardPanelControllerTests: XCTestCase {
     XCTAssertNil(ClipboardPanelController.commandShortcutAction(forKeyCode: 8, modifiers: []))
     XCTAssertNil(ClipboardPanelController.commandShortcutAction(forKeyCode: 8, modifiers: [.command, .shift]))
     XCTAssertNil(ClipboardPanelController.commandShortcutAction(forKeyCode: 9, modifiers: .command))
+  }
+
+  func testSettingsShortcutMatchesOnlyItsExactLocalBinding() {
+    let binding = AppConfiguration.defaultSettingsShortcut
+
+    XCTAssertTrue(
+      ClipboardPanelController.matchesShortcut(
+        keyCode: UInt16(kVK_ANSI_Comma),
+        modifiers: .command,
+        binding: binding
+      )
+    )
+    XCTAssertFalse(
+      ClipboardPanelController.matchesShortcut(
+        keyCode: UInt16(kVK_ANSI_Comma),
+        modifiers: [.command, .shift],
+        binding: binding
+      )
+    )
+    XCTAssertFalse(
+      ClipboardPanelController.matchesShortcut(
+        keyCode: UInt16(kVK_ANSI_Period),
+        modifiers: .command,
+        binding: binding
+      )
+    )
   }
 
   func testModifiedShortcutsMapToPanelActions() {

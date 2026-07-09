@@ -25,15 +25,6 @@ enum HistoryRetention: Int {
   }
 }
 
-enum ClipboardPanelLayout: Int, CaseIterable {
-  case horizontal = 0
-  case vertical = 1
-
-  var title: String {
-    "Side Shelf"
-  }
-}
-
 enum ClipboardPanelSide: Int, CaseIterable {
   case left = 0
   case right = 1
@@ -59,9 +50,7 @@ final class SettingsModel {
     case launchAtLogin
     case showMenuBarIcon
     case showDockIcon
-    case compactMode
-    case panelLayout
-    case panelSizing
+    case panelSide
     case cloudSync
     case pauseCapture
     case ignoredApps
@@ -87,10 +76,7 @@ final class SettingsModel {
     static let launchAtLogin = "launchAtLogin"
     static let showMenuBarIcon = "showMenuBarIcon"
     static let showDockIcon = "showDockIcon"
-    static let compactMode = "compactMode"
-    static let panelLayout = "panelLayout"
     static let panelSide = "panelSide"
-    static let panelShelfHeight = "panelShelfHeight"
     static let iCloudSyncEnabled = "iCloudSyncEnabled"
     static let openShortcut = "openShortcut"
     static let settingsShortcut = "settingsShortcut"
@@ -142,22 +128,8 @@ final class SettingsModel {
   var showDockIcon: Bool {
     didSet { if oldValue != showDockIcon { storeAndNotify(.showDockIcon) } }
   }
-  var compactMode: Bool {
-    didSet { if oldValue != compactMode { storeAndNotify(.compactMode) } }
-  }
-  var panelLayout: ClipboardPanelLayout {
-    didSet {
-      if panelLayout != .vertical {
-        panelLayout = .vertical
-      }
-      if oldValue != panelLayout { storeAndNotify(.panelLayout) }
-    }
-  }
   var panelSide: ClipboardPanelSide {
-    didSet { if oldValue != panelSide { storeAndNotify(.panelLayout) } }
-  }
-  var panelShelfHeight: Double {
-    didSet { if oldValue != panelShelfHeight { storeAndNotify(.panelSizing) } }
+    didSet { if oldValue != panelSide { storeAndNotify(.panelSide) } }
   }
   var iCloudSyncEnabled: Bool {
     didSet {
@@ -241,10 +213,7 @@ final class SettingsModel {
     launchAtLogin = defaults.object(forKey: Keys.launchAtLogin) as? Bool ?? false
     showMenuBarIcon = defaults.object(forKey: Keys.showMenuBarIcon) as? Bool ?? true
     showDockIcon = defaults.object(forKey: Keys.showDockIcon) as? Bool ?? false
-    compactMode = defaults.object(forKey: Keys.compactMode) as? Bool ?? false
-    panelLayout = .vertical
     panelSide = savedPanelSide.flatMap(ClipboardPanelSide.init(rawValue:)) ?? .right
-    panelShelfHeight = defaults.object(forKey: Keys.panelShelfHeight) as? Double ?? 0
     iCloudSyncEnabled = defaults.object(forKey: Keys.iCloudSyncEnabled) as? Bool ?? false
     openShortcut = Self.readShortcut(from: defaults.string(forKey: Keys.openShortcut)) ?? AppConfiguration.defaultOpenShortcut
     settingsShortcut = Self.readShortcut(from: defaults.string(forKey: Keys.settingsShortcut)) ?? AppConfiguration.defaultSettingsShortcut
@@ -271,10 +240,6 @@ final class SettingsModel {
 
     maxHistoryItems = Self.clampedMaxHistoryItems(maxHistoryItems)
     imageCacheMaxBytes = Self.clampedImageCacheMaxBytes(imageCacheMaxBytes)
-    if panelShelfHeight < 0 {
-      panelShelfHeight = 0
-    }
-
     if defaults.object(forKey: Keys.maxHistoryItems) == nil
       || savedHistory != maxHistoryItems
       || defaults.object(forKey: Keys.historyRetention) == nil
@@ -282,7 +247,6 @@ final class SettingsModel {
       || savedCache <= 0
       || Int64(savedCache) != imageCacheMaxBytes
       || storedIgnoredItemKinds != ignoredItemKindsRaw
-      || defaults.object(forKey: Keys.panelLayout) as? Int != ClipboardPanelLayout.vertical.rawValue
       || savedPanelSide == nil
       || ClipboardPanelSide(rawValue: savedPanelSide ?? -1) == nil {
       store()
@@ -299,10 +263,7 @@ final class SettingsModel {
     defaults.set(launchAtLogin, forKey: Keys.launchAtLogin)
     defaults.set(showMenuBarIcon, forKey: Keys.showMenuBarIcon)
     defaults.set(showDockIcon, forKey: Keys.showDockIcon)
-    defaults.set(compactMode, forKey: Keys.compactMode)
-    defaults.set(panelLayout.rawValue, forKey: Keys.panelLayout)
     defaults.set(panelSide.rawValue, forKey: Keys.panelSide)
-    defaults.set(panelShelfHeight, forKey: Keys.panelShelfHeight)
     defaults.set(iCloudSyncEnabled, forKey: Keys.iCloudSyncEnabled)
     defaults.set(openShortcut.encoded(), forKey: Keys.openShortcut)
     defaults.set(settingsShortcut.encoded(), forKey: Keys.settingsShortcut)

@@ -23,18 +23,6 @@ struct ClipboardCollectionCountSummary {
   }
 }
 
-struct ClipboardCategorySelectionSnapshot: Equatable {
-  let sortMode: ClipboardSortMode
-  let selectedCollectionName: String?
-  let isStackFilterSelected: Bool
-  let selectedSortModeFilterRawValues: Set<Int>
-  let selectedCollectionNameFilters: [String]
-  let selectedItemID: UUID?
-  let selectedItemIDs: [UUID]
-  let selectionAnchorItemID: UUID?
-  let selectedIndex: Int
-}
-
 final class ClipboardPanelViewModel {
   private static let searchDateFormatter: DateFormatter = {
     let formatter = DateFormatter()
@@ -46,6 +34,7 @@ final class ClipboardPanelViewModel {
     return formatter
   }()
   private static let searchLocale = Locale(identifier: "en_US_POSIX")
+  private static let fallbackSourceDeviceName = ClipboardItem.localDeviceName
 
   private struct StructuredFilterMatcher {
     let tokens: [String]
@@ -88,8 +77,8 @@ final class ClipboardPanelViewModel {
   }
 
   private struct CategoryFilterSelection: Hashable {
-    let sortModeRawValues: [Int]
-    let collectionNameKeys: [String]
+    let sortModeRawValues: Set<Int>
+    let collectionNameKeys: Set<String>
 
     static let empty = CategoryFilterSelection(sortModeRawValues: [], collectionNameKeys: [])
 
@@ -105,6 +94,39 @@ final class ClipboardPanelViewModel {
   private struct IndexedClipboardItem {
     let offset: Int
     let item: ClipboardItem
+  }
+
+  private struct SearchMatchCacheEntry {
+    let query: String
+    let indexedItems: [IndexedClipboardItem]
+  }
+
+  private struct SearchDocumentFingerprint: Equatable {
+    let kindRawValue: Int
+    let displayText: String
+    let payload: String
+    let customTitle: String?
+    let sourceApp: String?
+    let sourceAppBundleID: String?
+    let collectionName: String?
+    let sourceDeviceName: String?
+    let ocrText: String?
+  }
+
+  private struct SearchDocument {
+    let fingerprint: SearchDocumentFingerprint
+    let text: String
+    let textIncludingOCR: String
+    let sourceValues: [String]
+    let sourceText: String
+    let device: String
+    let collection: String
+  }
+
+  private struct ThumbnailRequestKey: Hashable {
+    let itemID: UUID
+    let kindRawValue: Int
+    let source: String?
   }
 
   private enum VisibleItemsSortOrdering {
@@ -151,9 +173,7 @@ final class ClipboardPanelViewModel {
     didSet {
       guard oldValue != sortMode else { return }
       guard !isBatchingFilterSelectionChanges else {
-        if !suppressDefaultSortModePersistence {
-          settings.defaultSortMode = sortMode
-        }
+        settings.defaultSortMode = sortMode
         return
       }
       selectedSortModeFilterRawValues.removeAll(keepingCapacity: true)
@@ -162,9 +182,7 @@ final class ClipboardPanelViewModel {
       isStackFilterSelected = false
       selectedCollectionName = nil
       isBatchingFilterSelectionChanges = false
-      if !suppressDefaultSortModePersistence {
-        settings.defaultSortMode = sortMode
-      }
+      settings.defaultSortMode = sortMode
       recomputeVisibleItems()
       onSortModeChanged?(sortMode)
     }
@@ -202,13 +220,16 @@ final class ClipboardPanelViewModel {
   }
   private(set) var selectedItemIDs: [UUID] = [] {
     didSet {
-      selectedItemIDSet = Set(selectedItemIDs)
       guard oldValue != selectedItemIDs else { return }
+      selectedItemIDSet = Set(selectedItemIDs)
       notifyMain { self.onSelectedItemsChanged?() }
     }
   }
   private(set) var statusMessage: String = "" {
-    didSet { notifyMain { self.onStatusMessageChanged?(self.statusMessage) } }
+    didSet {
+      guard oldValue != statusMessage else { return }
+      notifyMain { self.onStatusMessageChanged?(self.statusMessage) }
+    }
   }
 
   private var items: [ClipboardItem] = [] {
@@ -217,6 +238,9 @@ final class ClipboardPanelViewModel {
       collectionNamesCache = nil
       visibleItemsCache.removeAll(keepingCapacity: true)
       collectionCountCache = nil
+      searchMatchCache = nil
+      stackItemsNeedPruning = true
+      searchDocumentsByItemID = searchDocumentsByItemID.filter { itemIDSet.contains($0.key) }
     }
   }
   private let store: ClipboardStore
@@ -224,19 +248,48 @@ final class ClipboardPanelViewModel {
   private let cacheService: ClipboardCacheService
   private let pasteService: PasteActionService
   private let imageTextExtractor: (NSImage) -> String?
+  private let thumbnailLoader: (ClipboardItem) -> NSImage?
+  private let thumbnailLoadQueue: OperationQueue = {
+    let queue = OperationQueue()
+    queue.name = "clipboard.panel.thumbnail-loader"
+    queue.qualityOfService = .userInitiated
+    queue.maxConcurrentOperationCount = 2
+    return queue
+  }()
+  private let mediaActionQueue: OperationQueue = {
+    let queue = OperationQueue()
+    queue.name = "clipboard.panel.media-actions"
+    queue.qualityOfService = .userInitiated
+    queue.maxConcurrentOperationCount = 1
+    return queue
+  }()
+  private let thumbnailRequestLock = NSLock()
+  private var thumbnailCompletionsByRequest: [ThumbnailRequestKey: [(NSImage?) -> Void]] = [:]
   private var selectedItemID: UUID?
   private var selectionAnchorItemID: UUID?
   private var isRecomputingVisibleItems = false
   private var isBatchingFilterSelectionChanges = false
-  private var selectedSortModeFilterRawValues: Set<Int> = []
-  private var selectedCollectionNameFilters: [String] = []
-  private var suppressDefaultSortModePersistence = false
+  private var selectedSortModeFilterRawValues: Set<Int> = [] {
+    didSet {
+      guard oldValue != selectedSortModeFilterRawValues else { return }
+      categoryFilterSelectionCache = nil
+    }
+  }
+  private var selectedCollectionNameFilters: [String] = [] {
+    didSet {
+      guard oldValue != selectedCollectionNameFilters else { return }
+      categoryFilterSelectionCache = nil
+    }
+  }
   private var isApplyingLocalCollectionMutation = false
   private var isDeferringLocalStoreRecompute = false
   private var pendingDeletionUndo: [ClipboardStoreRemoval] = []
   private var collectionCountCache: (query: String, summary: ClipboardCollectionCountSummary)?
   private var collectionNamesCache: [String]?
   private var visibleItemsCache: [VisibleItemsCacheKey: [ClipboardItem]] = [:]
+  private var searchMatchCache: SearchMatchCacheEntry?
+  private var searchDocumentsByItemID: [UUID: SearchDocument] = [:]
+  private var categoryFilterSelectionCache: CategoryFilterSelection?
   private var itemByID: [UUID: ClipboardItem] = [:]
   private var itemIDSet: Set<UUID> = []
   private var indexedItemsByCollectionKey: [String: [IndexedClipboardItem]] = [:]
@@ -246,10 +299,11 @@ final class ClipboardPanelViewModel {
   private var visibleIndexByID: [UUID: Int] = [:]
   private var selectedItemIDSet: Set<UUID> = []
   private var stackItemIDSet: Set<UUID> = []
+  private var stackItemsNeedPruning = false
   private var stackItemIDs: [UUID] = [] {
     didSet {
-      stackItemIDSet = Set(stackItemIDs)
       guard oldValue != stackItemIDs else { return }
+      stackItemIDSet = Set(stackItemIDs)
       notifyMain { self.onStackChanged?() }
     }
   }
@@ -269,21 +323,26 @@ final class ClipboardPanelViewModel {
   var onCollectionsChanged: (() -> Void)?
   var onStackChanged: (() -> Void)?
   var onCaptureStatusChanged: (() -> Void)?
-  var onCompactModeChanged: (() -> Void)?
-  var onPanelLayoutChanged: (() -> Void)?
 
   #if DEBUG
   private(set) var debugVisibleItemsFullScanCount = 0
   private(set) var debugVisibleItemsIndexedLookupCount = 0
   private(set) var debugCollectionCountFullScanCount = 0
   private(set) var debugCollectionCountIndexedLookupCount = 0
+  private(set) var debugSearchItemEvaluationCount = 0
+  private(set) var debugSearchMatchCacheHitCount = 0
+  private(set) var debugSearchDocumentBuildCount = 0
+  private(set) var debugSearchDocumentCacheHitCount = 0
+  private(set) var debugCategoryFilterSelectionBuildCount = 0
+  private(set) var debugStackPruneScanCount = 0
   #endif
 
   init(
     store: ClipboardStore,
     settings: SettingsModel,
     cacheService: ClipboardCacheService,
-    imageTextExtractor: @escaping (NSImage) -> String? = ImageTextExtractor.recognizedText(in:)
+    imageTextExtractor: @escaping (NSImage) -> String? = ImageTextExtractor.recognizedText(in:),
+    thumbnailLoader: ((ClipboardItem) -> NSImage?)? = nil
   ) {
     self.store = store
     self.settings = settings
@@ -291,6 +350,7 @@ final class ClipboardPanelViewModel {
     self.sortMode = settings.defaultSortMode
     self.pasteService = PasteActionService(cacheService: cacheService)
     self.imageTextExtractor = imageTextExtractor
+    self.thumbnailLoader = thumbnailLoader ?? { cacheService.previewThumbnail(for: $0) }
 
     store.observeItems { [weak self] list in
       guard let self else { return }
@@ -308,25 +368,23 @@ final class ClipboardPanelViewModel {
         switch change {
         case .captureStatus:
           self?.statusMessage = ""
-          self?.onStatusMessageChanged?("")
           self?.onCaptureStatusChanged?()
         case .collections:
           guard let self else { return }
           self.collectionNamesCache = nil
           guard !self.isApplyingLocalCollectionMutation else { return }
-          self.recomputeVisibleItems()
           self.onCollectionsChanged?()
-        case .compactMode:
-          self?.onCompactModeChanged?()
-        case .panelLayout:
-          self?.onPanelLayoutChanged?()
         case .defaultSortMode:
           guard let self else { return }
           self.sortMode = self.settings.defaultSortMode
         case .includeImageTextInSearch:
-          self?.collectionCountCache = nil
-          self?.visibleItemsCache.removeAll(keepingCapacity: true)
-          self?.recomputeVisibleItems()
+          guard let self else { return }
+          self.collectionCountCache = nil
+          self.visibleItemsCache.removeAll(keepingCapacity: true)
+          self.searchMatchCache = nil
+          let query = Self.normalizedSearchValue(self.searchText)
+          guard !query.isEmpty, !self.parseSearchQuery(query).textTokens.isEmpty else { return }
+          self.recomputeVisibleItems()
         default:
           break
         }
@@ -340,6 +398,12 @@ final class ClipboardPanelViewModel {
     debugVisibleItemsIndexedLookupCount = 0
     debugCollectionCountFullScanCount = 0
     debugCollectionCountIndexedLookupCount = 0
+    debugSearchItemEvaluationCount = 0
+    debugSearchMatchCacheHitCount = 0
+    debugSearchDocumentBuildCount = 0
+    debugSearchDocumentCacheHitCount = 0
+    debugCategoryFilterSelectionBuildCount = 0
+    debugStackPruneScanCount = 0
   }
   #endif
 
@@ -349,7 +413,15 @@ final class ClipboardPanelViewModel {
   }
 
   var selectedItemCount: Int {
-    selectedItemsInSelectionOrder().count
+    let visibleSelectionCount = selectedItemIDs.reduce(into: 0) { count, id in
+      if visibleItemByID[id] != nil {
+        count += 1
+      }
+    }
+    if visibleSelectionCount > 0 {
+      return visibleSelectionCount
+    }
+    return selectedItem == nil ? 0 : 1
   }
 
   var canShowSelectedInClipboard: Bool {
@@ -375,18 +447,6 @@ final class ClipboardPanelViewModel {
 
   var stackTitle: String {
     "Stack"
-  }
-
-  var isCompactModeEnabled: Bool {
-    false
-  }
-
-  var panelLayout: ClipboardPanelLayout {
-    .vertical
-  }
-
-  func toggleCompactMode() {
-    statusMessage = "Compact Mode was removed"
   }
 
   var collectionNames: [String] {
@@ -418,7 +478,7 @@ final class ClipboardPanelViewModel {
   }
 
   var searchFilterDeviceNames: [String] {
-    uniqueSearchFacetValues(items.map { Optional($0.effectiveSourceDeviceName) })
+    uniqueSearchFacetValues(items.map { Optional(effectiveSourceDeviceName(for: $0)) })
   }
 
   func collectionCount(for sortMode: ClipboardSortMode) -> Int {
@@ -430,16 +490,15 @@ final class ClipboardPanelViewModel {
   }
 
   func collectionCountSummary() -> ClipboardCollectionCountSummary {
-    let query = searchText.clipboardTrimmed.lowercased()
+    let query = Self.normalizedSearchValue(searchText)
     if let collectionCountCache, collectionCountCache.query == query {
       return collectionCountCache.summary
     }
 
-    let parsedQuery = parseSearchQuery(query)
     var sortModeCounts = Dictionary(uniqueKeysWithValues: ClipboardSortMode.allCases.map { ($0.rawValue, 0) })
     var collectionCounts: [String: Int] = [:]
 
-    if parsedQuery.isEmpty {
+    if query.isEmpty {
       for mode in ClipboardSortMode.allCases {
         sortModeCounts[mode.rawValue] = indexedItemsBySortMode[mode.rawValue]?.count ?? 0
       }
@@ -450,14 +509,9 @@ final class ClipboardPanelViewModel {
       debugCollectionCountIndexedLookupCount += 1
       #endif
     } else {
-      for item in items {
-        if !matchesSearchQuery(item, query: parsedQuery) {
-          continue
-        }
-
-        for mode in ClipboardSortMode.allCases where mode.includes(item) {
-          sortModeCounts[mode.rawValue, default: 0] += 1
-        }
+      for indexedItem in indexedItemsMatchingSearch(query) {
+        let item = indexedItem.item
+        incrementSortModeCounts(for: item, counts: &sortModeCounts)
         if let collectionName = ClipboardCollectionDefaults.normalizedName(item.collectionName) {
           collectionCounts[collectionName.lowercased(), default: 0] += 1
         }
@@ -503,8 +557,30 @@ final class ClipboardPanelViewModel {
     settings.captureStatusMessage
   }
 
-  func thumbnail(for item: ClipboardItem) -> NSImage? {
-    cacheService.previewThumbnail(for: item)
+  /// Loads preview media away from the main thread and coalesces matching in-flight requests.
+  /// The completion is always delivered asynchronously on the main queue.
+  func loadThumbnail(for item: ClipboardItem, completion: @escaping (NSImage?) -> Void) {
+    guard let requestKey = thumbnailRequestKey(for: item) else {
+      DispatchQueue.main.async {
+        completion(nil)
+      }
+      return
+    }
+
+    thumbnailRequestLock.lock()
+    if var completions = thumbnailCompletionsByRequest[requestKey] {
+      completions.append(completion)
+      thumbnailCompletionsByRequest[requestKey] = completions
+      thumbnailRequestLock.unlock()
+      return
+    }
+    thumbnailCompletionsByRequest[requestKey] = [completion]
+    thumbnailRequestLock.unlock()
+
+    thumbnailLoadQueue.addOperation { [self] in
+      let thumbnail = self.thumbnailLoader(item)
+      self.finishThumbnailRequest(requestKey, thumbnail: thumbnail)
+    }
   }
 
   func selectItem(at index: Int, mode: ClipboardSelectionMode = .replace) {
@@ -525,7 +601,7 @@ final class ClipboardPanelViewModel {
       setActiveSelection(item, at: index, selectedIDs: nextIDs, anchorID: item.id)
     case .range:
       let anchorIndex = selectionAnchorItemID
-        .flatMap { anchorID in visibleItems.firstIndex { $0.id == anchorID } }
+        .flatMap { visibleIndexByID[$0] }
         ?? selectedIndex
       let lower = min(anchorIndex, index)
       let upper = max(anchorIndex, index)
@@ -533,9 +609,15 @@ final class ClipboardPanelViewModel {
       let anchorID = visibleItems[anchorIndex].id
       setActiveSelection(item, at: index, selectedIDs: rangeIDs, anchorID: anchorID)
     case .hover:
+      guard selectedItemID != item.id
+        || selectedIndex != index
+        || selectedItemIDs != [item.id]
+        || selectionAnchorItemID != item.id else {
+        return
+      }
       setActiveSelection(item, at: index, selectedIDs: [item.id], anchorID: item.id)
     case .activate:
-      if selectedItemIDs.contains(item.id), selectedItemIDs.count > 1 {
+      if selectedItemIDSet.contains(item.id), selectedItemIDs.count > 1 {
         setActiveSelection(item, at: index, selectedIDs: selectedItemIDs, anchorID: selectionAnchorItemID ?? item.id)
       } else {
         setActiveSelection(item, at: index, selectedIDs: [item.id], anchorID: item.id)
@@ -900,78 +982,6 @@ final class ClipboardPanelViewModel {
     return item.customTitle ?? ""
   }
 
-  @discardableResult
-  func createTextClip(_ text: String, now: Date = Date()) -> ClipboardItem? {
-    let trimmed = text.clipboardTrimmed
-    guard !trimmed.isEmpty else {
-      statusMessage = "Text clip cannot be empty"
-      return nil
-    }
-
-    let kind: ClipboardItemKind = CodeSnippetPayload.isLikelyCode(trimmed) ? .code : .text
-    let displayText = kind == .code ? CodeSnippetPayload.title(from: trimmed) : trimmed
-    let collectionName = selectedCollectionName.flatMap(ClipboardCollectionDefaults.normalizedName)
-    let payloadHash = store.hashString(trimmed)
-    let item = ClipboardItem(
-      id: UUID(),
-      kind: kind,
-      displayText: displayText,
-      payload: trimmed,
-      payloadHash: payloadHash,
-      createdAt: now,
-      lastUsedAt: now,
-      useCount: 0,
-      sourceApp: AppConfiguration.appName,
-      imagePath: nil,
-      thumbnailPath: nil,
-      isPinned: false,
-      sourceAppBundleId: Bundle.main.bundleIdentifier,
-      collectionName: collectionName
-    )
-
-    let selectedID = settings.pruneDuplicates
-      ? items.first(where: { $0.payloadHash == payloadHash })?.id ?? item.id
-      : item.id
-    selectedItemID = selectedID
-    selectionAnchorItemID = selectedID
-    selectedItemIDs = [selectedID]
-
-    let searchChanged = !searchText.clipboardTrimmed.isEmpty
-    let stackChanged = isStackFilterSelected
-    let targetSortMode: ClipboardSortMode? = collectionName == nil && !sortMode.includes(item)
-      ? (kind == .code ? .code : .text)
-      : nil
-
-    isBatchingFilterSelectionChanges = true
-    if stackChanged {
-      isStackFilterSelected = false
-    }
-    if searchChanged {
-      searchText = ""
-    }
-    if let targetSortMode {
-      sortMode = targetSortMode
-    }
-    isBatchingFilterSelectionChanges = false
-
-    let storedItem = store.upsert(item)
-    if searchChanged {
-      notifyMain { self.onSearchTextChanged?(self.searchText) }
-    }
-    if let targetSortMode {
-      onSortModeChanged?(targetSortMode)
-    }
-    if store.items.contains(where: { $0.id == storedItem.id }) {
-      selectedItemID = storedItem.id
-      selectionAnchorItemID = storedItem.id
-      selectedItemIDs = [storedItem.id]
-      statusMessage = kind == .code ? "Created code clip" : "Created text clip"
-      return storedItem
-    }
-    statusMessage = kind == .code ? "Created code clip" : "Created text clip"
-    return item
-  }
-
   func updateSelectedTitle(to title: String) {
     guard let item = selectedItem else { return }
     let normalizedTitle = ClipboardItem.normalizedCustomTitle(title)
@@ -1003,53 +1013,61 @@ final class ClipboardPanelViewModel {
     }
   }
 
-  func rotateSelectedImageClockwise() {
+  func rotateSelectedImageClockwise(completion: (() -> Void)? = nil) {
     guard let item = selectedItem, item.kind == .image else { return }
     let imagePath = item.imagePath ?? item.payload
-    guard let data = cacheService.data(for: imagePath),
-          let image = NSImage(data: data),
-          let rotated = image.rotatedClockwise(),
-          let fullData = rotated.pngData(),
-          let thumbnailData = rotated.resized(to: CGSize(width: 320, height: 320)).pngData(),
-          let fullPath = cacheService.cacheImageSidecarData(fullData, id: item.id),
-          let thumbnailPath = cacheService.cacheImageSidecarData(thumbnailData, id: item.id, fileNamePrefix: "thumb") else {
-      statusMessage = "Could not rotate image"
-      return
-    }
-
     selectedItemID = item.id
-    let payloadHash = store.hashData(fullData)
-    if store.updateImage(
-      item.id,
-      imagePath: fullPath,
-      thumbnailPath: thumbnailPath,
-      payloadHash: payloadHash
-    ) {
-      statusMessage = "Rotated image"
-    } else {
-      statusMessage = "Could not rotate image"
+    mediaActionQueue.addOperation { [weak self] in
+      guard let self else { return }
+      let message: String
+      if let data = self.cacheService.data(for: imagePath),
+         let image = NSImage(data: data),
+         let rotated = image.rotatedClockwise(),
+         let fullData = rotated.pngData(),
+         let thumbnailData = rotated.resized(to: CGSize(width: 320, height: 320)).pngData(),
+         let fullPath = self.cacheService.cacheImageSidecarData(fullData, id: item.id),
+         let thumbnailPath = self.cacheService.cacheImageSidecarData(thumbnailData, id: item.id, fileNamePrefix: "thumb"),
+         self.store.updateImage(
+           item.id,
+           imagePath: fullPath,
+           thumbnailPath: thumbnailPath,
+           payloadHash: self.store.hashData(fullData)
+         ) {
+        message = "Rotated image"
+      } else {
+        message = "Could not rotate image"
+      }
+      self.finishMediaAction(message: message, completion: completion)
     }
   }
 
-  func extractTextFromSelectedImage() {
+  func extractTextFromSelectedImage(completion: (() -> Void)? = nil) {
     guard let item = selectedItem, item.kind == .image else { return }
     let imagePath = item.imagePath ?? item.payload
-    guard let data = cacheService.data(for: imagePath),
-          let image = NSImage(data: data) else {
-      statusMessage = "Could not read image"
-      return
-    }
-
-    guard let text = ImageTextExtractor.normalizedRecognizedText(imageTextExtractor(image)) else {
-      statusMessage = "No text found in image"
-      return
-    }
-
     selectedItemID = item.id
-    if store.updateImageText(item.id, ocrText: text) {
-      statusMessage = "Extracted text from image"
-    } else {
-      statusMessage = "Could not save image text"
+    mediaActionQueue.addOperation { [weak self] in
+      guard let self else { return }
+      let message: String
+      if let data = self.cacheService.data(for: imagePath),
+         let image = NSImage(data: data) {
+        if let text = ImageTextExtractor.normalizedRecognizedText(self.imageTextExtractor(image)) {
+          message = self.store.updateImageText(item.id, ocrText: text)
+            ? "Extracted text from image"
+            : "Could not save image text"
+        } else {
+          message = "No text found in image"
+        }
+      } else {
+        message = "Could not read image"
+      }
+      self.finishMediaAction(message: message, completion: completion)
+    }
+  }
+
+  private func finishMediaAction(message: String, completion: (() -> Void)?) {
+    DispatchQueue.main.async { [weak self] in
+      self?.statusMessage = message
+      completion?()
     }
   }
 
@@ -1202,11 +1220,9 @@ final class ClipboardPanelViewModel {
     let restoredIDs = removals
       .sorted(by: { $0.index < $1.index })
       .map(\.item.id)
-    let visibleRestoredIDs = restoredIDs.filter { id in
-      visibleItems.contains { $0.id == id }
-    }
+    let visibleRestoredIDs = restoredIDs.filter { visibleIndexByID[$0] != nil }
     if let firstRestoredID = visibleRestoredIDs.first,
-       let restoredIndex = visibleItems.firstIndex(where: { $0.id == firstRestoredID }) {
+       let restoredIndex = visibleIndexByID[firstRestoredID] {
       setActiveSelection(
         visibleItems[restoredIndex],
         at: restoredIndex,
@@ -1231,7 +1247,7 @@ final class ClipboardPanelViewModel {
   }
 
   func assignItem(withID id: UUID, to collectionName: String?) {
-    guard let item = items.first(where: { $0.id == id }) else { return }
+    guard let item = itemByID[id] else { return }
     selectedItemID = selectedItem?.id
     assign(item: item, to: collectionName)
   }
@@ -1265,143 +1281,6 @@ final class ClipboardPanelViewModel {
       statusMessage = "Ignored \(Self.statusKindName(item.kind)) items for future captures"
     } else {
       statusMessage = "At least one content type must stay enabled."
-    }
-  }
-
-  func categorySelectionSnapshot() -> ClipboardCategorySelectionSnapshot {
-    ClipboardCategorySelectionSnapshot(
-      sortMode: sortMode,
-      selectedCollectionName: selectedCollectionName,
-      isStackFilterSelected: isStackFilterSelected,
-      selectedSortModeFilterRawValues: selectedSortModeFilterRawValues,
-      selectedCollectionNameFilters: selectedCollectionNameFilters,
-      selectedItemID: selectedItemID,
-      selectedItemIDs: selectedItemIDs,
-      selectionAnchorItemID: selectionAnchorItemID,
-      selectedIndex: selectedIndex
-    )
-  }
-
-  func previewSortMode(_ mode: ClipboardSortMode) {
-    applyCategorySelectionSnapshot(
-      ClipboardCategorySelectionSnapshot(
-        sortMode: mode,
-        selectedCollectionName: nil,
-        isStackFilterSelected: false,
-        selectedSortModeFilterRawValues: [],
-        selectedCollectionNameFilters: [],
-        selectedItemID: selectedItemID,
-        selectedItemIDs: selectedItemIDs,
-        selectionAnchorItemID: selectionAnchorItemID,
-        selectedIndex: selectedIndex
-      ),
-      persistDefaultSortMode: false,
-      restoreItemSelection: false
-    )
-  }
-
-  func previewCollection(named name: String) {
-    guard let normalizedName = ClipboardCollectionDefaults.normalizedName(name) else { return }
-    applyCategorySelectionSnapshot(
-      ClipboardCategorySelectionSnapshot(
-        sortMode: sortMode,
-        selectedCollectionName: normalizedName,
-        isStackFilterSelected: false,
-        selectedSortModeFilterRawValues: [],
-        selectedCollectionNameFilters: [],
-        selectedItemID: selectedItemID,
-        selectedItemIDs: selectedItemIDs,
-        selectionAnchorItemID: selectionAnchorItemID,
-        selectedIndex: selectedIndex
-      ),
-      persistDefaultSortMode: false,
-      restoreItemSelection: false
-    )
-  }
-
-  func previewStack() {
-    applyCategorySelectionSnapshot(
-      ClipboardCategorySelectionSnapshot(
-        sortMode: sortMode,
-        selectedCollectionName: nil,
-        isStackFilterSelected: true,
-        selectedSortModeFilterRawValues: [],
-        selectedCollectionNameFilters: [],
-        selectedItemID: selectedItemID,
-        selectedItemIDs: selectedItemIDs,
-        selectionAnchorItemID: selectionAnchorItemID,
-        selectedIndex: selectedIndex
-      ),
-      persistDefaultSortMode: false,
-      restoreItemSelection: false
-    )
-  }
-
-  func restoreCategorySelection(_ snapshot: ClipboardCategorySelectionSnapshot) {
-    applyCategorySelectionSnapshot(snapshot, persistDefaultSortMode: false, restoreItemSelection: true)
-  }
-
-  func commitCategorySelection() {
-    settings.defaultSortMode = sortMode
-  }
-
-  private func applyCategorySelectionSnapshot(
-    _ snapshot: ClipboardCategorySelectionSnapshot,
-    persistDefaultSortMode: Bool,
-    restoreItemSelection: Bool
-  ) {
-    let categoryChanged = sortMode != snapshot.sortMode
-      || selectedCollectionName != snapshot.selectedCollectionName
-      || isStackFilterSelected != snapshot.isStackFilterSelected
-      || selectedSortModeFilterRawValues != snapshot.selectedSortModeFilterRawValues
-      || selectedCollectionNameFilters != snapshot.selectedCollectionNameFilters
-    let selectionChanged = restoreItemSelection && (
-      selectedItemID != snapshot.selectedItemID
-        || selectedItemIDs != snapshot.selectedItemIDs
-        || selectionAnchorItemID != snapshot.selectionAnchorItemID
-        || selectedIndex != snapshot.selectedIndex
-    )
-    guard categoryChanged || selectionChanged else {
-      if persistDefaultSortMode {
-        settings.defaultSortMode = sortMode
-      }
-      return
-    }
-
-    let previousSortMode = sortMode
-    let previousStackSelection = isStackFilterSelected
-    let previousBatching = isBatchingFilterSelectionChanges
-    let previousPersistenceSuppression = suppressDefaultSortModePersistence
-    isBatchingFilterSelectionChanges = true
-    suppressDefaultSortModePersistence = !persistDefaultSortMode
-    isStackFilterSelected = snapshot.isStackFilterSelected
-    selectedCollectionName = snapshot.selectedCollectionName
-    selectedSortModeFilterRawValues = snapshot.selectedSortModeFilterRawValues
-    selectedCollectionNameFilters = snapshot.selectedCollectionNameFilters
-    sortMode = snapshot.sortMode
-    isBatchingFilterSelectionChanges = previousBatching
-    suppressDefaultSortModePersistence = previousPersistenceSuppression
-
-    if restoreItemSelection {
-      selectedItemID = snapshot.selectedItemID
-      selectedItemIDs = snapshot.selectedItemIDs
-      selectionAnchorItemID = snapshot.selectionAnchorItemID
-      selectedIndex = snapshot.selectedIndex
-    }
-
-    if persistDefaultSortMode {
-      settings.defaultSortMode = sortMode
-    }
-
-    recomputeVisibleItems()
-    if previousSortMode != sortMode {
-      onSortModeChanged?(sortMode)
-    } else {
-      onSortModeChanged?(sortMode)
-    }
-    onCollectionsChanged?()
-    if previousStackSelection != isStackFilterSelected {
-      onStackChanged?()
     }
   }
 
@@ -1575,7 +1454,6 @@ final class ClipboardPanelViewModel {
     if selectAfterCreate {
       selectCollection(named: normalizedName)
     } else {
-      recomputeVisibleItems()
       onCollectionsChanged?()
     }
   }
@@ -1584,14 +1462,23 @@ final class ClipboardPanelViewModel {
     settings.collectionColorHex(forCollectionNamed: name)
   }
 
-  @discardableResult
-  func exportCollection(named name: String, to url: URL) throws -> ClipboardArchiveSummary {
-    let summary = try store.exportCollection(named: name, to: url)
-    if let normalizedName = ClipboardCollectionDefaults.normalizedName(name) {
-      let noun = summary.itemCount == 1 ? "clip" : "clips"
-      statusMessage = "Exported \(normalizedName) Pinboard with \(summary.itemCount) \(noun)"
+  func exportCollection(
+    named name: String,
+    to url: URL,
+    completion: @escaping (Result<ClipboardArchiveSummary, Error>) -> Void
+  ) {
+    mediaActionQueue.addOperation { [weak self] in
+      guard let self else { return }
+      let result = Result { try self.store.exportCollection(named: name, to: url) }
+      DispatchQueue.main.async { [weak self] in
+        if case .success(let summary) = result,
+           let normalizedName = ClipboardCollectionDefaults.normalizedName(name) {
+          let noun = summary.itemCount == 1 ? "clip" : "clips"
+          self?.statusMessage = "Exported \(normalizedName) Pinboard with \(summary.itemCount) \(noun)"
+        }
+        completion(result)
+      }
     }
-    return summary
   }
 
   func reportCollectionExportFailure(_ error: Error) {
@@ -1696,7 +1583,7 @@ final class ClipboardPanelViewModel {
       onCollectionsChanged?()
     }
 
-    if let index = visibleItems.firstIndex(where: { $0.id == item.id }) {
+    if let index = visibleIndexByID[item.id] {
       selectedIndex = index
       selectedItemID = item.id
     }
@@ -1712,7 +1599,7 @@ final class ClipboardPanelViewModel {
     }
     let previousSelection = selectedItemID
     let previousSelectedIDs = selectedItemIDs
-    let query = searchText.clipboardTrimmed.lowercased()
+    let query = Self.normalizedSearchValue(searchText)
     if isStackFilterSelected {
       let stackedItems = stackItemIDs.compactMap { itemByID[$0] }
       visibleItems = computeStackVisibleItems(from: stackedItems, query: query)
@@ -1738,8 +1625,7 @@ final class ClipboardPanelViewModel {
     }
 
     selectedItemID = selectedItem?.id
-    let visibleIDs = Set(visibleIndexByID.keys)
-    let visibleSelectedIDs = previousSelectedIDs.filter { visibleIDs.contains($0) }
+    let visibleSelectedIDs = previousSelectedIDs.filter { visibleIndexByID[$0] != nil }
     if previousSelection == nil {
       selectedItemIDs = selectedItemID.map { [$0] } ?? []
     } else if !visibleSelectedIDs.isEmpty {
@@ -1749,7 +1635,7 @@ final class ClipboardPanelViewModel {
     } else {
       selectedItemIDs = []
     }
-    if let selectionAnchorItemID, !visibleIDs.contains(selectionAnchorItemID) {
+    if let selectionAnchorItemID, visibleIndexByID[selectionAnchorItemID] == nil {
       self.selectionAnchorItemID = selectedItemID
     }
   }
@@ -1833,30 +1719,46 @@ final class ClipboardPanelViewModel {
     for item: ClipboardItem,
     to indexedItemsBySortMode: inout [Int: [IndexedClipboardItem]]
   ) {
+    forEachCategorizingSortMode(including: item) { mode in
+      indexedItemsBySortMode[mode.rawValue, default: []].append(indexedItem)
+    }
+  }
+
+  private func incrementSortModeCounts(for item: ClipboardItem, counts: inout [Int: Int]) {
+    counts[ClipboardSortMode.mostRecent.rawValue, default: 0] += 1
+    counts[ClipboardSortMode.mostUsed.rawValue, default: 0] += 1
+    forEachCategorizingSortMode(including: item) { mode in
+      counts[mode.rawValue, default: 0] += 1
+    }
+  }
+
+  private func forEachCategorizingSortMode(
+    including item: ClipboardItem,
+    _ body: (ClipboardSortMode) -> Void
+  ) {
     switch item.kind {
     case .image:
-      indexedItemsBySortMode[ClipboardSortMode.images.rawValue, default: []].append(indexedItem)
+      body(.images)
     case .url:
-      indexedItemsBySortMode[ClipboardSortMode.links.rawValue, default: []].append(indexedItem)
+      body(.links)
     case .text, .richText:
-      indexedItemsBySortMode[ClipboardSortMode.text.rawValue, default: []].append(indexedItem)
+      body(.text)
     case .code:
-      indexedItemsBySortMode[ClipboardSortMode.text.rawValue, default: []].append(indexedItem)
-      indexedItemsBySortMode[ClipboardSortMode.code.rawValue, default: []].append(indexedItem)
+      body(.text)
+      body(.code)
     case .file, .pdf:
-      indexedItemsBySortMode[ClipboardSortMode.files.rawValue, default: []].append(indexedItem)
+      body(.files)
     case .audio:
-      indexedItemsBySortMode[ClipboardSortMode.audio.rawValue, default: []].append(indexedItem)
+      body(.audio)
     case .color:
-      indexedItemsBySortMode[ClipboardSortMode.colors.rawValue, default: []].append(indexedItem)
+      body(.colors)
     case .video:
-      indexedItemsBySortMode[ClipboardSortMode.videos.rawValue, default: []].append(indexedItem)
+      body(.videos)
     case .unknown:
       break
     }
-
     if item.isPinned {
-      indexedItemsBySortMode[ClipboardSortMode.pinned.rawValue, default: []].append(indexedItem)
+      body(.pinned)
     }
   }
 
@@ -2020,7 +1922,12 @@ final class ClipboardPanelViewModel {
   }
 
   private func pruneStackItems() {
+    guard stackItemsNeedPruning else { return }
+    stackItemsNeedPruning = false
     guard !stackItemIDs.isEmpty else { return }
+    #if DEBUG
+    debugStackPruneScanCount += 1
+    #endif
     let pruned = stackItemIDs.filter { itemIDSet.contains($0) }
     if pruned != stackItemIDs {
       stackItemIDs = pruned
@@ -2051,6 +1958,37 @@ final class ClipboardPanelViewModel {
     return items.filter { matchesSearchQuery($0, query: parsedQuery) }
   }
 
+  private func indexedItemsMatchingSearch(_ query: String) -> [IndexedClipboardItem] {
+    if let searchMatchCache, searchMatchCache.query == query {
+      #if DEBUG
+      debugSearchMatchCacheHitCount += 1
+      #endif
+      return searchMatchCache.indexedItems
+    }
+
+    let allIndexedItems = indexedItemsBySortMode[ClipboardSortMode.mostRecent.rawValue] ?? []
+    let parsedQuery = parseSearchQuery(query)
+    let matchingItems: [IndexedClipboardItem]
+    if parsedQuery.isEmpty {
+      matchingItems = allIndexedItems
+    } else {
+      var matches: [IndexedClipboardItem] = []
+      matches.reserveCapacity(allIndexedItems.count)
+      for indexedItem in allIndexedItems {
+        #if DEBUG
+        debugSearchItemEvaluationCount += 1
+        #endif
+        if matchesSearchQuery(indexedItem.item, query: parsedQuery) {
+          matches.append(indexedItem)
+        }
+      }
+      matchingItems = matches
+    }
+
+    searchMatchCache = SearchMatchCacheEntry(query: query, indexedItems: matchingItems)
+    return matchingItems
+  }
+
   private func cachedVisibleItems(
     query: String,
     sortMode: ClipboardSortMode,
@@ -2062,8 +2000,8 @@ final class ClipboardPanelViewModel {
       query: query,
       sortMode: sortMode.rawValue,
       collectionNameKey: collectionNameKey,
-      sortModeFilterRawValues: categoryFilters.sortModeRawValues,
-      collectionNameFilterKeys: categoryFilters.collectionNameKeys
+      sortModeFilterRawValues: categoryFilters.sortModeRawValues.sorted(),
+      collectionNameFilterKeys: categoryFilters.collectionNameKeys.sorted()
     )
     if let cached = visibleItemsCache[key] {
       return cached
@@ -2085,9 +2023,8 @@ final class ClipboardPanelViewModel {
       debugVisibleItemsIndexedLookupCount += 1
       #endif
     } else {
-      computed = computeVisibleItems(
-        from: items,
-        query: query,
+      computed = filterAndSortVisibleItems(
+        indexedItemsMatchingSearch(query),
         sortMode: sortMode,
         collectionName: collectionName,
         categoryFilters: categoryFilters
@@ -2162,14 +2099,36 @@ final class ClipboardPanelViewModel {
     categoryFilters: CategoryFilterSelection = .empty
   ) -> [ClipboardItem] {
     let parsedQuery = parseSearchQuery(query)
-    let normalizedCollectionName = ClipboardCollectionDefaults.normalizedName(collectionName)
-    var filtered: [IndexedClipboardItem] = []
-    filtered.reserveCapacity(items.count)
+    var searchMatches: [IndexedClipboardItem] = []
+    searchMatches.reserveCapacity(items.count)
 
     for (offset, item) in items.enumerated() {
       if !parsedQuery.isEmpty, !matchesSearchQuery(item, query: parsedQuery) {
         continue
       }
+      searchMatches.append(IndexedClipboardItem(offset: offset, item: item))
+    }
+
+    return filterAndSortVisibleItems(
+      searchMatches,
+      sortMode: sortMode,
+      collectionName: collectionName,
+      categoryFilters: categoryFilters
+    )
+  }
+
+  private func filterAndSortVisibleItems(
+    _ indexedItems: [IndexedClipboardItem],
+    sortMode: ClipboardSortMode,
+    collectionName: String?,
+    categoryFilters: CategoryFilterSelection
+  ) -> [ClipboardItem] {
+    let normalizedCollectionName = ClipboardCollectionDefaults.normalizedName(collectionName)
+    var filtered: [IndexedClipboardItem] = []
+    filtered.reserveCapacity(indexedItems.count)
+
+    for indexedItem in indexedItems {
+      let item = indexedItem.item
       if !categoryFilters.isEmpty {
         guard itemMatchesCategoryFilters(item, filters: categoryFilters) else {
           continue
@@ -2181,7 +2140,7 @@ final class ClipboardPanelViewModel {
       } else if !sortMode.includes(item) {
         continue
       }
-      filtered.append(IndexedClipboardItem(offset: offset, item: item))
+      filtered.append(indexedItem)
     }
 
     sortIndexedItems(
@@ -2224,17 +2183,28 @@ final class ClipboardPanelViewModel {
   }
 
   private func activeCategoryFilterSelection() -> CategoryFilterSelection {
-    guard !selectedSortModeFilterRawValues.isEmpty || !selectedCollectionNameFilters.isEmpty else {
-      return .empty
+    if let categoryFilterSelectionCache {
+      return categoryFilterSelectionCache
     }
-    let sortModeRawValues = selectedSortModeFilterRawValues.sorted()
-    let collectionKeys = selectedCollectionNameFilters
-      .compactMap { ClipboardCollectionDefaults.normalizedName($0)?.lowercased() }
-      .sorted()
-    return CategoryFilterSelection(
-      sortModeRawValues: sortModeRawValues,
-      collectionNameKeys: collectionKeys
-    )
+
+    let selection: CategoryFilterSelection
+    if selectedSortModeFilterRawValues.isEmpty && selectedCollectionNameFilters.isEmpty {
+      selection = .empty
+    } else {
+      selection = CategoryFilterSelection(
+        sortModeRawValues: selectedSortModeFilterRawValues,
+        collectionNameKeys: Set(
+          selectedCollectionNameFilters.compactMap {
+            ClipboardCollectionDefaults.normalizedName($0)?.lowercased()
+          }
+        )
+      )
+    }
+    categoryFilterSelectionCache = selection
+    #if DEBUG
+    debugCategoryFilterSelectionBuildCount += 1
+    #endif
+    return selection
   }
 
   private func itemMatchesCategoryFilters(_ item: ClipboardItem, filters: CategoryFilterSelection) -> Bool {
@@ -2293,61 +2263,50 @@ final class ClipboardPanelViewModel {
     return lhs.item.lastUsedAt > rhs.item.lastUsedAt
   }
 
-  private func searchableText(for item: ClipboardItem) -> String {
-    var base = Self.normalizedSearchValue(item.searchableText)
-    if settings.includeImageTextInSearch, let ocrText = item.ocrText {
-      base += " \(Self.normalizedSearchValue(ocrText))"
-    }
-    return base
-  }
-
   private func matchesSearchQuery(_ item: ClipboardItem, query: ParsedSearchQuery) -> Bool {
+    let needsSearchDocument = !query.textTokens.isEmpty
+      || !query.appTokenGroups.isEmpty
+      || !query.deviceTokenGroups.isEmpty
+      || !query.collectionTokenGroups.isEmpty
+    let document = needsSearchDocument ? searchDocument(for: item) : nil
+
     if !query.textTokens.isEmpty {
-      let text = searchableText(for: item)
+      guard let document else { return false }
+      let text = settings.includeImageTextInSearch ? document.textIncludingOCR : document.text
       guard query.textTokens.allSatisfy({ text.contains($0) }) else { return false }
     }
 
     if !query.appTokenGroups.isEmpty {
-      let sourceValues = [item.sourceApp, item.sourceAppBundleId]
-        .compactMap { $0 }
-        .map(normalizedStructuredValue)
-        .filter { !$0.isEmpty }
-      let sourceText = sourceValues.joined(separator: " ")
-      guard !sourceValues.isEmpty,
+      guard let document, !document.sourceValues.isEmpty,
             query.appTokenGroups.contains(where: { group in
               if let exactValue = group.exactValue {
-                return sourceValues.contains(exactValue)
+                return document.sourceValues.contains(exactValue)
               }
-              return group.tokens.allSatisfy { sourceText.contains($0) }
+              return group.tokens.allSatisfy { document.sourceText.contains($0) }
             }) else {
         return false
       }
     }
 
     if !query.deviceTokenGroups.isEmpty {
-      let device = normalizedStructuredValue(item.effectiveSourceDeviceName)
+      guard let document else { return false }
       guard query.deviceTokenGroups.contains(where: { group in
         if let exactValue = group.exactValue {
-          return device == exactValue
+          return document.device == exactValue
         }
-        return group.tokens.allSatisfy { device.contains($0) }
+        return group.tokens.allSatisfy { document.device.contains($0) }
       }) else {
         return false
       }
     }
 
     if !query.collectionTokenGroups.isEmpty {
-      guard let collectionName = item.collectionName,
-            !collectionName.clipboardTrimmed.isEmpty else {
-        return false
-      }
-      let collection = normalizedStructuredValue(collectionName)
-      guard !collection.isEmpty,
+      guard let document, !document.collection.isEmpty,
             query.collectionTokenGroups.contains(where: { group in
               if let exactValue = group.exactValue {
-                return collection == exactValue
+                return document.collection == exactValue
               }
-              return group.tokens.allSatisfy { collection.contains($0) }
+              return group.tokens.allSatisfy { document.collection.contains($0) }
             }) else {
         return false
       }
@@ -2370,6 +2329,53 @@ final class ClipboardPanelViewModel {
     }
 
     return true
+  }
+
+  private func searchDocument(for item: ClipboardItem) -> SearchDocument {
+    let fingerprint = SearchDocumentFingerprint(
+      kindRawValue: item.kind.rawValue,
+      displayText: item.displayText,
+      payload: item.payload,
+      customTitle: item.customTitle,
+      sourceApp: item.sourceApp,
+      sourceAppBundleID: item.sourceAppBundleId,
+      collectionName: item.collectionName,
+      sourceDeviceName: item.sourceDeviceName,
+      ocrText: item.ocrText
+    )
+    if let cached = searchDocumentsByItemID[item.id], cached.fingerprint == fingerprint {
+      #if DEBUG
+      debugSearchDocumentCacheHitCount += 1
+      #endif
+      return cached
+    }
+
+    let sourceDeviceName = effectiveSourceDeviceName(for: item)
+    let text = Self.normalizedSearchValue(item.searchableText)
+    let normalizedOCR = item.ocrText.map(Self.normalizedSearchValue) ?? ""
+    let textIncludingOCR = normalizedOCR.isEmpty ? text : "\(text) \(normalizedOCR)"
+    let sourceValues = [item.sourceApp, item.sourceAppBundleId]
+      .compactMap { $0 }
+      .map(normalizedStructuredValue)
+      .filter { !$0.isEmpty }
+    let document = SearchDocument(
+      fingerprint: fingerprint,
+      text: text,
+      textIncludingOCR: textIncludingOCR,
+      sourceValues: sourceValues,
+      sourceText: sourceValues.joined(separator: " "),
+      device: normalizedStructuredValue(sourceDeviceName),
+      collection: item.collectionName.map(normalizedStructuredValue) ?? ""
+    )
+    searchDocumentsByItemID[item.id] = document
+    #if DEBUG
+    debugSearchDocumentBuildCount += 1
+    #endif
+    return document
+  }
+
+  private func effectiveSourceDeviceName(for item: ClipboardItem) -> String {
+    ClipboardItem.normalizedDeviceName(item.sourceDeviceName) ?? Self.fallbackSourceDeviceName
   }
 
   private func parseSearchQuery(_ query: String) -> ParsedSearchQuery {
@@ -2689,6 +2695,32 @@ final class ClipboardPanelViewModel {
     }
 
     return nil
+  }
+
+  private func thumbnailRequestKey(for item: ClipboardItem) -> ThumbnailRequestKey? {
+    let source: String?
+    switch item.kind {
+    case .url, .image:
+      source = item.thumbnailPath
+    case .pdf, .file, .video:
+      source = item.payload
+    case .text, .unknown, .audio, .richText, .color, .code:
+      return nil
+    }
+    return ThumbnailRequestKey(itemID: item.id, kindRawValue: item.kind.rawValue, source: source)
+  }
+
+  private func finishThumbnailRequest(_ requestKey: ThumbnailRequestKey, thumbnail: NSImage?) {
+    thumbnailRequestLock.lock()
+    let completions = thumbnailCompletionsByRequest.removeValue(forKey: requestKey) ?? []
+    thumbnailRequestLock.unlock()
+    guard !completions.isEmpty else { return }
+
+    DispatchQueue.main.async {
+      for completion in completions {
+        completion(thumbnail)
+      }
+    }
   }
 
   private static func statusKindName(_ kind: ClipboardItemKind) -> String {

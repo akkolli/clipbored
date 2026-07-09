@@ -44,7 +44,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var statusMenu: NSMenu?
   private var pauseResumeTimer: Timer?
   private var cloudSyncPushWorkItem: DispatchWorkItem?
+  private let cloudSyncOperationQueue: OperationQueue = {
+    let queue = OperationQueue()
+    queue.name = "clipbored.cloud-sync"
+    queue.qualityOfService = .utility
+    queue.maxConcurrentOperationCount = 1
+    return queue
+  }()
+  private let cloudSyncStateLock = NSLock()
   private var suppressCloudSyncPush = false
+  private var cloudSyncOperationGeneration = 0
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     settings = SettingsModel()
@@ -57,7 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       settings: settings,
       cacheService: cacheService,
       pollClipboardNow: { [weak monitor] in
-        monitor?.pollNowAndWait()
+        monitor?.pollNow()
       },
       openSettings: { [weak self] in
         self?.openSettings()
@@ -79,12 +88,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
           self?.panelController.toggle()
         }
       },
-      onOpenSettings: { [weak self] in
-        DispatchQueue.main.async {
-          self?.refreshAccessibilityPermissionMessage()
-          self?.settingsController.show()
-        }
-      },
       onToggleStackCapture: { [weak self] in
         DispatchQueue.main.async {
           self?.panelController.toggleStackCaptureMode()
@@ -95,8 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
           self?.settings.setShortcutStatus(message: status.message)
         }
       },
-      openShortcut: settings.openShortcut,
-      settingsShortcut: settings.settingsShortcut
+      openShortcut: settings.openShortcut
     )
     bindSettings()
     bindCloudSync()
@@ -120,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationWillTerminate(_ notification: Notification) {
     pauseResumeTimer?.invalidate()
     cloudSyncPushWorkItem?.cancel()
+    cloudSyncOperationQueue.cancelAllOperations()
     monitor.stop()
     shortcutManager.stop()
     cacheService.clearTemporaryPreviews(wait: true)
@@ -571,7 +574,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observedInitialItems = true
         return
       }
-      guard self.settings.iCloudSyncEnabled, !self.suppressCloudSyncPush else { return }
+      guard self.settings.iCloudSyncEnabled, !self.isCloudSyncPushSuppressed else { return }
       self.scheduleCloudSyncPush()
     }
 
@@ -590,9 +593,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       store.normalizeHistoryLength()
     case .imageCacheMaxBytes:
       cacheService.purgeIfNeeded(maxBytes: settings.imageCacheMaxBytes)
-    case .openShortcut, .settingsShortcut:
-      let status = shortcutManager.reconfigure(openShortcut: settings.openShortcut, settingsShortcut: settings.settingsShortcut)
+    case .openShortcut:
+      let status = shortcutManager.reconfigure(openShortcut: settings.openShortcut)
       settings.setShortcutStatus(message: status.message)
+      refreshStatusItem()
+      configureMainMenu()
+    case .settingsShortcut:
       refreshStatusItem()
       configureMainMenu()
     case .launchAtLogin:
@@ -601,11 +607,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       applyPresentation(changedSurface: .menuBar)
     case .showDockIcon:
       applyPresentation(changedSurface: .dock)
-    case .compactMode:
-      break
-    case .panelLayout:
-      break
-    case .panelSizing:
+    case .panelSide:
       break
     case .cloudSync:
       applyCloudSyncSetting()
@@ -627,30 +629,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func applyCloudSyncSetting() {
     cloudSyncPushWorkItem?.cancel()
     cloudSyncPushWorkItem = nil
+    cloudSyncOperationGeneration += 1
+    let generation = cloudSyncOperationGeneration
 
     guard settings.iCloudSyncEnabled else {
+      setCloudSyncPushSuppressed(false)
       settings.setCloudSyncStatus(message: "iCloud Sync is off.")
       return
     }
 
-    let status = cloudSyncService.status()
-    settings.setCloudSyncStatus(message: status.message)
-    guard status.isAvailable else { return }
-    pullCloudSyncArchiveIfAvailable()
-  }
-
-  private func pullCloudSyncArchiveIfAvailable() {
-    suppressCloudSyncPush = true
-    defer { suppressCloudSyncPush = false }
-
-    do {
-      let summary = try cloudSyncService.pull(store: store)
-      settings.setCloudSyncStatus(message: "Restored \(summary.itemCount) clips from iCloud.")
-    } catch ClipboardCloudSyncError.noRemoteArchive(_) {
-      settings.setCloudSyncStatus(message: "iCloud Sync is ready. No remote archive yet.")
-      scheduleCloudSyncPush(after: 1.0)
-    } catch {
-      settings.setCloudSyncStatus(message: "iCloud Sync failed: \(error.localizedDescription)")
+    settings.setCloudSyncStatus(message: "Checking iCloud Sync…")
+    setCloudSyncPushSuppressed(true)
+    cloudSyncOperationQueue.addOperation { [weak self] in
+      guard let self else { return }
+      let status = self.cloudSyncService.status()
+      let result: (message: String, schedulesInitialPush: Bool)
+      if !status.isAvailable {
+        result = (status.message, false)
+      } else {
+        do {
+          let summary = try self.cloudSyncService.pull(store: self.store)
+          result = ("Restored \(summary.itemCount) clips from iCloud.", false)
+        } catch ClipboardCloudSyncError.noRemoteArchive(_) {
+          result = ("iCloud Sync is ready. No remote archive yet.", true)
+        } catch {
+          result = ("iCloud Sync failed: \(error.localizedDescription)", false)
+        }
+      }
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        self.setCloudSyncPushSuppressed(false)
+        guard generation == self.cloudSyncOperationGeneration,
+              self.settings.iCloudSyncEnabled else { return }
+        self.settings.setCloudSyncStatus(message: result.message)
+        if result.schedulesInitialPush {
+          self.scheduleCloudSyncPush(after: 1.0)
+        }
+      }
     }
   }
 
@@ -665,12 +680,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func pushCloudSyncArchive() {
     guard settings.iCloudSyncEnabled else { return }
-    do {
-      let summary = try cloudSyncService.push(store: store)
-      settings.setCloudSyncStatus(message: "Synced \(summary.itemCount) clips to iCloud.")
-    } catch {
-      settings.setCloudSyncStatus(message: "iCloud Sync failed: \(error.localizedDescription)")
+    let generation = cloudSyncOperationGeneration
+    cloudSyncOperationQueue.addOperation { [weak self] in
+      guard let self else { return }
+      let message: String
+      do {
+        let summary = try self.cloudSyncService.push(store: self.store)
+        message = "Synced \(summary.itemCount) clips to iCloud."
+      } catch {
+        message = "iCloud Sync failed: \(error.localizedDescription)"
+      }
+      DispatchQueue.main.async { [weak self] in
+        guard let self,
+              generation == self.cloudSyncOperationGeneration,
+              self.settings.iCloudSyncEnabled else { return }
+        self.settings.setCloudSyncStatus(message: message)
+      }
     }
+  }
+
+  private var isCloudSyncPushSuppressed: Bool {
+    cloudSyncStateLock.lock()
+    defer { cloudSyncStateLock.unlock() }
+    return suppressCloudSyncPush
+  }
+
+  private func setCloudSyncPushSuppressed(_ suppressed: Bool) {
+    cloudSyncStateLock.lock()
+    suppressCloudSyncPush = suppressed
+    cloudSyncStateLock.unlock()
   }
 
   private func applyCapturePauseSetting(now: Date = Date()) {

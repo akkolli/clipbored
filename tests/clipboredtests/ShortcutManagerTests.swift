@@ -36,24 +36,11 @@ final class ShortcutManagerTests: XCTestCase {
     manager.stop()
   }
 
-  func testRejectsUnsupportedSettingsShortcutBeforeRegistration() {
-    let manager = makeManager(
-      openShortcut: AppConfiguration.defaultOpenShortcut,
-      settingsShortcut: ShortcutBinding(key: "space", modifierFlags: NSEvent.ModifierFlags.command.rawValue)
-    )
+  func testGlobalRegistrationExcludesLocalSettingsShortcut() {
+    let bindings = ShortcutManager.globalShortcutBindings(openShortcut: AppConfiguration.defaultOpenShortcut)
 
-    XCTAssertEqual(manager.start(), .unsupportedShortcut("⌘SPACE"))
-    manager.stop()
-  }
-
-  func testRejectsDuplicateShortcutBindingsBeforeRegistration() {
-    let manager = makeManager(
-      openShortcut: AppConfiguration.defaultOpenShortcut,
-      settingsShortcut: AppConfiguration.defaultOpenShortcut
-    )
-
-    XCTAssertEqual(manager.start(), .conflict(AppConfiguration.defaultOpenShortcut.displayText))
-    manager.stop()
+    XCTAssertEqual(bindings, [AppConfiguration.defaultOpenShortcut, ShortcutManager.stackCaptureShortcut])
+    XCTAssertFalse(bindings.contains(AppConfiguration.defaultSettingsShortcut))
   }
 
   func testRejectsConfiguredShortcutConflictWithFixedStackCaptureShortcut() {
@@ -63,15 +50,10 @@ final class ShortcutManagerTests: XCTestCase {
     manager.stop()
   }
 
-  private func makeManager(
-    openShortcut: ShortcutBinding,
-    settingsShortcut: ShortcutBinding = AppConfiguration.defaultSettingsShortcut
-  ) -> ShortcutManager {
+  private func makeManager(openShortcut: ShortcutBinding) -> ShortcutManager {
     ShortcutManager(
       onOpenClipboardPanel: {},
-      onOpenSettings: {},
-      openShortcut: openShortcut,
-      settingsShortcut: settingsShortcut
+      openShortcut: openShortcut
     )
   }
 }

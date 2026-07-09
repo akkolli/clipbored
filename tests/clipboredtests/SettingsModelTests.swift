@@ -84,27 +84,6 @@ final class SettingsModelTests: XCTestCase {
     XCTAssertTrue(restored.hideFromScreenCapture)
   }
 
-  func testCompactModePersistsAndNotifies() {
-    let suiteName = "com.clipbored.settingsmodel.\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: suiteName)!
-    defer {
-      defaults.removePersistentDomain(forName: suiteName)
-    }
-    let settings = SettingsModel(defaults: defaults)
-    var changes: [SettingsModel.Change] = []
-    settings.observe { changes.append($0) }
-
-    XCTAssertFalse(settings.compactMode)
-
-    settings.compactMode = true
-
-    XCTAssertTrue(defaults.bool(forKey: SettingsModel.Keys.compactMode))
-    XCTAssertEqual(changes, [.compactMode])
-
-    let restored = SettingsModel(defaults: defaults)
-    XCTAssertTrue(restored.compactMode)
-  }
-
   func testPanelSidePersistsAndNotifies() {
     let suiteName = "com.clipbored.settingsmodel.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
@@ -115,17 +94,14 @@ final class SettingsModelTests: XCTestCase {
     var changes: [SettingsModel.Change] = []
     settings.observe { changes.append($0) }
 
-    XCTAssertEqual(settings.panelLayout, .vertical)
     XCTAssertEqual(settings.panelSide, .right)
 
     settings.panelSide = .left
 
-    XCTAssertEqual(defaults.integer(forKey: SettingsModel.Keys.panelLayout), ClipboardPanelLayout.vertical.rawValue)
     XCTAssertEqual(defaults.integer(forKey: SettingsModel.Keys.panelSide), ClipboardPanelSide.left.rawValue)
-    XCTAssertEqual(changes, [.panelLayout])
+    XCTAssertEqual(changes, [.panelSide])
 
     let restored = SettingsModel(defaults: defaults)
-    XCTAssertEqual(restored.panelLayout, .vertical)
     XCTAssertEqual(restored.panelSide, .left)
   }
 
@@ -176,27 +152,6 @@ final class SettingsModelTests: XCTestCase {
 
     let restored = SettingsModel(defaults: defaults)
     XCTAssertFalse(restored.iCloudSyncEnabled)
-  }
-
-  func testPanelShelfHeightPersistsAndNotifies() {
-    let suiteName = "com.clipbored.settingsmodel.\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: suiteName)!
-    defer {
-      defaults.removePersistentDomain(forName: suiteName)
-    }
-    let settings = SettingsModel(defaults: defaults)
-    var changes: [SettingsModel.Change] = []
-    settings.observe { changes.append($0) }
-
-    XCTAssertEqual(settings.panelShelfHeight, 0)
-
-    settings.panelShelfHeight = 620
-
-    XCTAssertEqual(defaults.double(forKey: SettingsModel.Keys.panelShelfHeight), 620)
-    XCTAssertEqual(changes, [.panelSizing])
-
-    let restored = SettingsModel(defaults: defaults)
-    XCTAssertEqual(restored.panelShelfHeight, 620)
   }
 
   func testPauseCaptureUntilPersistsAndCanBeCleared() {

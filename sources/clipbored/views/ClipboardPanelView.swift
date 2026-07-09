@@ -7,9 +7,6 @@ private struct ClipboardItemCardLayout: Equatable {
   let headerHeight: CGFloat
   let bodyHeight: CGFloat
   let footerHeight: CGFloat
-  let actionButtonSize: CGFloat
-  let primaryActionButtonSize: CGFloat
-  let actionRailHeight: CGFloat
   let activeLift: CGFloat
 
   static let regular = ClipboardItemCardLayout(
@@ -19,9 +16,6 @@ private struct ClipboardItemCardLayout: Equatable {
     headerHeight: 56,
     bodyHeight: 152,
     footerHeight: 36,
-    actionButtonSize: 24,
-    primaryActionButtonSize: 30,
-    actionRailHeight: 34,
     activeLift: 0
   )
 
@@ -32,9 +26,6 @@ private struct ClipboardItemCardLayout: Equatable {
     headerHeight: 50,
     bodyHeight: 138,
     footerHeight: 32,
-    actionButtonSize: 22,
-    primaryActionButtonSize: 28,
-    actionRailHeight: 32,
     activeLift: 0
   )
 
@@ -45,9 +36,6 @@ private struct ClipboardItemCardLayout: Equatable {
     headerHeight: 58,
     bodyHeight: 218,
     footerHeight: 44,
-    actionButtonSize: 26,
-    primaryActionButtonSize: 32,
-    actionRailHeight: 36,
     activeLift: 0
   )
 
@@ -67,9 +55,6 @@ private struct ClipboardItemCardLayout: Equatable {
       headerHeight: headerHeight,
       bodyHeight: bodyHeight,
       footerHeight: footerHeight,
-      actionButtonSize: actionButtonSize,
-      primaryActionButtonSize: primaryActionButtonSize,
-      actionRailHeight: actionRailHeight,
       activeLift: activeLift
     )
   }
@@ -194,15 +179,40 @@ private struct ClipboardItemCardReuseFingerprint: Equatable {
   let quickPasteNumber: Int?
 }
 
-#if DEBUG
-private struct ClipboardSearchFilterPart {
-  let raw: String
-  let canonical: String
-  let canonicalKey: String?
-  let keyValueCanonical: String?
-  let isExact: Bool
+private final class ClipboardPanelSearchFieldCell: NSSearchFieldCell {
+  private enum Metrics {
+    static let textLeadingInset: CGFloat = 40
+    static let textTrailingInset: CGFloat = 8
+    static let cancelButtonInset: CGFloat = 6
+    static let cancelButtonSize: CGFloat = 18
+  }
+
+  override func searchButtonRect(forBounds rect: NSRect) -> NSRect {
+    .zero
+  }
+
+  override func cancelButtonRect(forBounds rect: NSRect) -> NSRect {
+    guard cancelButtonCell != nil else { return .zero }
+    return NSRect(
+      x: rect.maxX - Metrics.cancelButtonInset - Metrics.cancelButtonSize,
+      y: floor(rect.midY - (Metrics.cancelButtonSize / 2)),
+      width: Metrics.cancelButtonSize,
+      height: Metrics.cancelButtonSize
+    )
+  }
+
+  override func searchTextRect(forBounds rect: NSRect) -> NSRect {
+    let trailingInset = stringValue.isEmpty
+      ? Metrics.textTrailingInset
+      : Metrics.cancelButtonInset + Metrics.cancelButtonSize + 4
+    return NSRect(
+      x: rect.minX + Metrics.textLeadingInset,
+      y: rect.minY,
+      width: max(0, rect.width - Metrics.textLeadingInset - trailingInset),
+      height: rect.height
+    )
+  }
 }
-#endif
 
 private final class ClipboardPanelSearchField: NSSearchField {
   var onFocusStateChanged: (() -> Void)?
@@ -235,31 +245,15 @@ private final class ClipboardPanelSearchField: NSSearchField {
 }
 
 private enum ClipboardCardPresentation: Equatable {
-  case expanded
-  case horizontalIcon
-  case horizontalFocus
   case verticalRow
   case verticalFocus
 
   var isExpanded: Bool {
-    self == .expanded || self == .verticalFocus
-  }
-
-  var showsFloatingActions: Bool {
-    self == .expanded
+    self == .verticalFocus
   }
 
   func size(for layout: ClipboardItemCardLayout) -> NSSize {
     switch self {
-    case .expanded:
-      return NSSize(width: layout.width, height: layout.height + layout.activeLift)
-    case .horizontalIcon:
-      let side: CGFloat = layout.isCompact ? 56 : 64
-      return NSSize(width: side, height: side)
-    case .horizontalFocus:
-      let width: CGFloat = layout.isCompact ? 224 : 252
-      let height: CGFloat = layout.isCompact ? 56 : 64
-      return NSSize(width: width, height: height)
     case .verticalRow:
       let height: CGFloat = layout.isCompact ? 56 : 64
       return NSSize(width: layout.width, height: height)
@@ -273,38 +267,39 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private enum Metrics {
     static let actionButtonSize: CGFloat = 28
     static let searchControlSize: CGFloat = 30
-    static let panelTopInset: CGFloat = 6
+    static let panelTopInset: CGFloat = 10
     static let panelSideInset: CGFloat = 12
     static let actionBarHorizontalPadding: CGFloat = 10
-    static let panelStatusBarHeight: CGFloat = 24
     static let minimumBottomInset: CGFloat = 20
-    static let panelCornerRadius: CGFloat = 22
-    static let compactCardThreshold: CGFloat = 760
-    static let emptyStateMinimumWidth: CGFloat = 760
-    static let collectionRailHeight: CGFloat = 32
-    static let collectionRailMaximumWidth: CGFloat = 760
-    static let verticalCollectionRailMaximumWidth: CGFloat = 260
+    static let panelCornerRadius: CGFloat = 14
+    static let collectionRailHeight: CGFloat = 34
+    static let collectionUtilitySize: CGFloat = 34
+    static let collectionChipScrollPadding: CGFloat = 4
     static let collectionSideRailWidth: CGFloat = 36
-    static let collectionSideRailItemSize: CGFloat = 34
     static let collectionSideRailGap: CGFloat = 4
     static let collectionRailCardClearance: CGFloat = 8
     static let minimumVerticalCardWidth: CGFloat = 180
-    static let expandedSearchWidth: CGFloat = 300
-    static let verticalExpandedSearchWidth: CGFloat = 164
-    static let expandedCardHeightThreshold: CGFloat = 560
-    static let expandedCardWidthThreshold: CGFloat = 980
+    static let maximumExpandedSearchWidth: CGFloat = 240
+    static let searchActionGap: CGFloat = 12
   }
 
   fileprivate enum Motion {
-    static let contentSwitchDuration: TimeInterval = 0.16
-    static let contentSwitchStartAlpha: CGFloat = 0.68
-    static let searchFieldResizeDuration: TimeInterval = 0.14
+    static let contentSwitchDuration: TimeInterval = 0.14
+    static let contentSwitchStartAlpha: CGFloat = 0.78
+    static let searchFieldResizeDuration: TimeInterval = 0.20
     static let cardLiftDuration: TimeInterval = 0.16
-    static let cardExpansionDuration: TimeInterval = 0.36
-    static let actionRailDuration: TimeInterval = 0.14
+    static let cardExpansionDuration: TimeInterval = 0.22
 
     static var cardExpansionTiming: CAMediaTimingFunction {
-      CAMediaTimingFunction(controlPoints: 0.25, 0.10, 0.25, 1.00)
+      CAMediaTimingFunction(controlPoints: 0.20, 0.80, 0.20, 1.00)
+    }
+
+    static var reducesMotion: Bool {
+      NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    static func duration(_ preferredDuration: TimeInterval) -> TimeInterval {
+      reducesMotion ? 0 : preferredDuration
     }
   }
 
@@ -313,57 +308,19 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     case mouse
   }
 
-  private enum CategoryHoverTarget: Equatable {
-    case sortMode(ClipboardSortMode)
-    case collection(String)
-    case stack
-  }
-
   private enum CardDensity: String {
-    case regular
     case compact
-    case expanded
-
-    static func fitting(
-      width: CGFloat,
-      height: CGFloat,
-      compactModeEnabled: Bool,
-      panelLayout: ClipboardPanelLayout
-    ) -> CardDensity {
-      if panelLayout == .vertical {
-        return .compact
-      }
-      if compactModeEnabled || (width > 0 && width < Metrics.compactCardThreshold) || (height > 0 && height < 390) {
-        return .compact
-      }
-      if width >= Metrics.expandedCardWidthThreshold && height >= Metrics.expandedCardHeightThreshold {
-        return .expanded
-      }
-      return .regular
-    }
 
     var layout: ClipboardItemCardLayout {
-      switch self {
-      case .regular: return .regular
-      case .compact: return .compact
-      case .expanded: return .expanded
-      }
+      .compact
     }
 
     var cardSpacing: CGFloat {
-      switch self {
-      case .regular: return 16
-      case .compact: return 12
-      case .expanded: return 18
-      }
+      12
     }
 
     var cardStackInset: CGFloat {
-      switch self {
-      case .regular: return 10
-      case .compact: return 8
-      case .expanded: return 12
-      }
+      8
     }
 
     var cardTopInset: CGFloat {
@@ -375,24 +332,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     }
 
     var railHeight: CGFloat {
-      let itemHeight: CGFloat
-      switch self {
-      case .compact:
-        itemHeight = ClipboardCardPresentation.horizontalFocus.size(for: layout).height
-      case .regular:
-        itemHeight = ClipboardCardPresentation.horizontalFocus.size(for: layout).height
-      case .expanded:
-        itemHeight = ClipboardCardPresentation.expanded.size(for: layout).height
-      }
+      let itemHeight = ClipboardCardPresentation.verticalRow.size(for: layout).height
       return itemHeight + cardTopInset + cardBottomInset + 2
-    }
-
-    var emptyStateMinimumWidth: CGFloat {
-      switch self {
-      case .regular: return Metrics.emptyStateMinimumWidth
-      case .compact: return 420
-      case .expanded: return Metrics.emptyStateMinimumWidth
-      }
     }
   }
 
@@ -400,14 +341,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     static let panelBorder = NSColor.white.withAlphaComponent(0.38).cgColor
     static let panelSurface = NSColor.windowBackgroundColor.withAlphaComponent(0.16).cgColor
     static let panelShadow = NSColor.black.withAlphaComponent(0.24).cgColor
-  }
-
-  private enum StatusTone: String {
-    case ready
-    case action
-    case warning
-    case error
-    case neutral
+    static let searchGlassBorder = NSColor.white.withAlphaComponent(0.42).cgColor
+    static let searchGlassTint = NSColor.windowBackgroundColor.withAlphaComponent(0.10).cgColor
   }
 
   private let viewModel: ClipboardPanelViewModel
@@ -416,9 +351,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private let onPreview: () -> Void
 
   private let searchField = ClipboardPanelSearchField()
-  private let searchControlContainer = NSView()
+  private let searchControlContainer = NSVisualEffectView()
   private let searchIconButton = NSButton()
-  private weak var categoryMenuButton: NSButton?
   private weak var clearHistoryButton: NSButton?
   private weak var settingsButton: NSButton?
   private weak var utilityToolbarGroup: NSView?
@@ -433,11 +367,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private var emptyStateText: (title: String, detail: String)?
   private var mainStack: NSStackView?
   private var bottomSafeInset = Metrics.minimumBottomInset
-  private var currentStatusText = ""
-  private var currentResultCountText = ""
-  private var currentStatusTone: StatusTone = .ready
-  private var currentPanelLayout: ClipboardPanelLayout = .vertical
-  private var cardDensity: CardDensity = .regular
+  private var cardDensity: CardDensity = .compact
   private var scrollViewHeightConstraint: NSLayoutConstraint?
   private var searchFieldWidthConstraint: NSLayoutConstraint?
   private var collectionScrollWidthConstraint: NSLayoutConstraint?
@@ -469,12 +399,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private var hoveredCardIndex: Int?
   private var hoverSelectionRequiresFreshMouseMovement = false
   private var hoverSelectionKeyboardBarrierLocation: NSPoint?
-  private var hoveredCategoryTarget: CategoryHoverTarget?
-  private var categoryHoverOriginalSelection: ClipboardCategorySelectionSnapshot?
-  private var categoryHoverGeneration = 0
   private var cardSelectionInputSource: CardSelectionInputSource = .mouse
   #if DEBUG
   private var animatedCardLayoutChangeCount = 0
+  private var debugItemReloadCountValue = 0
   #endif
   private var defersVisualReloads = false
   private var pendingItemReload = false
@@ -505,7 +433,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   #if DEBUG
   private var collectionNameProviderForTesting: (() -> String?)?
-  private var textClipProviderForTesting: (() -> String?)?
   private var suppressClipEditDialogsForTesting = false
   private var renameClipRequestCountForTesting = 0
   private var editClipRequestCountForTesting = 0
@@ -529,8 +456,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     bindViewModel()
     reloadItems()
     updateSelection()
-    updateStatus(viewModel.statusMessage)
-    updateResultCount()
     updateCollectionButtons()
   }
 
@@ -545,16 +470,19 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     isEmphasized = true
     wantsLayer = true
     layer?.cornerRadius = Metrics.panelCornerRadius
-    layer?.masksToBounds = false
+    layer?.masksToBounds = true
     layer?.backgroundColor = Palette.panelSurface
     layer?.borderWidth = 0.8
     layer?.borderColor = Palette.panelBorder
     layer?.shadowColor = Palette.panelShadow
-    layer?.shadowOpacity = 0.28
-    layer?.shadowRadius = 34
-    layer?.shadowOffset = NSSize(width: 0, height: 14)
+    layer?.shadowOpacity = 0
+    layer?.shadowRadius = 0
+    layer?.shadowOffset = .zero
 
     configureSearchIconButton()
+    searchField.cell = ClipboardPanelSearchFieldCell(textCell: "")
+    searchField.isEditable = true
+    searchField.isSelectable = true
     searchField.setAccessibilityLabel("Search clipboard history")
     searchField.delegate = self
     searchField.target = self
@@ -564,18 +492,19 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     }
     searchField.sendsSearchStringImmediately = true
     searchField.sendsWholeSearchString = false
-    searchField.isBezeled = true
+    searchField.isBezeled = false
+    searchField.drawsBackground = false
     searchField.placeholderAttributedString = NSAttributedString(
       string: "Search clips",
       attributes: [
         .foregroundColor: NSColor.tertiaryLabelColor
       ]
     )
-    searchField.bezelStyle = .roundedBezel
-    searchField.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.68)
+    searchField.backgroundColor = .clear
+    searchField.font = .systemFont(ofSize: 13, weight: .regular)
     searchField.focusRingType = .none
     searchField.toolTip = "Search clipboard history."
-    searchField.setAccessibilityHelp("Type to search clipboard history. Use the side category icons to filter results.")
+    searchField.setAccessibilityHelp("Type to search clipboard history. Use the category icons beside the cards to filter results; Command-click combines categories.")
     searchField.translatesAutoresizingMaskIntoConstraints = false
     searchField.setContentCompressionResistancePriority(.required, for: .horizontal)
     searchField.setContentHuggingPriority(.required, for: .horizontal)
@@ -738,7 +667,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
     applyPanelLayout(reloadItems: false)
     updateCollectionButtons()
-    updateResultCount()
   }
 
   private func bindViewModel() {
@@ -753,10 +681,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     }
     viewModel.onSelectedItemsChanged = { [weak self] in
       self?.updateSelection()
-      self?.updateResultCount()
-    }
-    viewModel.onStatusMessageChanged = { [weak self] message in
-      self?.updateStatus(message)
     }
     viewModel.onSortModeChanged = { [weak self] _ in
       self?.updateCollectionButtons()
@@ -766,16 +690,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     }
     viewModel.onStackChanged = { [weak self] in
       self?.handleStackChanged()
-    }
-    viewModel.onCaptureStatusChanged = { [weak self] in
-      self?.updateStatus(self?.viewModel.statusMessage ?? "")
-    }
-    viewModel.onCompactModeChanged = { [weak self] in
-      guard let self else { return }
-      _ = self.updateCardDensityForCurrentWidth()
-    }
-    viewModel.onPanelLayoutChanged = { [weak self] in
-      self?.applyPanelLayout()
     }
   }
 
@@ -818,9 +732,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     searchIconButton.isBordered = false
     searchIconButton.wantsLayer = true
     searchIconButton.layer?.cornerRadius = Metrics.searchControlSize / 2
-    searchIconButton.layer?.borderWidth = 0.5
-    searchIconButton.layer?.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
-    searchIconButton.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.24).cgColor
+    searchIconButton.layer?.borderWidth = 0
+    searchIconButton.layer?.borderColor = NSColor.clear.cgColor
+    searchIconButton.layer?.backgroundColor = NSColor.clear.cgColor
     searchIconButton.contentTintColor = .secondaryLabelColor
     searchIconButton.toolTip = toolTip
     searchIconButton.target = self
@@ -834,8 +748,17 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   private func configureSearchControlContainer() {
     searchControlContainer.translatesAutoresizingMaskIntoConstraints = false
+    searchControlContainer.material = .popover
+    searchControlContainer.blendingMode = .withinWindow
+    searchControlContainer.state = .active
+    searchControlContainer.isEmphasized = true
     searchControlContainer.wantsLayer = true
+    searchControlContainer.layer?.cornerRadius = Metrics.searchControlSize / 2
+    searchControlContainer.layer?.cornerCurve = .continuous
     searchControlContainer.layer?.masksToBounds = true
+    searchControlContainer.layer?.backgroundColor = Palette.searchGlassTint
+    searchControlContainer.layer?.borderWidth = 0.7
+    searchControlContainer.layer?.borderColor = Palette.searchGlassBorder
     searchControlContainer.setContentHuggingPriority(.required, for: .horizontal)
     searchControlContainer.setContentCompressionResistancePriority(.required, for: .horizontal)
     searchFieldWidthConstraint = searchControlContainer.widthAnchor.constraint(equalToConstant: Metrics.searchControlSize)
@@ -847,465 +770,19 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     NSLayoutConstraint.activate([
       searchField.leadingAnchor.constraint(equalTo: searchControlContainer.leadingAnchor),
       searchField.trailingAnchor.constraint(equalTo: searchControlContainer.trailingAnchor),
-      searchField.topAnchor.constraint(equalTo: searchControlContainer.topAnchor),
-      searchField.bottomAnchor.constraint(equalTo: searchControlContainer.bottomAnchor),
+      searchField.centerYAnchor.constraint(equalTo: searchControlContainer.centerYAnchor),
+      searchField.heightAnchor.constraint(equalTo: searchControlContainer.heightAnchor),
       searchIconButton.leadingAnchor.constraint(equalTo: searchControlContainer.leadingAnchor),
-      searchIconButton.topAnchor.constraint(equalTo: searchControlContainer.topAnchor),
-      searchIconButton.bottomAnchor.constraint(equalTo: searchControlContainer.bottomAnchor)
+      searchIconButton.centerYAnchor.constraint(equalTo: searchControlContainer.centerYAnchor)
     ])
   }
 
-  #if DEBUG
-  private func searchFilterMenu(now: Date = Date()) -> NSMenu {
-    let menu = NSMenu(title: "Search Filters")
-    menu.autoenablesItems = false
-
-    let typeMenu = NSMenu(title: "Type")
-    addSearchFilterItem("Text", token: "type:text", to: typeMenu)
-    addSearchFilterItem("Rich Text", token: "type:richtext", to: typeMenu)
-    addSearchFilterItem("Links", token: "type:link", to: typeMenu)
-    addSearchFilterItem("Images", token: "type:image", to: typeMenu)
-    addSearchFilterItem("Files", token: "type:file", to: typeMenu)
-    addSearchFilterItem("PDFs", token: "type:pdf", to: typeMenu)
-    addSearchFilterItem("Audio", token: "type:audio", to: typeMenu)
-    addSearchFilterItem("Videos", token: "type:video", to: typeMenu)
-    addSearchFilterItem("Colors", token: "type:color", to: typeMenu)
-    addSearchFilterItem("Code", token: "type:code", to: typeMenu)
-    addSubmenu(typeMenu, titled: "Type", to: menu)
-
-    let dateMenu = NSMenu(title: "Date")
-    addSearchFilterItem("Today", token: "date:\(Self.searchFilterDateString(now))", to: dateMenu)
-    addSearchFilterItem("Last 7 Days", token: "after:\(Self.searchFilterDateString(Self.searchFilterDate(byAddingDays: -6, to: now)))", to: dateMenu)
-    addSearchFilterItem("Before Today", token: "before:\(Self.searchFilterDateString(now))", to: dateMenu)
-    addSubmenu(dateMenu, titled: "Date", to: menu)
-
-    addSearchFilterItem("Pinned Items", token: "pinned:on", to: menu)
-
-    if !viewModel.searchFilterSourceAppNames.isEmpty {
-      let sourceMenu = NSMenu(title: "Copied From")
-      for sourceApp in viewModel.searchFilterSourceAppNames {
-        addSearchFilterItem(sourceApp, token: "app:\(Self.quotedSearchFilterValue(sourceApp))", to: sourceMenu)
-      }
-      addSubmenu(sourceMenu, titled: "Copied From", to: menu)
-    }
-
-    if !viewModel.searchFilterDeviceNames.isEmpty {
-      let deviceMenu = NSMenu(title: "Device")
-      for deviceName in viewModel.searchFilterDeviceNames {
-        addSearchFilterItem(deviceName, token: "device:\(Self.quotedSearchFilterValue(deviceName))", to: deviceMenu)
-      }
-      addSubmenu(deviceMenu, titled: "Device", to: menu)
-    }
-
-    if !viewModel.collectionNames.isEmpty {
-      let pinboardMenu = NSMenu(title: "Pinboard")
-      for collectionName in viewModel.collectionNames {
-        addSearchFilterItem(collectionName, token: "pinboard:\(Self.quotedSearchFilterValue(collectionName))", to: pinboardMenu)
-      }
-      addSubmenu(pinboardMenu, titled: "Pinboard", to: menu)
-    }
-
-    return menu
-  }
-
-  private func addSubmenu(_ submenu: NSMenu, titled title: String, to menu: NSMenu) {
-    let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-    item.submenu = submenu
-    item.isEnabled = true
-    menu.addItem(item)
-  }
-
-  private func addSearchFilterItem(_ title: String, token: String, to menu: NSMenu) {
-    let item = NSMenuItem(title: title, action: #selector(applySearchFilterFromMenu(_:)), keyEquivalent: "")
-    item.target = self
-    item.isEnabled = true
-    item.representedObject = token
-    menu.addItem(item)
-  }
-
-  private func applySearchFilterToken(_ token: String) {
-    let current = searchField.stringValue.clipboardTrimmed
-    let updatedQuery = Self.searchQuery(current, applyingFilterToken: token)
-    if searchField.stringValue != updatedQuery {
-      searchField.stringValue = updatedQuery
-    }
-    updateSearchText()
-    focusSearchField()
-  }
-
-  private static func searchQuery(_ query: String, applyingFilterToken token: String) -> String {
-    guard !query.isEmpty else { return token }
-    let currentParts = searchFilterParts(from: query)
-    let tokenParts = searchFilterParts(from: token)
-    guard tokenParts.count == 1, let tokenPart = tokenParts.first else { return query }
-
-    if currentParts.contains(where: { $0.canonical == tokenPart.canonical }) {
-      return query
-    }
-
-    if tokenPart.isExact,
-       let keyValueCanonical = tokenPart.keyValueCanonical,
-       let fuzzyIndex = currentParts.firstIndex(where: {
-         !$0.isExact && $0.keyValueCanonical == keyValueCanonical
-       }) {
-      var rawParts = currentParts.map(\.raw)
-      rawParts[fuzzyIndex] = token
-      return rawParts.joined(separator: " ")
-    }
-
-    if let replacementKeys = replacementKeyFamily(for: tokenPart.canonicalKey),
-       currentParts.contains(where: { part in
-         part.canonicalKey.map { replacementKeys.contains($0) } ?? false
-       }) {
-      var rawParts: [String] = []
-      var insertedReplacement = false
-      for part in currentParts {
-        guard let canonicalKey = part.canonicalKey,
-              replacementKeys.contains(canonicalKey) else {
-          rawParts.append(part.raw)
-          continue
-        }
-        if !insertedReplacement {
-          rawParts.append(token)
-          insertedReplacement = true
-        }
-      }
-      if !insertedReplacement {
-        rawParts.append(token)
-      }
-      return rawParts.joined(separator: " ")
-    }
-
-    return "\(query) \(token)"
-  }
-
-  private static func replacementKeyFamily(for key: String?) -> Set<String>? {
-    guard let key else { return nil }
-    let dateKeys: Set<String> = ["after", "before", "date"]
-    if dateKeys.contains(key) {
-      return dateKeys
-    }
-    if key == "pinned" {
-      return ["pinned"]
-    }
-    if key == "type" {
-      return ["type"]
-    }
-    return nil
-  }
-
-  private static func searchFilterParts(from query: String) -> [ClipboardSearchFilterPart] {
-    var parts: [ClipboardSearchFilterPart] = []
-    var current = ""
-    var quotedBy: Character?
-    var isEscaping = false
-
-    func flushCurrent() {
-      let part = current.clipboardTrimmed
-      if !part.isEmpty {
-        parts.append(searchFilterPart(from: part))
-      }
-      current = ""
-    }
-
-    for character in query {
-      if isEscaping {
-        current.append("\\")
-        current.append(character)
-        isEscaping = false
-        continue
-      }
-
-      if character == "\\" && quotedBy != nil {
-        isEscaping = true
-        continue
-      }
-
-      if character == "\"" || character == "'" {
-        if quotedBy == character {
-          current.append(character)
-          quotedBy = nil
-          continue
-        }
-        if quotedBy == nil {
-          quotedBy = character
-          current.append(character)
-          continue
-        }
-      }
-
-      if character.isWhitespace && quotedBy == nil {
-        flushCurrent()
-      } else {
-        current.append(character)
-      }
-    }
-
-    if isEscaping {
-      current.append("\\")
-    }
-    flushCurrent()
-    return parts
-  }
-
-  private static func searchFilterPart(from rawPart: String) -> ClipboardSearchFilterPart {
-    guard let delimiter = rawPart.firstIndex(of: ":") else {
-      return plainSearchFilterPart(from: rawPart)
-    }
-
-    let key = canonicalSearchFilterKey(String(rawPart[..<delimiter]))
-    let value = String(rawPart[rawPart.index(after: delimiter)...]).clipboardTrimmed
-    if let exactValue = unquotedSearchFilterValue(value) {
-      let normalizedValue = normalizedSearchFilterValue(exactValue)
-      guard isSupportedSearchFilterPart(canonicalKey: key, normalizedValue: normalizedValue) else {
-        return plainSearchFilterPart(from: rawPart)
-      }
-      return ClipboardSearchFilterPart(
-        raw: rawPart,
-        canonical: "\(key):=\(normalizedValue)",
-        canonicalKey: key,
-        keyValueCanonical: "\(key):\(normalizedValue)",
-        isExact: true
-      )
-    }
-
-    let normalizedValue = normalizedSearchFilterValue(value)
-    guard isSupportedSearchFilterPart(canonicalKey: key, rawValue: value, normalizedValue: normalizedValue) else {
-      return plainSearchFilterPart(from: rawPart)
-    }
-    return ClipboardSearchFilterPart(
-      raw: rawPart,
-      canonical: "\(key):~\(normalizedValue)",
-      canonicalKey: key,
-      keyValueCanonical: "\(key):\(normalizedValue)",
-      isExact: false
-    )
-  }
-
-  private static func plainSearchFilterPart(from rawPart: String) -> ClipboardSearchFilterPart {
-    let canonical = normalizedSearchFilterValue(rawPart)
-    return ClipboardSearchFilterPart(
-      raw: rawPart,
-      canonical: canonical,
-      canonicalKey: nil,
-      keyValueCanonical: nil,
-      isExact: false
-    )
-  }
-
-  private static func isSupportedSearchFilterPart(
-    canonicalKey key: String,
-    rawValue: String? = nil,
-    normalizedValue: String
-  ) -> Bool {
-    guard !normalizedValue.isEmpty else { return false }
-    switch key {
-    case "app", "device", "pinboard":
-      return true
-    case "type":
-      let rawValues = rawValue.map(searchFilterStructuredValues) ?? [normalizedValue]
-      let values = rawValues
-        .map { unquotedSearchFilterValue($0.clipboardTrimmed) ?? $0 }
-        .map(normalizedSearchFilterValue)
-        .filter { !$0.isEmpty }
-      return !values.isEmpty && values.allSatisfy(isSupportedSearchFilterType)
-    case "pinned":
-      return isSupportedSearchFilterBoolean(normalizedValue)
-    case "after", "before", "date":
-      return isSupportedSearchFilterDate(normalizedValue)
-    default:
-      return false
-    }
-  }
-
-  private static func searchFilterStructuredValues(from value: String) -> [String] {
-    var values: [String] = []
-    var current = ""
-    var quotedBy: Character?
-    var isEscaping = false
-
-    func flushCurrent() {
-      values.append(current)
-      current = ""
-    }
-
-    for character in value {
-      if isEscaping {
-        current.append("\\")
-        current.append(character)
-        isEscaping = false
-        continue
-      }
-
-      if character == "\\" && quotedBy != nil {
-        isEscaping = true
-        continue
-      }
-
-      if character == "\"" || character == "'" {
-        if quotedBy == character {
-          current.append(character)
-          quotedBy = nil
-          continue
-        }
-        if quotedBy == nil {
-          quotedBy = character
-          current.append(character)
-          continue
-        }
-      }
-
-      if character == "," && quotedBy == nil {
-        flushCurrent()
-      } else {
-        current.append(character)
-      }
-    }
-
-    if isEscaping {
-      current.append("\\")
-    }
-    flushCurrent()
-    return values
-  }
-
-  private static func isSupportedSearchFilterType(_ value: String) -> Bool {
-    switch value {
-    case "text", "plain",
-         "richtext", "rich-text", "rtf", "html",
-         "note", "notes", "writing",
-         "code", "snippet", "snippets", "source", "programming", "script", "scripts", "json", "css", "sql",
-         "link", "links", "url", "urls", "web",
-         "image", "images", "photo", "photos", "picture", "pictures",
-         "file", "files", "finder",
-         "pdf", "pdfs", "document", "documents",
-         "audio", "sound", "music",
-         "video", "videos", "movie", "movies", "mp4", "quicktime", "mov",
-         "color", "colors", "swatch", "swatches", "hex",
-         "unknown", "item":
-      return true
-    default:
-      return false
-    }
-  }
-
-  private static func isSupportedSearchFilterBoolean(_ value: String) -> Bool {
-    switch value {
-    case "1", "true", "yes", "y", "on",
-         "0", "false", "no", "n", "off":
-      return true
-    default:
-      return false
-    }
-  }
-
-  private static func isSupportedSearchFilterDate(_ value: String) -> Bool {
-    let formatter = DateFormatter()
-    formatter.calendar = searchFilterCalendar
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = searchFilterCalendar.timeZone
-    formatter.dateFormat = "yyyy-MM-dd"
-    formatter.isLenient = false
-    guard let date = formatter.date(from: value) else { return false }
-    return formatter.string(from: date) == value
-  }
-
-  private static func canonicalSearchFilterKey(_ key: String) -> String {
-    switch normalizedSearchFilterValue(key) {
-    case "source", "from":
-      return "app"
-    case "devices", "machine", "computer":
-      return "device"
-    case "collection", "folder", "list", "pinboards", "board", "boards":
-      return "pinboard"
-    case "kind":
-      return "type"
-    case "pin":
-      return "pinned"
-    case "on":
-      return "date"
-    case "since":
-      return "after"
-    case "until":
-      return "before"
-    default:
-      return normalizedSearchFilterValue(key)
-    }
-  }
-
-  private static func unquotedSearchFilterValue(_ value: String) -> String? {
-    guard let first = value.first,
-          (first == "\"" || first == "'"),
-          value.last == first,
-          value.count >= 2 else {
-      return nil
-    }
-    let inner = String(value.dropFirst().dropLast())
-    var unescaped = ""
-    var isEscaping = false
-    for character in inner {
-      if isEscaping {
-        unescaped.append(character)
-        isEscaping = false
-      } else if character == "\\" {
-        isEscaping = true
-      } else {
-        unescaped.append(character)
-      }
-    }
-    if isEscaping {
-      unescaped.append("\\")
-    }
-    return unescaped
-  }
-
-  private static func normalizedSearchFilterValue(_ value: String) -> String {
-    value.clipboardTrimmed
-      .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
-      .lowercased()
-  }
-
-  private static func quotedSearchFilterValue(_ value: String) -> String {
-    let sanitized = value.clipboardTrimmed
-    let escaped = sanitized
-      .replacingOccurrences(of: "\\", with: "\\\\")
-      .replacingOccurrences(of: "\"", with: "\\\"")
-    return "\"\(escaped)\""
-  }
-
-  private static func searchFilterDateString(_ date: Date) -> String {
-    let formatter = DateFormatter()
-    let calendar = searchFilterCalendar
-    formatter.calendar = calendar
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = calendar.timeZone
-    formatter.dateFormat = "yyyy-MM-dd"
-    return formatter.string(from: date)
-  }
-
-  private static func searchFilterDate(byAddingDays days: Int, to date: Date) -> Date {
-    searchFilterCalendar.date(byAdding: .day, value: days, to: date) ?? date
-  }
-
-  private static var searchFilterCalendar: Calendar {
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.locale = Locale(identifier: "en_US_POSIX")
-    calendar.timeZone = .autoupdatingCurrent
-    return calendar
-  }
-  #endif
-
-  private func categoryMenu() -> NSMenu {
-    let menu = NSMenu(title: "Categories")
-    menu.autoenablesItems = false
-    return menu
-  }
 
   private func clearHistoryMenu() -> NSMenu {
     let menu = NSMenu(title: "Clear History")
     menu.autoenablesItems = false
     for (title, seconds) in [("Past Hour", 3600.0), ("Past Day", 86_400.0), ("All Time", -1.0)] {
-      let item = NSMenuItem(title: title, action: #selector(performToolbarMenuItem(_:)), keyEquivalent: "")
+      let item = NSMenuItem(title: title, action: #selector(performClearHistoryMenuItem(_:)), keyEquivalent: "")
       item.target = self
       item.representedObject = seconds
       menu.addItem(item)
@@ -1336,13 +813,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       chip.toolTip = mode.title
       chip.onPress = { [weak self] extending in
         guard let self else { return }
-        self.commitCategoryHoverPreview()
         self.collapseSearchFieldIfIdle()
         self.viewModel.selectSortMode(mode, extending: extending)
-        self.viewModel.commitCategorySelection()
-      }
-      chip.onHover = { [weak self] hovered in
-        self?.handleCategoryHover(.sortMode(mode), hovered: hovered)
       }
       configureCollectionKeyboardNavigation(for: chip)
       collectionButtons[mode] = chip
@@ -1355,12 +827,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       chip.toolTip = collectionName
       chip.onPress = { [weak self] extending in
         guard let self else { return }
-        self.commitCategoryHoverPreview()
         self.collapseSearchFieldIfIdle()
         self.viewModel.selectCollection(named: collectionName, extending: extending)
-      }
-      chip.onHover = { [weak self] hovered in
-        self?.handleCategoryHover(.collection(collectionName), hovered: hovered)
       }
       chip.onDropItem = { [weak self] itemID in
         self?.viewModel.assignItem(withID: itemID, to: collectionName)
@@ -1390,12 +858,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     stackChip.toolTip = "Queued clips"
     stackChip.onPress = { [weak self] _ in
       guard let self else { return }
-      self.commitCategoryHoverPreview()
       self.collapseSearchFieldIfIdle()
       self.viewModel.selectStack()
-    }
-    stackChip.onHover = { [weak self] hovered in
-      self?.handleCategoryHover(.stack, hovered: hovered)
     }
     stackChip.onAddVisibleToStack = { [weak self] in
       self?.viewModel.addVisibleItemsToStack()
@@ -1427,56 +891,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     }
   }
 
-  private func handleCategoryHover(_ target: CategoryHoverTarget, hovered: Bool) {
-    if hovered {
-      previewCategory(target)
-    } else {
-      scheduleCategoryHoverRestoreIfNeeded(exiting: target)
-    }
-  }
-
-  private func previewCategory(_ target: CategoryHoverTarget) {
-    if categoryHoverOriginalSelection == nil {
-      categoryHoverOriginalSelection = viewModel.categorySelectionSnapshot()
-    }
-    hoveredCategoryTarget = target
-    categoryHoverGeneration += 1
-    collapseSearchFieldIfIdle()
-    switch target {
-    case .sortMode(let mode):
-      viewModel.previewSortMode(mode)
-    case .collection(let name):
-      viewModel.previewCollection(named: name)
-    case .stack:
-      viewModel.previewStack()
-    }
-  }
-
-  private func scheduleCategoryHoverRestoreIfNeeded(exiting target: CategoryHoverTarget) {
-    guard hoveredCategoryTarget == target else { return }
-    hoveredCategoryTarget = nil
-    categoryHoverGeneration += 1
-    let generation = categoryHoverGeneration
-    DispatchQueue.main.async { [weak self] in
-      guard let self else { return }
-      guard self.categoryHoverGeneration == generation else { return }
-      guard self.hoveredCategoryTarget == nil else { return }
-      self.restoreCategoryHoverPreviewIfNeeded()
-    }
-  }
-
-  private func commitCategoryHoverPreview() {
-    categoryHoverGeneration += 1
-    hoveredCategoryTarget = nil
-    categoryHoverOriginalSelection = nil
-  }
-
-  private func restoreCategoryHoverPreviewIfNeeded() {
-    guard let snapshot = categoryHoverOriginalSelection else { return }
-    categoryHoverOriginalSelection = nil
-    viewModel.restoreCategorySelection(snapshot)
-  }
-
   private func configureCollectionKeyboardNavigation(for chip: CollectionChipView) {
     chip.onStartSearch = { [weak self] text in
       self?.startSearchFromShelf(text)
@@ -1488,43 +902,16 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       self?.moveSelectionFromFocusedCard(delta)
     }
     chip.onSelectFirst = { [weak self] in
-      self?.selectCollectionChip(at: 0)
+      self?.focusCollectionChip(at: 0)
     }
     chip.onSelectLast = { [weak self] in
       guard let self else { return }
-      self.selectCollectionChip(at: self.collectionChipOrder.count - 1)
+      self.focusCollectionChip(at: self.collectionChipOrder.count - 1)
     }
   }
 
   private func visibleSortModesForCurrentCounts() -> [ClipboardSortMode] {
     ClipboardSortMode.allCases.filter { viewModel.shouldShowCategory(for: $0) }
-  }
-
-  private func primarySortModesForCurrentCounts() -> [ClipboardSortMode] {
-    let visibleSortModes = visibleSortModesForCurrentCounts()
-    var primaryModes: [ClipboardSortMode] = []
-
-    for mode in [ClipboardSortMode.mostRecent, .mostUsed, .text, .links, .images] {
-      if visibleSortModes.contains(mode) {
-        primaryModes.append(mode)
-      }
-    }
-
-    for mode in visibleSortModes where viewModel.isSortModeCategorySelected(mode) {
-      if !primaryModes.contains(mode) {
-        primaryModes.append(mode)
-      }
-    }
-
-    return primaryModes
-  }
-
-  private func overflowSortModesForCurrentCounts() -> [ClipboardSortMode] {
-    visibleSortModesForCurrentCounts().filter { !isPrimarySortMode($0) }
-  }
-
-  private func isPrimarySortMode(_ mode: ClipboardSortMode) -> Bool {
-    primarySortModesForCurrentCounts().contains(mode)
   }
 
   private func configureAddCollectionButton() {
@@ -1535,7 +922,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     addCollectionButton.imageScaling = .scaleProportionallyDown
     addCollectionButton.isBordered = false
     addCollectionButton.wantsLayer = true
-    addCollectionButton.layer?.cornerRadius = Metrics.collectionSideRailItemSize / 2
+    addCollectionButton.layer?.cornerRadius = Metrics.collectionUtilitySize / 2
     addCollectionButton.layer?.borderWidth = 0.5
     addCollectionButton.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.10).cgColor
     addCollectionButton.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.18).cgColor
@@ -1546,8 +933,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     addCollectionButton.target = self
     addCollectionButton.action = #selector(createCollectionFromToolbar)
     addCollectionButton.translatesAutoresizingMaskIntoConstraints = false
-    addCollectionButton.widthAnchor.constraint(equalToConstant: Metrics.collectionSideRailItemSize).isActive = true
-    addCollectionButton.heightAnchor.constraint(equalToConstant: Metrics.collectionSideRailItemSize).isActive = true
+    addCollectionButton.widthAnchor.constraint(equalToConstant: Metrics.collectionUtilitySize).isActive = true
+    addCollectionButton.heightAnchor.constraint(equalToConstant: Metrics.collectionUtilitySize).isActive = true
   }
 
   private func collectionTitle(for mode: ClipboardSortMode) -> String {
@@ -1603,19 +990,19 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   private func currentCardLayout(viewportWidth: CGFloat? = nil) -> ClipboardItemCardLayout {
     let layout = cardDensity.layout
-    guard currentPanelLayout == .vertical else { return layout }
-
     let visibleWidth = viewportWidth ?? scrollView.contentView.bounds.width
     guard visibleWidth > 1 else { return layout }
 
-    let availableCardWidth = floor(visibleWidth - (cardDensity.cardStackInset * 2))
-    guard availableCardWidth > 0, availableCardWidth < layout.width else { return layout }
+    let availableCardWidth = floor(
+      visibleWidth - verticalCardLeadingReserve - (cardDensity.cardStackInset * 2)
+    )
+    guard availableCardWidth > 0 else { return layout }
 
     return layout.withWidth(max(Metrics.minimumVerticalCardWidth, availableCardWidth))
   }
 
   private var verticalCardLeadingReserve: CGFloat {
-    currentPanelLayout == .vertical ? Metrics.collectionSideRailWidth : 0
+    Metrics.collectionSideRailWidth + Metrics.collectionRailCardClearance
   }
 
   private func verticalCardMinXInContent(width cardWidth: CGFloat, viewportWidth: CGFloat) -> CGFloat {
@@ -1625,19 +1012,16 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func applyPanelLayout(reloadItems shouldReload: Bool = true) {
-    currentPanelLayout = viewModel.panelLayout
-    let isVertical = currentPanelLayout == .vertical
-
-    updateShelfChromeLayout(isVertical: isVertical)
-    itemsStack.orientation = isVertical ? .vertical : .horizontal
-    itemsStack.usesFlippedCoordinates = isVertical
-    itemsStack.alignment = isVertical ? .centerX : .bottom
-    scrollView.hasHorizontalScroller = !isVertical
-    scrollView.hasVerticalScroller = isVertical
-    scrollViewHeightConstraint?.isActive = !isVertical
-    bottomSpacer.isHidden = isVertical
-    scrollView.setContentHuggingPriority(isVertical ? .defaultLow : .required, for: .vertical)
-    scrollView.setContentCompressionResistancePriority(isVertical ? .defaultLow : .required, for: .vertical)
+    updateShelfChromeLayout()
+    itemsStack.orientation = .vertical
+    itemsStack.usesFlippedCoordinates = true
+    itemsStack.alignment = .centerX
+    scrollView.hasHorizontalScroller = false
+    scrollView.hasVerticalScroller = true
+    scrollViewHeightConstraint?.isActive = false
+    bottomSpacer.isHidden = true
+    scrollView.setContentHuggingPriority(.defaultLow, for: .vertical)
+    scrollView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
 
     lastScrollViewportSize = .zero
     updateSearchFieldPresentation()
@@ -1645,38 +1029,19 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     applyCardDensity()
 
     if shouldReload {
-      let densityChanged = updateCardDensityForCurrentWidth()
-      if !densityChanged {
-        reloadItems()
-      }
+      reloadItems()
       updateSelection()
     }
     needsLayout = true
   }
 
-  private func updateShelfChromeLayout(isVertical: Bool) {
+  private func updateShelfChromeLayout() {
     shelfChromeHeightConstraint?.constant = Metrics.collectionRailHeight
     searchControlCenterYConstraint?.constant = 0
     utilityToolbarCenterYConstraint?.constant = 0
     shelfChromeView?.needsLayout = true
     headerStack?.needsLayout = true
     contentStack?.needsLayout = true
-  }
-
-  @discardableResult
-  private func updateCardDensityForCurrentWidth() -> Bool {
-    let targetDensity = CardDensity.fitting(
-      width: bounds.width,
-      height: bounds.height,
-      compactModeEnabled: viewModel.isCompactModeEnabled,
-      panelLayout: currentPanelLayout
-    )
-    guard targetDensity != cardDensity else { return false }
-
-    cardDensity = targetDensity
-    applyCardDensity()
-    reloadItems()
-    return true
   }
 
   private func contentInsets() -> NSEdgeInsets {
@@ -1703,9 +1068,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     button.bezelStyle = .smallSquare
     button.isBordered = false
     button.wantsLayer = true
-    button.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
+    button.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
     button.layer?.borderWidth = 0.5
-    button.layer?.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
+    button.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.16).cgColor
     button.layer?.cornerRadius = Metrics.actionButtonSize / 2
     button.toolTip = toolTip
     button.contentTintColor = .secondaryLabelColor
@@ -1762,6 +1127,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func reloadItems() {
+    #if DEBUG
+    debugItemReloadCountValue += 1
+    #endif
     cardReloadGeneration += 1
     let reloadGeneration = cardReloadGeneration
     let focusedCardReloadTarget = focusedCardReloadTarget()
@@ -1813,8 +1181,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
     updateSelection()
     restoreFocusedCardIfNeeded(focusedCardReloadTarget)
-    updateStatus(viewModel.statusMessage)
-    updateResultCount()
     animateContentReloadIfNeeded(shouldAnimateReload)
   }
 
@@ -1840,45 +1206,55 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
     let visibleBounds = scrollView.contentView.bounds
     let layout = currentCardLayout()
-    let spacing = cardDensity.cardSpacing
     let edgeInsets = itemsStack.edgeInsets
-    let startPosition: CGFloat
-    let endPosition: CGFloat
-    let leadingInset: CGFloat
+    let startPosition = visibleBounds.minY
+    let endPosition = visibleBounds.maxY
+    let leadingInset = edgeInsets.top
 
-    if currentPanelLayout == .vertical {
-      startPosition = visibleBounds.minY
-      endPosition = visibleBounds.maxY
-      leadingInset = edgeInsets.top
-    } else {
-      startPosition = visibleBounds.minX
-      endPosition = visibleBounds.maxX
-      leadingInset = edgeInsets.left
-    }
-
-    var firstVisible = itemCount
-    var lastVisible = 0
-    var cursor = leadingInset
-    for index in 0..<itemCount {
-      let length = cardSlotPrimaryLength(at: index, layout: layout)
-      let itemStart = cursor
-      let itemEnd = cursor + length
-      if itemEnd >= startPosition && firstVisible == itemCount {
-        firstVisible = index
-      }
-      if itemStart <= endPosition {
-        lastVisible = index
-      }
-      cursor = itemEnd + spacing
-      if itemStart > endPosition {
-        break
-      }
-    }
-
-    guard firstVisible < itemCount else { return 0..<min(itemCount, initialCardRenderBudget) }
+    let relativeStart = max(0, startPosition - leadingInset)
+    let relativeEnd = max(relativeStart, endPosition - leadingInset)
+    let firstVisible = firstCardIndex(endingAtOrAfter: relativeStart, itemCount: itemCount, layout: layout)
+    let lastVisible = lastCardIndex(startingAtOrBefore: relativeEnd, itemCount: itemCount, layout: layout)
     let lowerBound = max(0, firstVisible - cardRenderPrefetchBuffer)
     let upperBound = min(itemCount, lastVisible + cardRenderPrefetchBuffer + 1)
     return lowerBound..<max(lowerBound, upperBound)
+  }
+
+  private func firstCardIndex(
+    endingAtOrAfter position: CGFloat,
+    itemCount: Int,
+    layout: ClipboardItemCardLayout
+  ) -> Int {
+    var lowerBound = 0
+    var upperBound = itemCount
+    while lowerBound < upperBound {
+      let index = (lowerBound + upperBound) / 2
+      let end = cardSlotOffset(at: index, layout: layout) + cardSlotPrimaryLength(at: index, layout: layout)
+      if end < position {
+        lowerBound = index + 1
+      } else {
+        upperBound = index
+      }
+    }
+    return min(max(0, lowerBound), max(0, itemCount - 1))
+  }
+
+  private func lastCardIndex(
+    startingAtOrBefore position: CGFloat,
+    itemCount: Int,
+    layout: ClipboardItemCardLayout
+  ) -> Int {
+    var lowerBound = 0
+    var upperBound = itemCount
+    while lowerBound < upperBound {
+      let index = (lowerBound + upperBound) / 2
+      if cardSlotOffset(at: index, layout: layout) <= position {
+        lowerBound = index + 1
+      } else {
+        upperBound = index
+      }
+    }
+    return min(max(0, lowerBound - 1), max(0, itemCount - 1))
   }
 
   private func renderCards(in range: Range<Int>, reloadGeneration: Int) {
@@ -1897,35 +1273,75 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       }
 
       let item = context.items[index]
-      let fingerprint = cardReuseFingerprint(
-        for: item,
-        index: index,
-        layout: context.layout,
-        collectionNames: context.collectionNames,
-        selectedCollectionName: context.selectedCollectionName,
-        selectedCollectionColor: context.selectedCollectionColor,
-        canShowInClipboard: context.canShowInClipboard
-      )
-      let card = ClipboardItemCardView(
-        item: item,
-        thumbnail: viewModel.thumbnail(for: item),
-        index: index,
-        reuseFingerprint: fingerprint,
-        layout: context.layout,
-        collectionNames: context.collectionNames,
-        isStacked: viewModel.isItemStacked(at: index),
-        stackCount: viewModel.stackCount,
-        canShowInClipboard: context.canShowInClipboard,
-        selectedCollectionName: context.selectedCollectionName,
-        selectedCollectionColor: context.selectedCollectionColor
-      )
+      let card = makeCard(item: item, thumbnail: nil, index: index, context: context)
       let slot = cardSlot(at: index, itemID: item.id, layout: context.layout)
       slot.attachCard(card)
       configureCardCallbacks(card, slot: slot)
       applyCurrentCardState(card, index: index)
+      loadThumbnail(for: item, at: index, reloadGeneration: reloadGeneration)
     }
 
     cardViews = renderedCardsInItemOrder()
+  }
+
+  private func makeCard(
+    item: ClipboardItem,
+    thumbnail: NSImage?,
+    index: Int,
+    context: CardRenderContext
+  ) -> ClipboardItemCardView {
+    let fingerprint = cardReuseFingerprint(
+      for: item,
+      index: index,
+      layout: context.layout,
+      collectionNames: context.collectionNames,
+      selectedCollectionName: context.selectedCollectionName,
+      selectedCollectionColor: context.selectedCollectionColor,
+      canShowInClipboard: context.canShowInClipboard
+    )
+    return ClipboardItemCardView(
+      item: item,
+      thumbnail: thumbnail,
+      index: index,
+      reuseFingerprint: fingerprint,
+      layout: context.layout,
+      collectionNames: context.collectionNames,
+      isStacked: viewModel.isItemStacked(at: index),
+      stackCount: viewModel.stackCount,
+      canShowInClipboard: context.canShowInClipboard,
+      selectedCollectionName: context.selectedCollectionName,
+      selectedCollectionColor: context.selectedCollectionColor
+    )
+  }
+
+  private func loadThumbnail(for item: ClipboardItem, at index: Int, reloadGeneration: Int) {
+    viewModel.loadThumbnail(for: item) { [weak self] thumbnail in
+      guard let self, let thumbnail else { return }
+      guard self.cardReloadGeneration == reloadGeneration,
+            let context = self.currentCardRenderContext,
+            context.reloadGeneration == reloadGeneration,
+            context.items.indices.contains(index),
+            context.items[index].id == item.id,
+            let slot = self.cardSlots[index],
+            slot.representedItemID == item.id,
+            slot.card != nil else {
+        return
+      }
+
+      let existingCard = slot.card
+      let responder = self.window?.firstResponder as? NSView
+      let restoresFocus = existingCard.map { card in
+        responder === card || responder?.isDescendant(of: card) == true
+      } ?? false
+      let replacement = self.makeCard(item: item, thumbnail: thumbnail, index: index, context: context)
+      slot.attachCard(replacement)
+      self.configureCardCallbacks(replacement, slot: slot)
+      self.applyCurrentCardState(replacement, index: index)
+      self.cardViews = self.renderedCardsInItemOrder()
+      if restoresFocus {
+        self.window?.makeFirstResponder(replacement)
+      }
+    }
   }
 
   private func renderCardIfNeeded(at index: Int) {
@@ -2002,7 +1418,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     }
 
     NSAnimationContext.runAnimationGroup { context in
-      context.duration = Motion.cardExpansionDuration
+      context.duration = Motion.duration(Motion.cardExpansionDuration)
       context.timingFunction = Motion.cardExpansionTiming
       for (index, slot) in cardSlots {
         slot.animator().frame = cardSlotFrame(at: index, layout: layout)
@@ -2020,52 +1436,35 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private func cardSlotFrame(at index: Int, layout: ClipboardItemCardLayout) -> NSRect {
     let edgeInsets = itemsStack.edgeInsets
     let size = cardPresentation(at: index).size(for: layout)
-    if currentPanelLayout == .vertical {
-      let x = verticalCardMinXInContent(width: size.width, viewportWidth: itemsStack.bounds.width)
-      let y = cardSlotOffset(at: index, layout: layout) + edgeInsets.top
-      return NSRect(x: x, y: y, width: size.width, height: size.height)
-    }
-
-    let x = edgeInsets.left + cardSlotOffset(at: index, layout: layout)
-    let y = edgeInsets.bottom
+    let x = verticalCardMinXInContent(width: size.width, viewportWidth: itemsStack.bounds.width)
+    let y = cardSlotOffset(at: index, layout: layout) + edgeInsets.top
     return NSRect(x: x, y: y, width: size.width, height: size.height)
   }
 
   private func cardPresentation(at index: Int) -> ClipboardCardPresentation {
-    if currentPanelLayout == .vertical {
-      return index == visuallyExpandedCardIndex ? .verticalFocus : .verticalRow
-    }
-
-    guard index == viewModel.selectedIndex else {
-      return .horizontalIcon
-    }
-    if cardDensity == .expanded {
-      return .expanded
-    }
-    return .horizontalFocus
+    index == visuallyExpandedCardIndex ? .verticalFocus : .verticalRow
   }
 
   private var visuallyExpandedCardIndex: Int? {
-    if currentPanelLayout == .vertical {
-      if let hoveredCardIndex {
-        return hoveredCardIndex
-      }
-      return cardSelectionInputSource == .keyboard ? viewModel.selectedIndex : nil
+    if let hoveredCardIndex {
+      return hoveredCardIndex
     }
-    return viewModel.selectedIndex
+    return cardSelectionInputSource == .keyboard ? viewModel.selectedIndex : nil
   }
 
   private func cardSlotPrimaryLength(at index: Int, layout: ClipboardItemCardLayout) -> CGFloat {
-    let size = cardPresentation(at: index).size(for: layout)
-    return currentPanelLayout == .vertical ? size.height : size.width
+    cardPresentation(at: index).size(for: layout).height
   }
 
   private func cardSlotOffset(at targetIndex: Int, layout: ClipboardItemCardLayout) -> CGFloat {
     guard targetIndex > 0 else { return 0 }
-    var offset: CGFloat = 0
-    for index in 0..<targetIndex {
-      offset += cardSlotPrimaryLength(at: index, layout: layout)
-      offset += cardDensity.cardSpacing
+    let baseLength = ClipboardCardPresentation.verticalRow.size(for: layout).height
+    var offset = CGFloat(targetIndex) * (baseLength + cardDensity.cardSpacing)
+    if let expandedIndex = visuallyExpandedCardIndex,
+       expandedIndex >= 0,
+       expandedIndex < targetIndex {
+      let expandedLength = cardSlotPrimaryLength(at: expandedIndex, layout: layout)
+      offset += expandedLength - baseLength
     }
     return offset
   }
@@ -2092,17 +1491,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       self?.collapseSearchFieldIfIdle()
       self?.viewModel.selectItem(at: selected, mode: mode)
     }
-    card.onHover = { [weak self, weak card] selected, mouseLocation in
+    card.onHover = { [weak self] selected, mouseLocation in
       guard let self else { return false }
-      guard let hoverIndex = self.claimMouseHoverSelection(at: selected, mouseLocation: mouseLocation) else {
+      guard let hoverIndex = self.claimMouseHover(at: selected, mouseLocation: mouseLocation) else {
         return false
-      }
-      self.viewModel.selectItem(at: hoverIndex, mode: .hover)
-      if !self.isSearchFieldEditing {
-        let focusedCard = self.cardView(at: hoverIndex) ?? (hoverIndex == selected ? card : nil)
-        if let focusedCard {
-          self.window?.makeFirstResponder(focusedCard)
-        }
       }
       return hoverIndex == selected
     }
@@ -2277,10 +1669,13 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func animateContentReloadIfNeeded(_ shouldAnimate: Bool) {
-    guard shouldAnimate else { return }
+    guard shouldAnimate, !Motion.reducesMotion else {
+      scrollView.alphaValue = 1
+      return
+    }
     scrollView.alphaValue = Motion.contentSwitchStartAlpha
     NSAnimationContext.runAnimationGroup { context in
-      context.duration = Motion.contentSwitchDuration
+      context.duration = Motion.duration(Motion.contentSwitchDuration)
       context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
       scrollView.animator().alphaValue = 1.0
     }
@@ -2292,8 +1687,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       if collectionChipsNeedRebuild {
         pendingCollectionReload = true
       }
-      updateStatus(viewModel.statusMessage)
-      updateResultCount()
       return
     }
 
@@ -2323,8 +1716,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private func handleStackChanged() {
     if defersVisualReloads {
       pendingCollectionReload = true
-      updateStatus(viewModel.statusMessage)
-      updateResultCount()
       return
     }
 
@@ -2336,8 +1727,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     updateVisibleCardStackState()
     updateSelection()
     updateCollectionButtons()
-    updateStatus(viewModel.statusMessage)
-    updateResultCount()
     if shouldRestoreCollectionFocus {
       focusSelectedCollectionChip()
     }
@@ -2390,16 +1779,15 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func applyCurrentCardState(_ card: ClipboardItemCardView, index: Int, animated: Bool = false) {
-    let stableHeaderRollout = animated && currentPanelLayout == .vertical
     let isVisuallyExpanded = index == visuallyExpandedCardIndex
     card.setPresentation(
       cardPresentation(at: index),
       animated: animated,
-      stableHeaderRollout: stableHeaderRollout
+      stableHeaderRollout: animated
     )
     card.setStackState(isStacked: viewModel.isItemStacked(at: index), stackCount: viewModel.stackCount)
     card.setSelectionState(
-      active: isVisuallyExpanded || (currentPanelLayout != .vertical && index == viewModel.selectedIndex),
+      active: isVisuallyExpanded,
       selected: viewModel.isItemSelected(at: index),
       selectionCount: viewModel.selectedItemCount
     )
@@ -2445,9 +1833,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     itemsStack.layoutSubtreeIfNeeded()
 
     let frame = cardSlotFrame(at: card.representedIndex, layout: currentCardLayout())
-    let paddedFrame = currentPanelLayout == .vertical
-      ? frame.insetBy(dx: 0, dy: -cardDensity.cardSpacing)
-      : frame.insetBy(dx: -cardDensity.cardSpacing, dy: 0)
+    let paddedFrame = frame.insetBy(dx: 0, dy: -cardDensity.cardSpacing)
     itemsStack.scrollToVisible(paddedFrame)
     scrollView.reflectScrolledClipView(scrollView.contentView)
   }
@@ -2457,26 +1843,16 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
           let currentIndex = collectionChipOrder.firstIndex(where: { $0 === chip }) else {
       return
     }
-    selectCollectionChip(at: currentIndex + delta)
+    focusCollectionChip(at: currentIndex + delta)
   }
 
-  private func selectCollectionChip(at index: Int) {
+  private func focusCollectionChip(at index: Int) {
     guard !collectionChipOrder.isEmpty else { return }
     let targetIndex = max(0, min(collectionChipOrder.count - 1, index))
-    let title = collectionChipOrder[targetIndex].titleText
-    collectionChipOrder[targetIndex].onPress(false)
-
-    let focusedChip: CollectionChipView?
-    if let rebuiltChip = collectionChipOrder.first(where: { $0.titleText == title }) {
-      focusedChip = rebuiltChip
-    } else if collectionChipOrder.indices.contains(targetIndex) {
-      focusedChip = collectionChipOrder[targetIndex]
-    } else {
-      focusedChip = nil
-    }
-    guard let focusedChip else { return }
+    let focusedChip = collectionChipOrder[targetIndex]
     collectionChipOrder.forEach { $0.clearKeyboardFocus() }
     window?.makeFirstResponder(focusedChip)
+    focusedChip.setKeyboardFocusForPresentation(true)
     scrollCollectionChipIntoView(focusedChip)
   }
 
@@ -2514,73 +1890,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     collectionStack.layoutSubtreeIfNeeded()
 
     let frame = chip.convert(chip.bounds, to: collectionDocumentView)
-    let paddedFrame = frame.insetBy(dx: -2, dy: -Metrics.collectionSideRailGap)
+    let paddedFrame = frame.insetBy(dx: -2, dy: -Metrics.collectionChipScrollPadding)
     collectionDocumentView.scrollToVisible(paddedFrame)
     collectionScrollView.reflectScrolledClipView(collectionScrollView.contentView)
-  }
-
-  private func updateStatus(_ message: String) {
-    let text: String
-    if !message.isEmpty {
-      text = message
-    } else if !viewModel.captureStatusMessage.isEmpty {
-      text = viewModel.captureStatusMessage
-    } else if viewModel.visibleItems.isEmpty {
-      text = viewModel.searchText.clipboardTrimmed.isEmpty
-        ? "Capture is running. Accessibility permission is only needed for automatic paste."
-        : "No clips match this search"
-    } else {
-      text = "Capture running"
-    }
-    currentStatusText = text
-    currentStatusTone = statusTone(for: text)
-  }
-
-  private func statusTone(for text: String) -> StatusTone {
-    let lower = text.lowercased()
-    if lower.hasPrefix("captured") || lower.contains("capture running") || lower.contains("capture is running") || lower.contains("capture resumed") {
-      return .ready
-    }
-    if lower.hasPrefix("error") || lower.contains("failed") || lower.contains("could not") {
-      return .error
-    }
-    if lower.hasPrefix("skipped")
-      || lower.contains("ignored")
-      || lower.contains("paused")
-      || lower.contains("grant accessibility")
-      || lower.contains("not granted")
-      || lower.contains("at least one")
-      || lower.contains("already")
-      || lower.contains("cannot be empty")
-      || lower.contains("has no text")
-      || lower.contains("is empty")
-      || lower.contains("no changes")
-      || lower.contains("no collections")
-      || lower.contains("no selected")
-      || lower.contains("no text")
-      || lower.contains("no visible")
-      || lower.contains("nothing to")
-      || lower.contains("unavailable") {
-      return .warning
-    }
-    if lower.hasPrefix("copied") || lower.hasPrefix("pasted") || lower.hasPrefix("updated") || lower.hasPrefix("renamed") || lower.hasPrefix("rotated") || lower.hasPrefix("extracted") || lower.hasPrefix("added") || lower.hasPrefix("created") || lower.hasPrefix("removed") || lower.hasPrefix("deleted") || lower.hasPrefix("restored") || lower.hasPrefix("selected") || lower.hasPrefix("exported") || lower.hasPrefix("cleared") || lower.hasPrefix("showing") || lower.hasPrefix("compact mode ") || lower.hasPrefix("stack capture is ") {
-      return .action
-    }
-    return .neutral
-  }
-
-  private func updateResultCount() {
-    let count = viewModel.visibleItems.count
-    let noun = count == 1 ? "clip" : "clips"
-    let text: String
-    if viewModel.selectedItemCount > 1 {
-      text = "\(viewModel.selectedItemCount) selected of \(count) \(noun)"
-    } else if !viewModel.searchText.clipboardTrimmed.isEmpty {
-      text = "\(count) \(noun) matching"
-    } else {
-      text = "\(count) \(noun)"
-    }
-    currentResultCountText = text
   }
 
   private func editText(at index: Int) {
@@ -2648,16 +1960,17 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func emptyStateView() -> NSView {
-    let width = currentPanelLayout == .vertical
-      ? max(1, scrollView.contentView.bounds.width)
-      : max(cardDensity.emptyStateMinimumWidth, scrollView.contentView.bounds.width)
+    let width = max(1, scrollView.contentView.bounds.width)
     let height = max(cardDensity.railHeight, scrollView.contentView.bounds.height)
     let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
     let copy = emptyStateCopy()
-    let title = NSTextField(labelWithString: copy.title)
+    let title = NSTextField(wrappingLabelWithString: copy.title)
     title.font = .systemFont(ofSize: 14, weight: .medium)
     title.textColor = .labelColor
     title.alignment = .center
+    title.lineBreakMode = .byWordWrapping
+    title.maximumNumberOfLines = 2
+    title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
     let detail = NSTextField(wrappingLabelWithString: copy.detail)
     detail.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
@@ -2675,7 +1988,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     NSLayoutConstraint.activate([
       stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
       stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-      stack.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, constant: -80)
+      stack.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, constant: -72),
+      stack.widthAnchor.constraint(lessThanOrEqualToConstant: 260)
     ])
     return container
   }
@@ -2685,19 +1999,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     let animationGeneration = cardLayoutAnimationGeneration
     let viewportSize = scrollView.contentView.bounds.size
     let layout = currentCardLayout(viewportWidth: viewportSize.width)
-    let width: CGFloat
-    let height: CGFloat
-    if currentPanelLayout == .vertical {
-      let contentHeight = verticalCardRailContentLength(itemCount: itemCount, layout: layout)
-        + (cardDensity.cardStackInset * 2)
-      width = max(viewportSize.width, layout.width + (cardDensity.cardStackInset * 2))
-      height = max(viewportSize.height, contentHeight)
-    } else {
-      let contentWidth = horizontalCardRailContentLength(itemCount: itemCount, layout: layout)
-        + (cardDensity.cardStackInset * 2)
-      width = max(viewportSize.width, contentWidth)
-      height = currentListHeight(itemCount: itemCount, layout: layout)
-    }
+    let contentHeight = verticalCardRailContentLength(itemCount: itemCount, layout: layout)
+      + (cardDensity.cardStackInset * 2)
+    let width = max(viewportSize.width, layout.width + (cardDensity.cardStackInset * 2))
+    let height = max(viewportSize.height, contentHeight)
     lastScrollViewportSize = viewportSize
     let targetFrame = NSRect(x: 0, y: 0, width: width, height: height)
     guard animated, window != nil else {
@@ -2713,7 +2018,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     #endif
 
     NSAnimationContext.runAnimationGroup { context in
-      context.duration = Motion.cardExpansionDuration
+      context.duration = Motion.duration(Motion.cardExpansionDuration)
       context.timingFunction = Motion.cardExpansionTiming
       itemsStack.animator().frame = targetFrame
       positionRenderedCardSlots(animated: true)
@@ -2727,37 +2032,14 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     }
   }
 
-  private func currentListHeight(itemCount: Int, layout: ClipboardItemCardLayout) -> CGFloat {
-    guard itemCount > 0 else {
-      return cardDensity.railHeight
-    }
-    var contentHeight: CGFloat = 0
-    for index in 0..<itemCount {
-      contentHeight = max(contentHeight, cardPresentation(at: index).size(for: layout).height)
-    }
-    return contentHeight + cardDensity.cardTopInset + cardDensity.cardBottomInset
-  }
-
-  private func horizontalCardRailContentLength(itemCount: Int, layout: ClipboardItemCardLayout) -> CGFloat {
-    guard itemCount > 0 else { return 0 }
-    var length: CGFloat = 0
-    for index in 0..<itemCount {
-      if index > 0 {
-        length += cardDensity.cardSpacing
-      }
-      length += cardPresentation(at: index).size(for: layout).width
-    }
-    return length
-  }
-
   private func verticalCardRailContentLength(itemCount: Int, layout: ClipboardItemCardLayout) -> CGFloat {
     guard itemCount > 0 else { return 0 }
-    var length: CGFloat = 0
-    for index in 0..<itemCount {
-      if index > 0 {
-        length += cardDensity.cardSpacing
-      }
-      length += cardPresentation(at: index).size(for: layout).height
+    let baseHeight = ClipboardCardPresentation.verticalRow.size(for: layout).height
+    var length = CGFloat(itemCount) * baseHeight + CGFloat(max(0, itemCount - 1)) * cardDensity.cardSpacing
+    if let expandedIndex = visuallyExpandedCardIndex,
+       expandedIndex >= 0,
+       expandedIndex < itemCount {
+      length += cardPresentation(at: expandedIndex).size(for: layout).height - baseHeight
     }
     return length
   }
@@ -2829,7 +2111,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     stackChip.setSelected(viewModel.isStackFilterSelected)
     stackChip.setStackCaptureActive(viewModel.isStackCaptureEnabled)
     stackChip.setCount(viewModel.stackCount)
-    categoryMenuButton?.isEnabled = !overflowSortModesForCurrentCounts().isEmpty
     sizeCollectionDocument()
   }
 
@@ -2866,12 +2147,17 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   override func layout() {
     super.layout()
-    _ = updateCardDensityForCurrentWidth()
     updateCollectionRailHorizontalPosition()
     sizeCollectionDocument()
 
     guard !scrollView.frame.equalTo(.zero) else { return }
     let viewportSize = scrollView.contentView.bounds.size
+    if let currentCardRenderContext,
+       currentCardRenderContext.layout != currentCardLayout(viewportWidth: viewportSize.width) {
+      lastScrollViewportSize = viewportSize
+      reloadItems()
+      return
+    }
     if viewportSize == lastScrollViewportSize {
       return
     }
@@ -2879,18 +2165,11 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
     if cardItemCount == 0 {
       guard let documentView = scrollView.documentView else { return }
-      let emptyStateWidth = currentPanelLayout == .vertical
-        ? max(1, scrollView.contentView.bounds.width)
-        : max(cardDensity.emptyStateMinimumWidth, scrollView.contentView.bounds.width)
+      let emptyStateWidth = max(1, scrollView.contentView.bounds.width)
       documentView.frame.size = NSSize(
         width: emptyStateWidth,
         height: max(cardDensity.railHeight, scrollView.contentView.bounds.height)
       )
-      return
-    }
-
-    if let currentCardRenderContext, currentCardRenderContext.layout != currentCardLayout(viewportWidth: viewportSize.width) {
-      reloadItems()
       return
     }
 
@@ -2907,14 +2186,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       }
       + CGFloat(max(0, visibleSubviews.count - 1)) * collectionStack.spacing
     )
-    let targetViewportWidth = Metrics.collectionSideRailWidth
-    if abs((collectionScrollWidthConstraint?.constant ?? 0) - targetViewportWidth) > 0.5 {
-      collectionScrollWidthConstraint?.constant = targetViewportWidth
-      shelfChromeView?.layoutSubtreeIfNeeded()
-      collectionScrollView.layoutSubtreeIfNeeded()
-    }
+    collectionScrollView.layoutSubtreeIfNeeded()
     let viewportHeight = max(1, collectionScrollView.contentView.bounds.height)
-    let contentWidth = targetViewportWidth
     let currentInsets = collectionStack.edgeInsets
     if abs(currentInsets.top) > 0.5
       || abs(currentInsets.left) > 0.5
@@ -2922,11 +2195,11 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       || abs(currentInsets.right) > 0.5 {
       collectionStack.edgeInsets = NSEdgeInsetsZero
     }
-    let contentHeight = rawContentHeight
-    let documentHeight = max(viewportHeight, contentHeight)
-    let stackY = max(0, floor((documentHeight - contentHeight) / 2))
+    let contentWidth = Metrics.collectionSideRailWidth
+    let documentHeight = max(viewportHeight, rawContentHeight)
+    let stackY = max(0, floor((documentHeight - rawContentHeight) / 2))
     collectionDocumentView.frame = NSRect(x: 0, y: 0, width: contentWidth, height: documentHeight)
-    collectionStack.frame = NSRect(x: 0, y: stackY, width: contentWidth, height: contentHeight)
+    collectionStack.frame = NSRect(x: 0, y: stackY, width: contentWidth, height: rawContentHeight)
     let maxOffset = max(0, documentHeight - viewportHeight)
     let currentOrigin = collectionScrollView.contentView.bounds.origin
     let targetY: CGFloat
@@ -2945,30 +2218,21 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func updateCollectionRailHorizontalPosition() {
-    guard currentPanelLayout == .vertical else {
-      collectionRailLeadingConstraint?.constant = 0
-      return
-    }
     guard let contentStack else { return }
-
     contentStack.layoutSubtreeIfNeeded()
     scrollView.layoutSubtreeIfNeeded()
 
     let railWidth = Metrics.collectionSideRailWidth
     let viewportWidth = max(1, scrollView.contentView.bounds.width)
     let layout = currentCardLayout(viewportWidth: viewportWidth)
-    let cardMinXInContent = verticalCardMinXInContent(width: layout.width, viewportWidth: viewportWidth)
-    let contentMinXInPanel = contentStack.convert(contentStack.bounds, to: self).minX
-    let cardMinXInPanel = contentMinXInPanel + cardMinXInContent
-    let desiredMidXInPanel = cardMinXInPanel / 2
-    let centeredLeading = desiredMidXInPanel - contentMinXInPanel - (railWidth / 2)
-    let maximumLeadingBeforeCard = cardMinXInContent - railWidth - Metrics.collectionRailCardClearance
-    let targetLeading = max(0, min(centeredLeading, maximumLeadingBeforeCard))
+    let cardMinX = verticalCardMinXInContent(width: layout.width, viewportWidth: viewportWidth)
+    let desiredLeading = (cardMinX / 2) - (railWidth / 2)
+    let maximumLeading = cardMinX - railWidth - Metrics.collectionRailCardClearance
+    let targetLeading = max(0, min(desiredLeading, maximumLeading))
 
     if abs((collectionRailLeadingConstraint?.constant ?? 0) - targetLeading) > 0.5 {
       collectionRailLeadingConstraint?.constant = targetLeading
       contentStack.layoutSubtreeIfNeeded()
-      collectionScrollView.layoutSubtreeIfNeeded()
     }
   }
 
@@ -2978,15 +2242,13 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       || searchFieldPresentationRequested
       || searchField.hasKeyboardFocusForPresentation
       || (isSearchFieldEditing && !searchFieldCollapsedWhileIdle)
-    let expandedWidth: CGFloat = currentPanelLayout == .vertical
-      ? Metrics.verticalExpandedSearchWidth
-      : Metrics.expandedSearchWidth
+    let expandedWidth = expandedSearchControlWidth()
     let targetWidth: CGFloat = isActive ? expandedWidth : Metrics.searchControlSize
     let wasActive = searchFieldPresentationIsExpanded
     let widthChanged = searchFieldWidthConstraint.map { abs($0.constant - targetWidth) > 0.5 } ?? false
     let visibilityChanged = wasActive != isActive
       || searchField.isHidden == isActive
-      || searchIconButton.isHidden == isActive
+      || searchIconButton.isHidden
     searchFieldPresentationIsExpanded = isActive
     searchField.placeholderAttributedString = NSAttributedString(
       string: isActive ? "Search clips" : "",
@@ -2998,9 +2260,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     guard animated, window != nil, widthChanged || visibilityChanged else {
       searchFieldWidthConstraint?.constant = targetWidth
       searchField.alphaValue = isActive ? 1 : 0
-      searchIconButton.alphaValue = isActive ? 0 : 1
+      searchIconButton.alphaValue = 1
       searchField.isHidden = !isActive
-      searchIconButton.isHidden = isActive
+      searchIconButton.isHidden = false
       needsLayout = true
       shelfChromeView?.needsLayout = true
       headerStack?.needsLayout = true
@@ -3011,17 +2273,16 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     searchField.isHidden = false
     searchIconButton.isHidden = false
     searchField.alphaValue = wasActive ? 1 : 0
-    searchIconButton.alphaValue = wasActive ? 0 : 1
+    searchIconButton.alphaValue = 1
     shelfChromeView?.layoutSubtreeIfNeeded()
     headerStack?.layoutSubtreeIfNeeded()
     layoutSubtreeIfNeeded()
 
     NSAnimationContext.runAnimationGroup { context in
-      context.duration = Motion.searchFieldResizeDuration
+      context.duration = Motion.duration(Motion.searchFieldResizeDuration)
       context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
       searchFieldWidthConstraint?.animator().constant = targetWidth
       searchField.animator().alphaValue = isActive ? 1 : 0
-      searchIconButton.animator().alphaValue = isActive ? 0 : 1
       shelfChromeView?.layoutSubtreeIfNeeded()
       headerStack?.layoutSubtreeIfNeeded()
       layoutSubtreeIfNeeded()
@@ -3029,11 +2290,25 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       guard let self, self.searchFieldPresentationIsExpanded == isActive else { return }
       self.searchFieldWidthConstraint?.constant = targetWidth
       self.searchField.alphaValue = isActive ? 1 : 0
-      self.searchIconButton.alphaValue = isActive ? 0 : 1
+      self.searchIconButton.alphaValue = 1
       self.searchField.isHidden = !isActive
-      self.searchIconButton.isHidden = isActive
+      self.searchIconButton.isHidden = false
       self.sizeCollectionDocument(consumingScrollReset: false)
     }
+  }
+
+  private func expandedSearchControlWidth() -> CGFloat {
+    guard let shelfChromeView, let utilityToolbarGroup else {
+      return Metrics.maximumExpandedSearchWidth
+    }
+    shelfChromeView.layoutSubtreeIfNeeded()
+    let availableWidth = utilityToolbarGroup.frame.minX
+      - searchControlContainer.frame.minX
+      - Metrics.searchActionGap
+    guard availableWidth > Metrics.searchControlSize else {
+      return Metrics.maximumExpandedSearchWidth
+    }
+    return min(Metrics.maximumExpandedSearchWidth, availableWidth)
   }
 
   private func collapseSearchFieldIfIdle() {
@@ -3055,10 +2330,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     _ = window?.makeFirstResponder(searchField)
   }
 
-  @discardableResult
-  func focusSearchOrShowFilters() -> Bool {
+  func focusSearch() {
     focusSearchField()
-    return false
   }
 
   @discardableResult
@@ -3086,12 +2359,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   var visibleCardPageStep: Int {
     let layout = currentCardLayout()
-    let span = currentPanelLayout == .vertical
-      ? layout.height + layout.activeLift + cardDensity.cardSpacing
-      : layout.width + cardDensity.cardSpacing
-    let visibleExtent = currentPanelLayout == .vertical
-      ? scrollView.contentView.bounds.height
-      : scrollView.contentView.bounds.width
+    let span = layout.height + layout.activeLift + cardDensity.cardSpacing
+    let visibleExtent = scrollView.contentView.bounds.height
     guard span > 0 else { return 1 }
     return max(1, Int(floor(visibleExtent / span)))
   }
@@ -3146,6 +2415,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     cardItemCount
   }
 
+  var debugItemReloadCount: Int {
+    debugItemReloadCountValue
+  }
+
   var debugLastSynchronousCardRenderCount: Int {
     lastSynchronousCardRenderCount
   }
@@ -3180,6 +2453,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   var debugPanelBorderAlpha: CGFloat {
     Self.debugAlpha(layer?.borderColor)
+  }
+
+  var debugPanelShadowOpacity: Float {
+    layer?.shadowOpacity ?? 0
   }
 
   var debugCardAccessibilityLabels: [String] {
@@ -3253,7 +2530,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   var debugPanelLayout: String {
-    currentPanelLayout.title
+    "Side Shelf"
   }
 
   var debugResizeHandleIsHidden: Bool {
@@ -3265,7 +2542,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private var debugToolbarButtons: [NSButton] {
-    [categoryMenuButton, clearHistoryButton, settingsButton].compactMap { $0 }
+    [clearHistoryButton, settingsButton].compactMap { $0 }
   }
 
   var debugToolbarButtonAccessibilityLabels: [String] {
@@ -3296,20 +2573,8 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     searchField.accessibilityHelp() ?? ""
   }
 
-  var debugSearchFilterButtonAccessibilityHelp: String {
-    ""
-  }
-
   var debugAddCollectionButtonAccessibilityHelp: String {
     addCollectionButton.accessibilityHelp() ?? ""
-  }
-
-  var debugCompactModeButtonAccessibilityValue: String {
-    ""
-  }
-
-  func debugToggleCompactMode() {
-    toggleCompactMode()
   }
 
   var debugCardSizes: [NSSize] {
@@ -3398,6 +2663,14 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   var debugFirstCardHeaderColorHex: String {
     cardViews.first?.debugHeaderColorHex ?? ""
+  }
+
+  var debugFirstCardHeaderSurfaceColorHex: String {
+    cardViews.first?.debugHeaderSurfaceColorHex ?? ""
+  }
+
+  var debugFirstCardHeaderSurfaceAlpha: CGFloat {
+    cardViews.first?.debugHeaderSurfaceAlpha ?? 0
   }
 
   var debugFirstCardFooterDetailText: String {
@@ -3531,12 +2804,15 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   var debugSelectedCardVisualTopInset: CGFloat {
-    let frame = debugSelectedCardFrameInPanel
-    return currentPanelLayout == .vertical ? frame.minY : bounds.maxY - frame.maxY
+    debugSelectedCardFrameInPanel.minY
   }
 
   var debugCardRailVisibleRect: NSRect {
     scrollView.contentView.bounds
+  }
+
+  var debugCardRailFrameInPanel: NSRect {
+    scrollView.convert(scrollView.bounds, to: self)
   }
 
   var debugCardRailTopGap: CGFloat {
@@ -3564,11 +2840,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   func debugScrollCardRailVertically(deltaY: CGFloat) {
-    if currentPanelLayout == .vertical {
-      scrollView.scrollVerticallyByVerticalDelta(deltaY)
-    } else {
-      scrollView.scrollHorizontallyByVerticalDelta(deltaY)
-    }
+    scrollView.scrollVerticallyByVerticalDelta(deltaY)
   }
 
   var debugFirstCardMenuTitles: [String] {
@@ -3667,10 +2939,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     cardViews.first?.debugHeaderBadgeBorderWidth ?? 0
   }
 
-  var debugStackCornerLabels: [String] {
-    cardViews.map(\.debugStackCornerLabel)
-  }
-
   var debugCardObjectIdentifiers: [ObjectIdentifier] {
     cardViews.map(ObjectIdentifier.init)
   }
@@ -3692,40 +2960,12 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     animatedCardLayoutChangeCount
   }
 
-  var debugStackCornerHiddenStates: [Bool] {
-    cardViews.map(\.debugStackCornerIsHidden)
-  }
-
-  var debugFirstCardStackCornerFrame: NSRect {
-    cardViews.first?.debugStackCornerFrame ?? .zero
-  }
-
-  func debugPressFirstCardStackCornerButton() {
-    cardViews.first?.debugPressStackCornerButton()
-  }
-
   func debugPerformFirstCardMenuItem(titled title: String) {
     cardViews.first?.debugPerformMenuItem(titled: title)
   }
 
   func debugPerformFirstCardCaptureRuleMenuItem(titled title: String) {
     cardViews.first?.debugPerformCaptureRuleMenuItem(titled: title)
-  }
-
-  var debugResultCountText: String {
-    currentResultCountText
-  }
-
-  var debugStatusText: String {
-    currentStatusText
-  }
-
-  var debugStatusBarIsVisible: Bool {
-    false
-  }
-
-  var debugStatusTone: String {
-    currentStatusTone.rawValue
   }
 
   var debugCollectionTitles: [String] {
@@ -3869,6 +3109,12 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     updateSearchText()
   }
 
+  func debugExpandSearchPresentationForSnapshot() {
+    searchFieldPresentationRequested = true
+    searchFieldCollapsedWhileIdle = false
+    updateSearchFieldPresentation(animated: false)
+  }
+
   private func debugPressFocusedResponder(
     characters: String,
     keyCode: UInt16,
@@ -3963,18 +3209,15 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     collectionButtons[mode]?.debugCommandMouseDown()
   }
 
-  var debugCategoryMenuTitles: [String] {
-    categoryMenu().items.map { $0.isSeparatorItem ? "-" : $0.title }
+  func debugMouseDownCollectionChip(
+    _ mode: ClipboardSortMode,
+    modifiers: NSEvent.ModifierFlags
+  ) {
+    collectionButtons[mode]?.debugMouseDown(modifiers: modifiers)
   }
 
-  func debugPerformCategoryMenuItem(_ mode: ClipboardSortMode, extending: Bool = false) {
-    if extending {
-      viewModel.selectSortMode(mode, extending: true)
-      return
-    }
-    let menu = categoryMenu()
-    guard let item = menu.items.first(where: { $0.representedObject as? Int == mode.rawValue }) else { return }
-    _ = item.target?.perform(item.action, with: item)
+  func debugCollectionChipBackgroundAlpha(_ mode: ClipboardSortMode) -> CGFloat {
+    collectionButtons[mode]?.debugBackgroundAlpha ?? 0
   }
 
   var debugClearHistoryMenuTitles: [String] {
@@ -4067,10 +3310,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     collectionNameProviderForTesting = provider
   }
 
-  func debugSetTextClipProvider(_ provider: @escaping () -> String?) {
-    textClipProviderForTesting = provider
-  }
-
   func debugSuppressClipEditDialogs(_ suppress: Bool = true) {
     suppressClipEditDialogsForTesting = suppress
   }
@@ -4097,10 +3336,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   func debugPressAddCollectionButton() {
     createCollectionFromToolbar()
-  }
-
-  func debugCreateTextClipFromToolbar() {
-    createTextClipFromToolbar()
   }
 
   func debugCustomCollectionMenuTitles(named collectionName: String) -> [String] {
@@ -4147,6 +3382,78 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     min(searchIconButton.frame.height, searchControlContainer.bounds.height)
   }
 
+  var debugSearchIconButtonCornerRadius: CGFloat {
+    searchIconButton.layer?.cornerRadius ?? 0
+  }
+
+  var debugSearchGlassMaterial: NSVisualEffectView.Material {
+    searchControlContainer.material
+  }
+
+  var debugSearchGlassBlendingMode: NSVisualEffectView.BlendingMode {
+    searchControlContainer.blendingMode
+  }
+
+  var debugSearchGlassCornerRadius: CGFloat {
+    searchControlContainer.layer?.cornerRadius ?? 0
+  }
+
+  var debugSearchGlassBorderAlpha: CGFloat {
+    Self.debugAlpha(searchControlContainer.layer?.borderColor)
+  }
+
+  var debugSearchGlassTintAlpha: CGFloat {
+    Self.debugAlpha(searchControlContainer.layer?.backgroundColor)
+  }
+
+  var debugSearchFieldUsesTransparentChrome: Bool {
+    !searchField.isBezeled && !searchField.drawsBackground
+  }
+
+  var debugSearchIconIsPinnedToLeadingEdge: Bool {
+    abs(searchIconButton.frame.minX - searchControlContainer.bounds.minX) <= 0.5
+      && abs(searchIconButton.frame.midY - searchControlContainer.bounds.midY) <= 0.5
+  }
+
+  var debugSearchIconLeadingOffset: NSPoint {
+    NSPoint(
+      x: searchIconButton.frame.minX - searchControlContainer.bounds.minX,
+      y: searchIconButton.frame.midY - searchControlContainer.bounds.midY
+    )
+  }
+
+  var debugSearchFieldIsCenteredInGlass: Bool {
+    abs(searchField.frame.midY - searchControlContainer.bounds.midY) < 0.5
+  }
+
+  var debugSearchControlIsLeadingAlignedInToolbar: Bool {
+    guard let shelfChromeView else { return false }
+    return abs(searchControlContainer.frame.minX - shelfChromeView.bounds.minX) <= 0.5
+  }
+
+  var debugSearchControlToolbarLeadingOffset: CGFloat {
+    guard let shelfChromeView else { return .infinity }
+    return searchControlContainer.frame.minX - shelfChromeView.bounds.minX
+  }
+
+  var debugSearchTextLeadingGap: CGFloat {
+    guard let cell = searchField.cell as? NSSearchFieldCell else { return -.infinity }
+    let textRect = cell.searchTextRect(forBounds: searchField.bounds)
+    let textMinX = searchField.frame.minX + textRect.minX
+    return textMinX - searchIconButton.frame.maxX
+  }
+
+  var debugSearchEditorLeadingGap: CGFloat {
+    guard let editor = searchField.currentEditor() else { return -.infinity }
+    let editorFrame = searchControlContainer.convert(editor.bounds, from: editor)
+    return editorFrame.minX - searchIconButton.frame.maxX
+  }
+
+  var debugSearchControlTrailingActionGap: CGFloat {
+    guard let utilityToolbarGroup else { return -.infinity }
+    return utilityToolbarGroup.frame.minX - searchControlContainer.frame.maxX
+  }
+
   var debugSearchAnimationDuration: TimeInterval {
     Motion.searchFieldResizeDuration
   }
@@ -4173,45 +3480,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
 
   var debugSearchIconButtonIsVisible: Bool {
     !searchIconButton.isHidden
-  }
-
-  var debugSearchFilterMenuPresentationCount: Int {
-    0
-  }
-
-  func debugSuppressSearchFilterMenuPresentation(_ suppress: Bool = true) {
-  }
-
-  var debugSearchFilterMenuTitles: [String] {
-    searchFilterMenu().items.map { $0.isSeparatorItem ? "-" : $0.title }
-  }
-
-  func debugSearchFilterSubmenuTitles(named title: String) -> [String] {
-    searchFilterMenu().items.first { $0.title == title }?.submenu?.items.map {
-      $0.isSeparatorItem ? "-" : $0.title
-    } ?? []
-  }
-
-  func debugSearchFilterSubmenuTokens(named title: String, now: Date) -> [String] {
-    searchFilterMenu(now: now).items.first { $0.title == title }?.submenu?.items.compactMap {
-      $0.representedObject as? String
-    } ?? []
-  }
-
-  func debugPerformSearchFilterMenuItem(titled title: String, inSubmenu submenuTitle: String? = nil) {
-    let menu = searchFilterMenu()
-    let item: NSMenuItem?
-    if let submenuTitle {
-      item = menu.items.first { $0.title == submenuTitle }?.submenu?.items.first { $0.title == title }
-    } else {
-      item = menu.items.first { $0.title == title }
-    }
-    guard let item else { return }
-    _ = item.target?.perform(item.action, with: item)
-  }
-
-  func debugApplySearchFilterToken(_ token: String) {
-    applySearchFilterToken(token)
   }
 
   var debugShelfChromeRowCount: Int {
@@ -4305,13 +3573,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     updateSearchText()
   }
 
-  #if DEBUG
-  @objc private func applySearchFilterFromMenu(_ sender: NSMenuItem) {
-    guard let token = sender.representedObject as? String else { return }
-    applySearchFilterToken(token)
-  }
-  #endif
-
   private func updateSearchText() {
     if !searchField.stringValue.isEmpty {
       searchFieldPresentationRequested = true
@@ -4378,7 +3639,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     clearCardHoverStates()
   }
 
-  private func claimMouseHoverSelection(at candidateIndex: Int, mouseLocation: NSPoint?) -> Int? {
+  private func claimMouseHover(at candidateIndex: Int, mouseLocation: NSPoint?) -> Int? {
     if hoverSelectionRequiresFreshMouseMovement {
       guard let location = mouseLocation else { return nil }
       if let barrier = hoverSelectionKeyboardBarrierLocation,
@@ -4393,19 +3654,20 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     guard let index = visualHoverIndex(candidateIndex: candidateIndex, mouseLocation: mouseLocation) else {
       return nil
     }
-    cardSelectionInputSource = .mouse
-    selectionScrollSuppressionCount = 3
+    let previousHoveredIndex = hoveredCardIndex
     hoveredCardIndex = index
     clearCardHoverStates(except: index)
     if index != candidateIndex {
       cardView(at: index)?.setHoverState(true, notifySelection: false, mouseLocation: mouseLocation)
     }
+    if previousHoveredIndex != index {
+      refreshRenderedCardPresentationForHoverChange()
+    }
     return index
   }
 
   private func visualHoverIndex(candidateIndex: Int, mouseLocation: NSPoint?) -> Int? {
-    guard currentPanelLayout == .vertical,
-          let mouseLocation else {
+    guard let mouseLocation else {
       return candidateIndex
     }
     return visualCardIndex(atWindowLocation: mouseLocation)
@@ -4452,7 +3714,7 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func refreshRenderedCardPresentationForHoverChange() {
-    guard currentPanelLayout == .vertical, cardItemCount > 0 else { return }
+    guard cardItemCount > 0 else { return }
     let shouldAnimate = window != nil
     for card in cardViews {
       applyCurrentCardState(card, index: card.representedIndex, animated: shouldAnimate)
@@ -4480,25 +3742,14 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   @objc private func showToolbarMenu(_ sender: NSButton) {
-    let menu = sender === categoryMenuButton ? categoryMenu() : clearHistoryMenu()
-    menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY + 4), in: sender)
+    clearHistoryMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY + 4), in: sender)
   }
 
-  @objc private func performToolbarMenuItem(_ sender: NSMenuItem) {
-    if let rawValue = sender.representedObject as? Int,
-       let mode = ClipboardSortMode(rawValue: rawValue) {
-      collapseSearchFieldIfIdle()
-      viewModel.selectSortMode(mode)
-      return
-    }
+  @objc private func performClearHistoryMenuItem(_ sender: NSMenuItem) {
     let seconds = (sender.representedObject as? NSNumber)?.doubleValue
       ?? (sender.representedObject as? TimeInterval)
     guard let seconds else { return }
     viewModel.clearHistory(since: seconds < 0 ? .distantPast : Date().addingTimeInterval(-seconds))
-  }
-
-  @objc private func toggleCompactMode() {
-    viewModel.toggleCompactMode()
   }
 
   func showSelectedInClipboard() {
@@ -4540,17 +3791,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     createCollectionFromToolbar()
   }
 
-  func createTextClip() {
-    createTextClipFromToolbar()
-  }
-
-  @objc private func createTextClipFromToolbar() {
-    guard let text = requestTextClipCreation() else { return }
-    guard viewModel.createTextClip(text) != nil else { return }
-    syncSearchFieldFromViewModel()
-    focusSelectedCard()
-  }
-
   @objc private func createCollectionFromToolbar() {
     guard let request = requestCollectionCreation() else { return }
     viewModel.createCollection(named: request.name, colorHex: request.colorHex, selectAfterCreate: true)
@@ -4570,10 +3810,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     configureArchiveFileType(on: panel)
 
     guard panel.runModal() == .OK, let url = panel.url else { return }
-    do {
-      _ = try viewModel.exportCollection(named: collectionName, to: url)
-    } catch {
-      viewModel.reportCollectionExportFailure(error)
+    viewModel.exportCollection(named: collectionName, to: url) { [weak self] result in
+      if case .failure(let error) = result {
+        self?.viewModel.reportCollectionExportFailure(error)
+      }
     }
   }
 
@@ -4593,33 +3833,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       .joined(separator: "-")
     let name = safeName.isEmpty ? "Pinboard" : safeName
     return "ClipBored-\(name)-\(formatter.string(from: Date())).\(ClipboardArchiveService.fileExtension)"
-  }
-
-  private func requestTextClipCreation() -> String? {
-    #if DEBUG
-    if let textClipProviderForTesting {
-      return textClipProviderForTesting()
-    }
-    #endif
-
-    let textView = Self.makePlainTextEditor()
-    let accessoryView = textEditorAccessoryView(for: textView)
-
-    let alert = NSAlert()
-    alert.messageText = "New Text Clip"
-    alert.accessoryView = accessoryView
-    alert.addButton(withTitle: "Create")
-    alert.addButton(withTitle: "Cancel")
-    alert.window.initialFirstResponder = textView
-    activeWritingToolsTextView = textView
-    defer {
-      if activeWritingToolsTextView === textView {
-        activeWritingToolsTextView = nil
-      }
-    }
-
-    guard alert.runModal() == .alertFirstButtonReturn else { return nil }
-    return textView.string
   }
 
   static func makePlainTextEditor(initialText: String = "") -> NSTextView {
@@ -5070,6 +4283,7 @@ private final class CollectionChipView: NSView {
   private var isStackCaptureActive = false
   private var isKeyboardFocused = false
   private var isDropTargeted = false
+  private var isHovered = false
   private var trackingAreaRef: NSTrackingArea?
   var onPress: (Bool) -> Void = { _ in }
   var onHover: (Bool) -> Void = { _ in }
@@ -5217,8 +4431,11 @@ private final class CollectionChipView: NSView {
       layer?.backgroundColor = color.withAlphaComponent(0.10).cgColor
       layer?.borderColor = color.withAlphaComponent(isKeyboardFocused ? 0.46 : 0.28).cgColor
     } else if isKeyboardFocused {
-      layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.26).cgColor
+      layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.06).cgColor
       layer?.borderColor = color.withAlphaComponent(0.34).cgColor
+    } else if isHovered {
+      layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.06).cgColor
+      layer?.borderColor = color.withAlphaComponent(0.18).cgColor
     } else {
       layer?.backgroundColor = NSColor.clear.cgColor
       layer?.borderColor = NSColor.clear.cgColor
@@ -5239,7 +4456,7 @@ private final class CollectionChipView: NSView {
   }
 
   private func updateCountLabelVisibility() {
-    countLabel.isHidden = iconOnly || count == 0
+    countLabel.isHidden = iconOnly || count == 0 || !isSelected
   }
 
   private func updateAccessibility() {
@@ -5249,12 +4466,20 @@ private final class CollectionChipView: NSView {
     setAccessibilityLabel("\(titleText), \(selectedText)\(captureText)\(count) \(noun)")
     setAccessibilityValue("\(count)")
     setAccessibilityHelp(accessibilityHelpText())
+    let combineAction = NSAccessibilityCustomAction(
+      name: "Combine \(titleText) with selected categories"
+    ) { [weak self] in
+      guard let self else { return false }
+      self.activateFromUserInteraction(extending: true)
+      return true
+    }
+    setAccessibilityCustomActions([combineAction])
     toolTip = "\(titleText), \(selectedText)\(count) \(noun)"
   }
 
   private func accessibilityHelpText() -> String {
     var parts = [
-      "Press Return or Space to show \(titleText). Use Up/Down to move between categories, Left/Right to move between clips, and Home/End to move between categories."
+      "Press Return or Space to show \(titleText); Command-Return or Command-Space combines categories. Use Left/Right to move between categories, Up/Down to move between clips, and Home/End to jump between categories."
     ]
     if hasStackMenuActions {
       parts.append("Open the context menu for Stack capture and Stack paste actions.")
@@ -5289,6 +4514,12 @@ private final class CollectionChipView: NSView {
     setKeyboardFocusForPresentation(false)
   }
 
+  private func setHoveredForPresentation(_ hovered: Bool) {
+    guard isHovered != hovered else { return }
+    isHovered = hovered
+    updateChrome()
+  }
+
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
     true
   }
@@ -5309,33 +4540,35 @@ private final class CollectionChipView: NSView {
   }
 
   override func mouseEntered(with event: NSEvent) {
+    setHoveredForPresentation(true)
     onHover(true)
   }
 
   override func mouseExited(with event: NSEvent) {
+    setHoveredForPresentation(false)
     onHover(false)
   }
 
   override func mouseDown(with event: NSEvent) {
-    activateFromUserInteraction(extending: event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command))
+    activateFromUserInteraction(extending: Self.shouldExtendSelection(for: event.modifierFlags))
   }
 
   override func keyDown(with event: NSEvent) {
     switch event.keyCode {
     case 36, 49:
-      onPress(false)
-    case 125:
-      onMoveFocus(1)
-    case 126:
+      onPress(Self.shouldExtendSelection(for: event.modifierFlags))
+    case 123:
       onMoveFocus(-1)
+    case 124:
+      onMoveFocus(1)
+    case 125:
+      onMoveCardSelection(1)
+    case 126:
+      onMoveCardSelection(-1)
     case 115:
       onSelectFirst()
     case 119:
       onSelectLast()
-    case 123:
-      onMoveCardSelection(-1)
-    case 124:
-      onMoveCardSelection(1)
     default:
       if let text = shelfSearchText(from: event) {
         onStartSearch(text)
@@ -5353,6 +4586,11 @@ private final class CollectionChipView: NSView {
   private func activateFromUserInteraction(extending: Bool) {
     window?.makeFirstResponder(self)
     onPress(extending)
+  }
+
+  private static func shouldExtendSelection(for modifierFlags: NSEvent.ModifierFlags) -> Bool {
+    let selectionModifiers = modifierFlags.intersection([.command, .option, .control, .shift])
+    return selectionModifiers == .command
   }
 
   override func menu(for event: NSEvent) -> NSMenu? {
@@ -5561,6 +4799,14 @@ private final class CollectionChipView: NSView {
     frame.width
   }
 
+  var debugBackgroundAlpha: CGFloat {
+    guard let backgroundColor = layer?.backgroundColor,
+          let color = NSColor(cgColor: backgroundColor) else {
+      return 0
+    }
+    return (color.usingColorSpace(.deviceRGB) ?? color).alphaComponent
+  }
+
   func debugDropItem(_ itemID: UUID) {
     onDropItem?(itemID)
   }
@@ -5573,7 +4819,12 @@ private final class CollectionChipView: NSView {
     activateFromUserInteraction(extending: true)
   }
 
+  func debugMouseDown(modifiers: NSEvent.ModifierFlags) {
+    activateFromUserInteraction(extending: Self.shouldExtendSelection(for: modifiers))
+  }
+
   func debugSetHovered(_ hovered: Bool) {
+    setHoveredForPresentation(hovered)
     onHover(hovered)
   }
 
@@ -5664,13 +4915,13 @@ private final class HeaderBadgeTileView: NSView {
     layer.masksToBounds = false
     layer.cornerRadius = tileCornerRadius
     layer.maskedCorners = tileMaskedCorners
-    layer.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.74).cgColor
-    layer.borderWidth = 1
-    layer.borderColor = NSColor.white.withAlphaComponent(0.44).cgColor
+    layer.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.52).cgColor
+    layer.borderWidth = 0.5
+    layer.borderColor = NSColor.separatorColor.withAlphaComponent(0.20).cgColor
     layer.shadowColor = NSColor.black.cgColor
-    layer.shadowOpacity = 0.14
-    layer.shadowRadius = 8
-    layer.shadowOffset = NSSize(width: 0, height: 2)
+    layer.shadowOpacity = 0
+    layer.shadowRadius = 0
+    layer.shadowOffset = .zero
   }
 }
 
@@ -5735,7 +4986,7 @@ private final class ClipboardItemCardSlotView: NSView {
     superview?.layoutSubtreeIfNeeded()
     layoutSubtreeIfNeeded()
     NSAnimationContext.runAnimationGroup { context in
-      context.duration = ClipboardPanelView.Motion.cardLiftDuration
+      context.duration = ClipboardPanelView.Motion.duration(ClipboardPanelView.Motion.cardLiftDuration)
       context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
       topConstraint?.constant = targetOffset
       superview?.animator().layoutSubtreeIfNeeded()
@@ -5775,8 +5026,6 @@ private final class ClipboardItemCardSlotView: NSView {
 private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private enum Metrics {
     static let dragThreshold: CGFloat = 4
-    static let actionRailBadgeGap: CGFloat = 8
-    static let actionRailLeadingMargin: CGFloat = 10
   }
   private enum Palette {
     static let border = NSColor.white.withAlphaComponent(0.42).cgColor
@@ -5786,9 +5035,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     static let bodyBackground = NSColor.windowBackgroundColor.withAlphaComponent(0.82).cgColor
     static let footerBackground = NSColor.windowBackgroundColor.withAlphaComponent(0.74).cgColor
     static let divider = NSColor.white.withAlphaComponent(0.14).cgColor
-    static let actionRailBackground = NSColor.windowBackgroundColor.withAlphaComponent(0.58).cgColor
-    static let actionRailBorder = NSColor.white.withAlphaComponent(0.28).cgColor
-    static let secondaryActionBackground = NSColor.labelColor.withAlphaComponent(0.08).cgColor
   }
   private enum CornerMasks {
     static let topOnly: CACornerMask = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
@@ -5797,28 +5043,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       .layerMinXMaxYCorner,
       .layerMaxXMaxYCorner
     ]
-  }
-
-  private struct ActionRailButtonSpec {
-    let systemName: String
-    let toolTip: String
-    let action: Selector
-    let isPrimary: Bool
-    let overflowPriority: Int?
-
-    init(
-      _ systemName: String,
-      toolTip: String,
-      action: Selector,
-      isPrimary: Bool = false,
-      overflowPriority: Int? = nil
-    ) {
-      self.systemName = systemName
-      self.toolTip = toolTip
-      self.action = action
-      self.isPrimary = isPrimary
-      self.overflowPriority = overflowPriority
-    }
   }
 
   var onSelect: (Int, ClipboardSelectionMode) -> Void = { _, _ in }
@@ -5883,12 +5107,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private let contentView = NSView()
   private let footerSourceLabel = NSTextField(labelWithString: "")
   private let footerDetailLabel = NSTextField(labelWithString: "")
-  private let actionRail = NSStackView()
-  private let stackCornerButton = NSButton()
-  private var actionRailButtons: [NSButton] = []
-  private var actionRailWidthConstraint: NSLayoutConstraint?
-  private var actionRailContentWidth: CGFloat = 0
-  private var actionRailIsPresented = false
   private weak var headerBadgeView: NSView?
   private weak var headerBadgeContentView: NSView?
   private weak var headerPinView: NSView?
@@ -5900,7 +5118,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private var isKeyboardFocused = false
   private var mouseDownLocation: NSPoint?
   private var trackingAreaRef: NSTrackingArea?
-  private var presentation: ClipboardCardPresentation = .expanded
+  private var presentation: ClipboardCardPresentation = .verticalFocus
   private var presentationAnimationGeneration = 0
   private var widthConstraint: NSLayoutConstraint?
   private var heightConstraint: NSLayoutConstraint?
@@ -5928,7 +5146,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     self.index = index
     isHovered = false
     mouseDownLocation = nil
-    updateActionRailVisibility()
+    updateSupplementaryChrome()
   }
 
   init(
@@ -5990,15 +5208,14 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     }
     onLiftStateChanged(emphasized)
     setAccessibilityValue(selected ? "Selected" : "Not selected")
-    updateActionRailVisibility()
+    updateSupplementaryChrome()
   }
 
   func setStackState(isStacked: Bool, stackCount: Int) {
     guard itemIsStacked != isStacked || self.stackCount != stackCount else { return }
     itemIsStacked = isStacked
     self.stackCount = stackCount
-    configureStackCornerButton()
-    updateActionRailVisibility()
+    updateSupplementaryChrome()
   }
 
   func setPresentation(
@@ -6025,10 +5242,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       compactContentView?.isHidden = false
     }
 
-    compactTextStack?.isHidden = presentation == .horizontalIcon
+    compactTextStack?.isHidden = false
     compactMetricLabel?.isHidden = presentation != .verticalRow
-    let targetCornerRadius = cardCornerRadius(for: presentation, size: size)
-    stackCornerButton.isHidden = !presentation.showsFloatingActions || !(itemIsStacked || isKeyboardFocused)
+    let targetCornerRadius = cardCornerRadius(for: presentation)
 
     let applyFinalVisibility = { [weak self] in
       guard let self else { return }
@@ -6056,7 +5272,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       expandedDetailHeightConstraint?.constant = detailHeight
       applyFinalVisibility()
       if changed {
-        updateActionRailVisibility()
+        updateSupplementaryChrome()
         needsLayout = true
       }
       return
@@ -6083,7 +5299,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
         debugAnimatedPresentationChangeCount += 1
         #endif
         NSAnimationContext.runAnimationGroup { context in
-          context.duration = ClipboardPanelView.Motion.cardExpansionDuration
+          context.duration = ClipboardPanelView.Motion.duration(ClipboardPanelView.Motion.cardExpansionDuration)
           context.timingFunction = ClipboardPanelView.Motion.cardExpansionTiming
           context.allowsImplicitAnimation = true
           heightConstraint?.animator().constant = size.height
@@ -6095,7 +5311,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
         }
 
         if changed {
-          updateActionRailVisibility()
+          updateSupplementaryChrome()
           needsLayout = true
         }
         return
@@ -6110,7 +5326,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
         debugAnimatedPresentationChangeCount += 1
         #endif
         NSAnimationContext.runAnimationGroup { context in
-          context.duration = ClipboardPanelView.Motion.cardExpansionDuration
+          context.duration = ClipboardPanelView.Motion.duration(ClipboardPanelView.Motion.cardExpansionDuration)
           context.timingFunction = ClipboardPanelView.Motion.cardExpansionTiming
           context.allowsImplicitAnimation = true
           heightConstraint?.animator().constant = size.height
@@ -6122,7 +5338,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
         }
 
         if changed {
-          updateActionRailVisibility()
+          updateSupplementaryChrome()
           needsLayout = true
         }
         return
@@ -6134,7 +5350,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       debugAnimatedPresentationChangeCount += 1
       #endif
       NSAnimationContext.runAnimationGroup { context in
-        context.duration = ClipboardPanelView.Motion.cardExpansionDuration
+        context.duration = ClipboardPanelView.Motion.duration(ClipboardPanelView.Motion.cardExpansionDuration)
         context.timingFunction = ClipboardPanelView.Motion.cardExpansionTiming
         context.allowsImplicitAnimation = true
         heightConstraint?.animator().constant = size.height
@@ -6146,7 +5362,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       }
 
       if changed {
-        updateActionRailVisibility()
+        updateSupplementaryChrome()
         needsLayout = true
       }
       return
@@ -6158,7 +5374,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     debugAnimatedPresentationChangeCount += 1
     #endif
     NSAnimationContext.runAnimationGroup { context in
-      context.duration = ClipboardPanelView.Motion.cardExpansionDuration
+      context.duration = ClipboardPanelView.Motion.duration(ClipboardPanelView.Motion.cardExpansionDuration)
       context.timingFunction = ClipboardPanelView.Motion.cardExpansionTiming
       widthConstraint?.animator().constant = size.width
       heightConstraint?.animator().constant = size.height
@@ -6173,7 +5389,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     }
 
     if changed {
-      updateActionRailVisibility()
+      updateSupplementaryChrome()
       needsLayout = true
     }
   }
@@ -6183,7 +5399,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     if window == nil {
       CATransaction.setDisableActions(true)
     } else {
-      CATransaction.setAnimationDuration(0.16)
+      CATransaction.setAnimationDuration(ClipboardPanelView.Motion.duration(0.16))
       CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
     }
     changes()
@@ -6192,9 +5408,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   private func applyCardShadow(emphasized: Bool) {
     if presentation == .verticalRow || presentation == .verticalFocus {
-      layer?.shadowOpacity = 0
-      layer?.shadowRadius = 0
-      layer?.shadowOffset = .zero
+      layer?.shadowOpacity = emphasized ? 0.12 : 0.035
+      layer?.shadowRadius = emphasized ? 12 : 4
+      layer?.shadowOffset = NSSize(width: 0, height: emphasized ? -4 : -1)
       return
     }
     layer?.shadowOpacity = emphasized ? 0.24 : 0.09
@@ -6203,13 +5419,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   }
 
   private func cardSurfaceColor(emphasized: Bool, selected: Bool) -> CGColor {
-    if presentation == .verticalRow || presentation == .verticalFocus {
-      return NSColor.clear.cgColor
-    }
     if emphasized {
       return Palette.selectedSurface
     }
-    return selected ? Palette.cardSurface : Palette.cardSurface
+    return selected ? Palette.selectedSurface : Palette.cardSurface
   }
 
   override var acceptsFirstResponder: Bool {
@@ -6275,9 +5488,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
         onExtendSelectionToLast()
       case 121:
         onPageExtendSelection(1)
-      case 123:
+      case 126:
         onExtendSelection(-1)
-      case 124:
+      case 125:
         onExtendSelection(1)
       default:
         super.keyDown(with: event)
@@ -6304,9 +5517,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
       onSelectLast()
     case 121:
       onPageSelection(1)
-    case 123:
+    case 126:
       onMoveSelection(-1)
-    case 124:
+    case 125:
       onMoveSelection(1)
     default:
       if let text = shelfSearchText(from: event) {
@@ -6494,19 +5707,19 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   }
 
   var debugVisibleActionLabels: [String] {
-    actionRailIsPresented ? actionRailButtons.map { $0.toolTip ?? "" } : []
+    []
   }
 
   var debugVisibleActionRailWidth: CGFloat {
-    actionRailIsPresented ? actionRailContentWidth : 0
+    0
   }
 
   var debugActionRailAlpha: CGFloat {
-    actionRail.alphaValue
+    0
   }
 
   var debugConstructedActionButtonCount: Int {
-    actionRailButtons.count
+    0
   }
 
   var debugShadowOpacity: Float {
@@ -6569,6 +5782,22 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     compactContentView?.layer?.maskedCorners ?? []
   }
 
+  var debugHeaderSurfaceColorHex: String {
+    guard let backgroundColor = compactContentView?.layer?.backgroundColor,
+          let color = NSColor(cgColor: backgroundColor) else {
+      return ""
+    }
+    return Self.debugHex(color)
+  }
+
+  var debugHeaderSurfaceAlpha: CGFloat {
+    guard let backgroundColor = compactContentView?.layer?.backgroundColor,
+          let color = NSColor(cgColor: backgroundColor) else {
+      return 0
+    }
+    return (color.usingColorSpace(.deviceRGB) ?? color).alphaComponent
+  }
+
   var debugExpandedDetailFrame: NSRect {
     guard let fullContentView else { return .zero }
     return fullContentView.convert(fullContentView.bounds, to: self)
@@ -6607,22 +5836,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     headerBadgeView?.layer?.borderWidth ?? 0
   }
 
-  var debugStackCornerLabel: String {
-    stackCornerButton.toolTip ?? ""
-  }
-
-  var debugStackCornerIsHidden: Bool {
-    stackCornerButton.isHidden
-  }
-
-  var debugStackCornerFrame: NSRect {
-    stackCornerButton.convert(stackCornerButton.bounds, to: self)
-  }
-
-  func debugPressStackCornerButton() {
-    stackCornerButton.performClick(nil)
-  }
-
   func debugPerformMenuItem(titled title: String) {
     guard let item = contextMenu().items.first(where: { $0.title == title }) else { return }
     _ = item.target?.perform(item.action, with: item)
@@ -6658,12 +5871,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   var debugPresentation: String {
     switch presentation {
-    case .expanded:
-      return "expanded"
-    case .horizontalIcon:
-      return "horizontal-icon"
-    case .horizontalFocus:
-      return "horizontal-focus"
     case .verticalRow:
       return "vertical-row"
     case .verticalFocus:
@@ -6908,136 +6115,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     }
   }
 
-  private func configureActionRail() {
-    actionRail.orientation = .horizontal
-    actionRail.alignment = .centerY
-    actionRail.spacing = 4
-    actionRail.edgeInsets = NSEdgeInsets(top: 2, left: 6, bottom: 2, right: 6)
-    actionRail.wantsLayer = true
-    actionRail.layer?.cornerRadius = layout.actionRailHeight / 2
-    actionRail.layer?.backgroundColor = Palette.actionRailBackground
-    actionRail.layer?.borderWidth = 0.5
-    actionRail.layer?.borderColor = Palette.actionRailBorder
-    actionRail.layer?.shadowColor = NSColor.black.cgColor
-    actionRail.layer?.shadowOpacity = 0.12
-    actionRail.layer?.shadowRadius = 8
-    actionRail.layer?.shadowOffset = NSSize(width: 0, height: 3)
-    actionRail.translatesAutoresizingMaskIntoConstraints = false
-    actionRail.alphaValue = 0
-    actionRail.isHidden = true
-    actionRail.heightAnchor.constraint(equalToConstant: layout.actionRailHeight).isActive = true
-    actionRail.setContentHuggingPriority(.required, for: .horizontal)
-    actionRail.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-    actionRailWidthConstraint = actionRail.widthAnchor.constraint(equalToConstant: 0)
-    actionRailWidthConstraint?.isActive = true
-    updateActionRailVisibility()
-  }
-
-  private func ensureActionRailButtons() {
-    guard actionRailButtons.isEmpty else { return }
-
-    let specs = fittedActionRailButtonSpecs(from: preferredActionRailButtonSpecs())
-    let buttons = specs.map { spec in
-      cardActionButton(
-        spec.systemName,
-        toolTip: spec.toolTip,
-        action: spec.action,
-        isPrimary: spec.isPrimary
-      )
-    }
-
-    for button in buttons {
-      actionRail.addArrangedSubview(button)
-    }
-    actionRailButtons = buttons
-    let contentWidth = actionRailWidth(for: specs)
-    actionRailContentWidth = contentWidth
-    if actionRailIsPresented {
-      actionRailWidthConstraint?.constant = contentWidth
-    }
-  }
-
-  private func preferredActionRailButtonSpecs() -> [ActionRailButtonSpec] {
-    let pinTitle = itemIsPinned ? "Unpin" : "Pin"
-    var specs: [ActionRailButtonSpec] = [
-      ActionRailButtonSpec("return", toolTip: "Paste", action: #selector(pasteFromMenu), isPrimary: true),
-      ActionRailButtonSpec("doc.on.doc", toolTip: "Copy", action: #selector(copyFromMenu))
-    ]
-
-    if canPlainText {
-      specs.append(ActionRailButtonSpec("textformat", toolTip: "Paste Plain Text", action: #selector(pastePlainTextFromMenu)))
-      specs.append(ActionRailButtonSpec("doc.plaintext", toolTip: "Copy Plain Text", action: #selector(copyPlainTextFromMenu), overflowPriority: 20))
-    }
-
-    specs.append(ActionRailButtonSpec(itemIsPinned ? "pin.slash" : "pin", toolTip: pinTitle, action: #selector(togglePinFromMenu), overflowPriority: 30))
-    specs.append(ActionRailButtonSpec("plus", toolTip: "Collect", action: #selector(showCollectionMenuFromAction(_:))))
-
-    if canEditText {
-      specs.append(ActionRailButtonSpec("pencil", toolTip: "Edit", action: #selector(editTextFromMenu), overflowPriority: 50))
-    }
-    if canRotateImage {
-      specs.append(ActionRailButtonSpec("rotate.right", toolTip: "Rotate Image", action: #selector(rotateImageFromMenu), overflowPriority: 50))
-    }
-    if canExtractImageText {
-      specs.append(ActionRailButtonSpec("text.viewfinder", toolTip: "Extract Text", action: #selector(extractImageTextFromMenu), overflowPriority: 55))
-    }
-    if canPreview {
-      specs.append(ActionRailButtonSpec("eye", toolTip: "Preview", action: #selector(previewFromMenu), overflowPriority: 60))
-    }
-    if canOpen {
-      specs.append(ActionRailButtonSpec("arrow.up.right.square", toolTip: "Open", action: #selector(openFromMenu), overflowPriority: 50))
-    }
-    if canReveal {
-      specs.append(ActionRailButtonSpec("magnifyingglass", toolTip: "Reveal", action: #selector(revealFromMenu), overflowPriority: 40))
-    }
-    specs.append(ActionRailButtonSpec("trash", toolTip: "Delete", action: #selector(deleteFromMenu), overflowPriority: 10))
-    return specs
-  }
-
-  private func fittedActionRailButtonSpecs(from specs: [ActionRailButtonSpec]) -> [ActionRailButtonSpec] {
-    let maximumWidth = maximumVisibleActionRailWidth
-    guard actionRailWidth(for: specs) > maximumWidth else { return specs }
-
-    let moreSpec = ActionRailButtonSpec("ellipsis.circle", toolTip: "More", action: #selector(showMoreActionsFromActionRail(_:)))
-    let overflowCandidates = specs.enumerated().compactMap { index, spec -> (index: Int, priority: Int)? in
-      guard let priority = spec.overflowPriority else { return nil }
-      return (index, priority)
-    }.sorted { lhs, rhs in
-      lhs.priority == rhs.priority ? lhs.index > rhs.index : lhs.priority < rhs.priority
-    }
-
-    var hiddenIndexes = Set<Int>()
-    for candidate in overflowCandidates {
-      hiddenIndexes.insert(candidate.index)
-      let visibleSpecs = specs.enumerated().compactMap { index, spec in
-        hiddenIndexes.contains(index) ? nil : spec
-      } + [moreSpec]
-      if actionRailWidth(for: visibleSpecs) <= maximumWidth {
-        return visibleSpecs
-      }
-    }
-
-    return specs.enumerated().compactMap { index, spec in
-      hiddenIndexes.contains(index) ? nil : spec
-    } + [moreSpec]
-  }
-
-  private func actionRailWidth(for specs: [ActionRailButtonSpec]) -> CGFloat {
-    guard !specs.isEmpty else { return 0 }
-    let buttonWidth = specs.reduce(CGFloat(0)) { width, spec in
-      width + (spec.isPrimary ? layout.primaryActionButtonSize : layout.actionButtonSize)
-    }
-    return buttonWidth
-      + CGFloat(max(0, specs.count - 1)) * actionRail.spacing
-      + actionRail.edgeInsets.left
-      + actionRail.edgeInsets.right
-  }
-
-  private var maximumVisibleActionRailWidth: CGFloat {
-    layout.width - (Metrics.actionRailLeadingMargin * 2)
-  }
-
   private var summaryHeaderHeight: CGFloat {
     ClipboardCardPresentation.verticalRow.size(for: layout).height
   }
@@ -7051,15 +6128,15 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   }
 
   private var headerBadgeSize: CGFloat {
-    summaryHeaderHeight
+    layout.isCompact ? 40 : 44
   }
 
   private var verticalHeaderCornerRadius: CGFloat {
-    min(layout.width, summaryHeaderHeight) / 3
+    layout.isCompact ? 12 : 14
   }
 
   private var headerBadgeCornerRadius: CGFloat {
-    layout.isCompact ? 13 : 15
+    layout.isCompact ? 10 : 11
   }
 
   private var headerBadgeIconInset: CGFloat {
@@ -7070,130 +6147,17 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     layout.isCompact ? 6 : 7
   }
 
-  private var stackCornerButtonSize: CGFloat {
-    layout.isCompact ? 28 : 30
-  }
-
-  private var actionRailHeaderTopInset: CGFloat {
-    max(8, (layout.headerHeight - layout.actionRailHeight) / 2)
-  }
-
-  private func cardCornerRadius(for presentation: ClipboardCardPresentation, size: NSSize) -> CGFloat {
+  private func cardCornerRadius(for presentation: ClipboardCardPresentation) -> CGFloat {
     switch presentation {
     case .verticalRow, .verticalFocus:
       return verticalHeaderCornerRadius
-    case .horizontalIcon:
-      return min(size.width, size.height) / 2
-    case .horizontalFocus:
-      return min(size.width, size.height) / 3
-    case .expanded:
-      return 8
     }
   }
 
-  private func cardActionButton(
-    _ systemName: String,
-    toolTip: String,
-    action: Selector,
-    isPrimary: Bool = false
-  ) -> NSButton {
-    let button = NSButton(title: "", target: self, action: action)
-    let image = NSImage(systemSymbolName: systemName, accessibilityDescription: toolTip)
-    image?.isTemplate = true
-    button.image = image
-    button.imagePosition = .imageOnly
-    button.imageScaling = .scaleProportionallyDown
-    button.isBordered = false
-    button.wantsLayer = true
-    let size = isPrimary ? layout.primaryActionButtonSize : layout.actionButtonSize
-    button.layer?.cornerRadius = size / 2
-    if isPrimary {
-      button.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.92).cgColor
-      button.contentTintColor = .white
-    } else if toolTip == "Collect" {
-      button.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.86).cgColor
-      button.contentTintColor = .white
-    } else if toolTip == "Delete" {
-      button.layer?.backgroundColor = NSColor.clear.cgColor
-      button.contentTintColor = NSColor.systemRed.withAlphaComponent(0.78)
-    } else {
-      button.layer?.backgroundColor = Palette.secondaryActionBackground
-      button.contentTintColor = NSColor.labelColor.withAlphaComponent(0.74)
-    }
-    button.toolTip = toolTip
-    button.setAccessibilityLabel(toolTip)
-    button.translatesAutoresizingMaskIntoConstraints = false
-    button.widthAnchor.constraint(equalToConstant: size).isActive = true
-    button.heightAnchor.constraint(equalToConstant: size).isActive = true
-    return button
-  }
-
-  private func configureStackCornerButton() {
-    let toolTip = itemIsStacked ? "Remove from Stack" : "Add to Stack"
-    let image = NSImage(systemSymbolName: itemIsStacked ? "checkmark" : "plus", accessibilityDescription: toolTip)
-    image?.isTemplate = true
-    stackCornerButton.image = image
-    stackCornerButton.imagePosition = .imageOnly
-    stackCornerButton.imageScaling = .scaleProportionallyDown
-    stackCornerButton.isBordered = false
-    stackCornerButton.wantsLayer = true
-    stackCornerButton.layer?.cornerRadius = stackCornerButtonSize / 2
-    stackCornerButton.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.94).cgColor
-    stackCornerButton.layer?.borderWidth = 1
-    stackCornerButton.layer?.borderColor = NSColor.white.withAlphaComponent(0.82).cgColor
-    stackCornerButton.layer?.shadowColor = NSColor.black.cgColor
-    stackCornerButton.layer?.shadowOpacity = 0.22
-    stackCornerButton.layer?.shadowRadius = 7
-    stackCornerButton.layer?.shadowOffset = NSSize(width: 0, height: 3)
-    stackCornerButton.contentTintColor = .white
-    stackCornerButton.toolTip = toolTip
-    stackCornerButton.setAccessibilityLabel(toolTip)
-    stackCornerButton.target = self
-    stackCornerButton.action = #selector(toggleStackFromCornerButton)
-    stackCornerButton.translatesAutoresizingMaskIntoConstraints = false
-    stackCornerButton.setContentHuggingPriority(.required, for: .horizontal)
-    stackCornerButton.setContentCompressionResistancePriority(.required, for: .horizontal)
-  }
-
-  private func updateActionRailVisibility() {
-    let shouldShowActionRail = presentation.showsFloatingActions && (isHovered || (isActiveSelection && isKeyboardFocused))
-    if shouldShowActionRail {
-      ensureActionRailButtons()
-    }
-    let targetWidth = shouldShowActionRail ? actionRailContentWidth : 0
-    let visibilityChanged = actionRailIsPresented != shouldShowActionRail
-    actionRailIsPresented = shouldShowActionRail
+  private func updateSupplementaryChrome() {
     headerBadgeView?.isHidden = false
     headerPinView?.isHidden = isActiveSelection
     footerDetailLabel.isHidden = false
-    stackCornerButton.isHidden = !presentation.showsFloatingActions || !(itemIsStacked || isKeyboardFocused)
-    stackCornerButton.alphaValue = itemIsStacked ? 1.0 : 0.94
-    for button in actionRailButtons {
-      button.alphaValue = 1.0
-    }
-
-    guard window != nil, visibilityChanged else {
-      actionRailWidthConstraint?.constant = targetWidth
-      actionRail.alphaValue = shouldShowActionRail ? 1 : 0
-      actionRail.isHidden = !shouldShowActionRail
-      return
-    }
-
-    if shouldShowActionRail {
-      actionRailWidthConstraint?.constant = targetWidth
-      actionRail.isHidden = false
-      actionRail.alphaValue = max(actionRail.alphaValue, 0.01)
-    }
-    NSAnimationContext.runAnimationGroup { context in
-      context.duration = ClipboardPanelView.Motion.actionRailDuration
-      context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-      actionRail.animator().alphaValue = shouldShowActionRail ? 1 : 0
-    } completionHandler: { [weak self] in
-      guard let self else { return }
-      self.actionRailWidthConstraint?.constant = targetWidth
-      self.actionRail.alphaValue = shouldShowActionRail ? 1 : 0
-      self.actionRail.isHidden = !shouldShowActionRail
-    }
   }
 
   @objc private func pasteFromMenu() {
@@ -7224,25 +6188,12 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     onAddSelectionToStack(index)
   }
 
-  @objc private func showMoreActionsFromActionRail(_ sender: NSButton) {
-    contextMenu().popUp(
-      positioning: nil,
-      at: NSPoint(x: sender.bounds.minX, y: sender.bounds.minY - 4),
-      in: sender
-    )
-  }
-
   @objc private func toggleStackFromMenu() {
     onToggleStack(index)
   }
 
   @objc private func addVisibleToStackFromMenu() {
     onAddVisibleToStack()
-  }
-
-  @objc private func toggleStackFromCornerButton() {
-    onSelect(index, .activate)
-    onToggleStack(index)
   }
 
   @objc private func pasteStackNextFromMenu() {
@@ -7299,11 +6250,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
   @objc private func togglePinFromMenu() {
     onTogglePin(index)
-  }
-
-  @objc private func showCollectionMenuFromAction(_ sender: NSButton) {
-    let menu = collectionAssignmentMenu()
-    menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY + 4), in: sender)
   }
 
   @objc private func assignToCollectionFromMenu(_ sender: NSMenuItem) {
@@ -7433,25 +6379,15 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     NSLayoutConstraint.activate(fullContentConstraints)
     NSLayoutConstraint.activate(compactContentConstraints)
 
-    configureStackCornerButton()
-    contentView.addSubview(stackCornerButton)
-    addSubview(actionRail)
-    NSLayoutConstraint.activate([
-      stackCornerButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-      stackCornerButton.centerYAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -layout.footerHeight),
-      stackCornerButton.widthAnchor.constraint(equalToConstant: stackCornerButtonSize),
-      stackCornerButton.heightAnchor.constraint(equalToConstant: stackCornerButtonSize),
-      actionRail.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-      actionRail.topAnchor.constraint(equalTo: contentView.bottomAnchor, constant: 5)
-    ])
-    setPresentation(.expanded)
+    setPresentation(.verticalFocus)
     setSelected(false)
   }
 
   private func compactSummaryView(for item: ClipboardItem) -> NSView {
     let header = NSView()
+    let accent = headerColor(for: item)
     header.wantsLayer = true
-    header.layer?.backgroundColor = headerColor(for: item).withAlphaComponent(0.96).cgColor
+    header.layer?.backgroundColor = accent.withAlphaComponent(0.96).cgColor
     header.layer?.cornerRadius = verticalHeaderCornerRadius
     header.layer?.maskedCorners = CornerMasks.topOnly
     header.layer?.masksToBounds = true
@@ -7478,15 +6414,13 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     titleAndSubtitle.translatesAutoresizingMaskIntoConstraints = false
     compactTextStack = titleAndSubtitle
 
-    let metricLabel = compactMetricLabel(for: item)
-    compactMetricLabel = metricLabel
+    compactMetricLabel = nil
 
     var labelViews: [NSView] = []
     if let quickPasteBadge = quickPasteBadge() {
       labelViews.append(quickPasteBadge)
     }
     labelViews.append(titleAndSubtitle)
-    labelViews.append(metricLabel)
     let labelStack = NSStackView(views: labelViews)
     labelStack.orientation = .horizontal
     labelStack.alignment = .centerY
@@ -7497,10 +6431,16 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
     let badge = iconBadge(for: item)
     headerBadgeView = badge
+    let accentBar = NSView()
+    accentBar.wantsLayer = true
+    accentBar.layer?.cornerRadius = 1.5
+    accentBar.layer?.backgroundColor = accent.cgColor
+    accentBar.translatesAutoresizingMaskIntoConstraints = false
     let separator = NSView()
     separator.wantsLayer = true
     separator.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.18).cgColor
     separator.translatesAutoresizingMaskIntoConstraints = false
+    header.addSubview(accentBar)
     header.addSubview(labelStack)
     header.addSubview(badge)
     header.addSubview(separator)
@@ -7510,15 +6450,16 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     subtitle.setContentHuggingPriority(.defaultLow, for: .horizontal)
     titleAndSubtitle.setContentHuggingPriority(.defaultLow, for: .horizontal)
     titleAndSubtitle.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    metricLabel.setContentHuggingPriority(.required, for: .horizontal)
-    metricLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-
     var constraints: [NSLayoutConstraint] = [
-      labelStack.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: layout.inset),
+      accentBar.leadingAnchor.constraint(equalTo: header.leadingAnchor),
+      accentBar.topAnchor.constraint(equalTo: header.topAnchor, constant: 8),
+      accentBar.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -8),
+      accentBar.widthAnchor.constraint(equalToConstant: 3),
+      labelStack.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: layout.inset + 3),
       labelStack.centerYAnchor.constraint(equalTo: header.centerYAnchor),
-      labelStack.trailingAnchor.constraint(lessThanOrEqualTo: badge.leadingAnchor, constant: -12),
-      badge.trailingAnchor.constraint(equalTo: header.trailingAnchor),
-      badge.topAnchor.constraint(equalTo: header.topAnchor),
+      labelStack.trailingAnchor.constraint(lessThanOrEqualTo: badge.leadingAnchor, constant: -10),
+      badge.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -8),
+      badge.centerYAnchor.constraint(equalTo: header.centerYAnchor),
       badge.widthAnchor.constraint(equalToConstant: headerBadgeSize),
       badge.heightAnchor.constraint(equalToConstant: headerBadgeSize),
       separator.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: layout.inset),
@@ -7547,7 +6488,7 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private func compactMetricLabel(for item: ClipboardItem) -> NSTextField {
     let label = NSTextField(labelWithString: compactMetricText(for: item))
     label.font = .monospacedDigitSystemFont(ofSize: layout.isCompact ? 10 : 11, weight: .semibold)
-    label.textColor = NSColor.white.withAlphaComponent(0.82)
+    label.textColor = .tertiaryLabelColor
     label.alignment = .right
     label.lineBreakMode = .byClipping
     label.maximumNumberOfLines = 1
@@ -7557,13 +6498,16 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   }
 
   private func headerTitle(for item: ClipboardItem) -> String {
-    activeCollectionName ?? kindLabel(for: item.kind)
+    titleText(for: item)
   }
 
   private func headerSubtitle(for item: ClipboardItem) -> String {
     let relativeDate = Self.relativeDateText(for: item.createdAt)
-    guard activeCollectionName != nil else { return relativeDate }
-    return "\(kindLabel(for: item.kind)) - \(relativeDate)"
+    let context = [kindLabel(for: item.kind), itemSourceAppName]
+      .compactMap { $0?.clipboardTrimmed }
+      .filter { !$0.isEmpty }
+      .joined(separator: " • ")
+    return context.isEmpty ? relativeDate : "\(context) • \(relativeDate)"
   }
 
   private func headerColor(for item: ClipboardItem) -> NSColor {
@@ -7609,9 +6553,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   }
 
   private func previewView(for item: ClipboardItem, thumbnail: NSImage?) -> NSView {
-    #if !DEBUG
-    return lightweightPreviewView(for: item, thumbnail: thumbnail)
-    #else
     if item.kind == .image, let thumbnail {
       return mediaPreviewView(for: item, thumbnail: thumbnail)
     }
@@ -7649,73 +6590,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     case .text, .richText, .image, .unknown:
       return textPreviewView(for: item)
     }
-    #endif
-  }
-
-  private func lightweightPreviewView(for item: ClipboardItem, thumbnail: NSImage?) -> NSView {
-    let container = NSView()
-    container.wantsLayer = true
-    container.layer?.backgroundColor = accentColor(for: item.kind).withAlphaComponent(0.055).cgColor
-    container.translatesAutoresizingMaskIntoConstraints = false
-
-    let title = NSTextField(wrappingLabelWithString: titleText(for: item))
-    title.font = .systemFont(ofSize: layout.isCompact ? 13 : 14, weight: .semibold)
-    title.textColor = .labelColor
-    title.maximumNumberOfLines = thumbnail == nil ? 3 : 1
-    title.lineBreakMode = .byTruncatingTail
-    title.toolTip = title.stringValue
-
-    let detail = NSTextField(wrappingLabelWithString: previewText(for: item))
-    detail.font = .systemFont(ofSize: layout.isCompact ? 11 : 12)
-    detail.textColor = .secondaryLabelColor
-    detail.maximumNumberOfLines = thumbnail == nil ? 2 : 1
-    detail.lineBreakMode = .byTruncatingTail
-    detail.toolTip = detail.stringValue
-
-    let textStack = NSStackView(views: [title, detail])
-    textStack.orientation = .vertical
-    textStack.alignment = .leading
-    textStack.spacing = 4
-    textStack.translatesAutoresizingMaskIntoConstraints = false
-
-    if let thumbnail {
-      let imageView = NSImageView(image: thumbnail)
-      imageView.imageScaling = .scaleProportionallyUpOrDown
-      imageView.wantsLayer = true
-      imageView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.04).cgColor
-      imageView.translatesAutoresizingMaskIntoConstraints = false
-      container.addSubview(imageView)
-      container.addSubview(textStack)
-      NSLayoutConstraint.activate([
-        imageView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-        imageView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-        imageView.topAnchor.constraint(equalTo: container.topAnchor),
-        imageView.heightAnchor.constraint(equalToConstant: min(layout.bodyHeight * 0.58, layout.isCompact ? 94 : 112)),
-        textStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: layout.inset),
-        textStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -layout.inset),
-        textStack.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 10),
-        textStack.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -10),
-        title.widthAnchor.constraint(equalTo: textStack.widthAnchor),
-        detail.widthAnchor.constraint(equalTo: textStack.widthAnchor)
-      ])
-    } else {
-      let icon = headerIcon(headerBadgeSymbol(for: item.kind), color: accentColor(for: item.kind))
-      icon.translatesAutoresizingMaskIntoConstraints = false
-      container.addSubview(icon)
-      container.addSubview(textStack)
-      NSLayoutConstraint.activate([
-        icon.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: layout.inset),
-        icon.topAnchor.constraint(equalTo: container.topAnchor, constant: layout.isCompact ? 16 : 18),
-        icon.widthAnchor.constraint(equalToConstant: layout.isCompact ? 30 : 34),
-        icon.heightAnchor.constraint(equalToConstant: layout.isCompact ? 30 : 34),
-        textStack.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12),
-        textStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -layout.inset),
-        textStack.topAnchor.constraint(equalTo: icon.topAnchor, constant: -1),
-        title.widthAnchor.constraint(equalTo: textStack.widthAnchor),
-        detail.widthAnchor.constraint(equalTo: textStack.widthAnchor)
-      ])
-    }
-    return container
   }
 
   private func textPreviewView(for item: ClipboardItem) -> NSView {
@@ -8905,8 +7779,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     footerDetailLabel.lineBreakMode = .byTruncatingTail
     footerDetailLabel.maximumNumberOfLines = 1
     footerDetailLabel.toolTip = footerDetailLabel.stringValue
-
-    configureActionRail()
 
     let divider = NSView()
     divider.wantsLayer = true

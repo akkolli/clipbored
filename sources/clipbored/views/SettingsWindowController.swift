@@ -8,11 +8,12 @@ private final class TopAlignedSettingsDocumentView: NSView {
 
 final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTextViewDelegate {
   private enum Metrics {
-    static let windowSize = NSSize(width: 720, height: 620)
-    static let minimumWindowSize = NSSize(width: 620, height: 560)
-    static let settingsContentMinimumWidth: CGFloat = 520
-    static let settingsLabelWidth: CGFloat = 150
+    static let windowSize = NSSize(width: 620, height: 520)
+    static let minimumWindowSize = NSSize(width: 560, height: 440)
+    static let settingsContentMinimumWidth: CGFloat = 440
+    static let settingsLabelWidth: CGFloat = 128
   }
+  private static let tabTitles = ["General", "Shortcuts", "Capture", "Privacy", "Performance", "Data"]
   private static let allowedContentTypesValidationMessage = "At least one content type must stay enabled."
   private static let allowedContentTypesUpdatedMessage = "Allowed content types updated."
 
@@ -20,9 +21,23 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
   private let store: ClipboardStore
   private let cacheService: ClipboardCacheService
   private let cloudSyncService: ClipboardCloudSyncServicing
+  private let dataOperationQueue: OperationQueue = {
+    let queue = OperationQueue()
+    queue.name = "clipbored.settings.data-operations"
+    queue.qualityOfService = .userInitiated
+    queue.maxConcurrentOperationCount = 1
+    return queue
+  }()
+  private var dataOperationInProgress = false
   private var window: NSWindow?
   private var cachedCloudSyncStatus: ClipboardCloudSyncStatus?
   private let tabView = NSTabView()
+  private let tabSelector = NSSegmentedControl(
+    labels: SettingsWindowController.tabTitles,
+    trackingMode: .selectOne,
+    target: nil,
+    action: nil
+  )
 
   private let historyLabel = NSTextField(labelWithString: "")
   private let historyStepper = NSStepper()
@@ -64,6 +79,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
   private let iCloudRestoreButton = NSButton()
   private let iCloudRevealButton = NSButton()
   private let cloudSyncStatusLabel = NSTextField(labelWithString: "")
+  private let exportArchiveButton = NSButton()
+  private let importArchiveButton = NSButton()
 
   #if DEBUG
   private var debugFullRefreshCountValue = 0
@@ -118,22 +135,42 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
 
   private func makeContentView() -> NSView {
     tabView.translatesAutoresizingMaskIntoConstraints = false
+    tabView.tabViewType = .noTabsNoBorder
     tabView.addTabViewItem(tab("General", generalSettingsView()))
     tabView.addTabViewItem(tab("Shortcuts", shortcutSettingsView()))
     tabView.addTabViewItem(tab("Capture", captureSettingsView()))
     tabView.addTabViewItem(tab("Privacy", privacySettingsView()))
     tabView.addTabViewItem(tab("Performance", performanceSettingsView()))
-    tabView.addTabViewItem(tab("Data  ", dataSettingsView()))
+    tabView.addTabViewItem(tab("Data", dataSettingsView()))
+
+    tabSelector.translatesAutoresizingMaskIntoConstraints = false
+    tabSelector.target = self
+    tabSelector.action = #selector(settingsTabChanged(_:))
+    tabSelector.selectedSegment = 0
+    tabSelector.segmentStyle = .rounded
 
     let container = NSView()
+    container.wantsLayer = true
+    container.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+    container.addSubview(tabSelector)
     container.addSubview(tabView)
     NSLayoutConstraint.activate([
+      tabSelector.topAnchor.constraint(equalTo: container.topAnchor, constant: 10),
+      tabSelector.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+      tabSelector.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 12),
+      tabSelector.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -12),
       tabView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
       tabView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-      tabView.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
+      tabView.topAnchor.constraint(equalTo: tabSelector.bottomAnchor, constant: 10),
       tabView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12)
     ])
     return container
+  }
+
+  @objc private func settingsTabChanged(_ sender: NSSegmentedControl) {
+    let index = sender.selectedSegment
+    guard index >= 0, index < tabView.numberOfTabViewItems else { return }
+    tabView.selectTabViewItem(at: index)
   }
 
   private func tab(_ title: String, _ view: NSView) -> NSTabViewItem {
@@ -159,16 +196,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     content.translatesAutoresizingMaskIntoConstraints = false
     documentView.addSubview(content)
     scrollView.documentView = documentView
+    let documentFillsViewport = documentView.bottomAnchor.constraint(greaterThanOrEqualTo: scrollView.contentView.bottomAnchor)
+    let documentContainsContent = documentView.bottomAnchor.constraint(greaterThanOrEqualTo: content.bottomAnchor)
     NSLayoutConstraint.activate([
       documentView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
       documentView.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
       documentView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
-      documentView.bottomAnchor.constraint(greaterThanOrEqualTo: scrollView.contentView.bottomAnchor),
+      documentFillsViewport,
+      documentContainsContent,
       documentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
       content.leadingAnchor.constraint(equalTo: documentView.leadingAnchor),
       content.trailingAnchor.constraint(equalTo: documentView.trailingAnchor),
-      content.topAnchor.constraint(equalTo: documentView.topAnchor),
-      content.bottomAnchor.constraint(equalTo: documentView.bottomAnchor)
+      content.topAnchor.constraint(equalTo: documentView.topAnchor)
     ])
     return scrollView
   }
@@ -354,6 +393,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     configureButton(iCloudSyncNowButton, title: "Sync Now", action: #selector(pushICloudSyncArchive))
     configureButton(iCloudRestoreButton, title: "Restore from iCloud", action: #selector(pullICloudSyncArchive))
     configureButton(iCloudRevealButton, title: "Reveal Sync File", action: #selector(revealICloudSyncFile))
+    configureButton(exportArchiveButton, title: "Export Archive...", action: #selector(exportClipboardArchive))
+    configureButton(importArchiveButton, title: "Import Archive...", action: #selector(importClipboardArchive))
     let archiveLabel = caption("Export a portable archive for history, Pinboards, and managed attachments. Archives are not encrypted; file references stay path-based.")
     let cloudLabel = caption("Uses the same archive in ClipBored's private iCloud container when iCloud signing and iCloud Drive are available.")
     return page([
@@ -370,8 +411,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
       section("Archive", [
         archiveLabel,
         row([
-          button("Export Archive...", #selector(exportClipboardArchive)),
-          button("Import Archive...", #selector(importClipboardArchive))
+          exportArchiveButton,
+          importArchiveButton
         ])
       ]),
       section("Data", [
@@ -387,8 +428,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     let stack = NSStackView(views: views)
     stack.orientation = .vertical
     stack.alignment = .leading
-    stack.spacing = 18
-    stack.edgeInsets = NSEdgeInsets(top: 18, left: 18, bottom: 18, right: 18)
+    stack.spacing = 12
+    stack.edgeInsets = NSEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
     return stack
   }
 
@@ -398,7 +439,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     let stack = NSStackView(views: [titleLabel] + views)
     stack.orientation = .vertical
     stack.alignment = .leading
-    stack.spacing = 8
+    stack.spacing = 7
     let minimumWidth = stack.widthAnchor.constraint(greaterThanOrEqualToConstant: Metrics.settingsContentMinimumWidth)
     minimumWidth.priority = .defaultLow
     minimumWidth.isActive = true
@@ -513,7 +554,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
   private func modifierButton(_ title: String, _ tag: Int) -> NSButton {
     let control = NSButton()
     configureCheckbox(control, title: title, action: #selector(shortcutChanged(_:)))
-    control.toolTip = modifierTooltip(title)
+    let modifierName = modifierTooltip(title)
+    control.toolTip = modifierName
+    control.setAccessibilityLabel("\(modifierName) modifier")
+    control.setAccessibilityHelp("Include or remove the \(modifierName) key from this shortcut.")
     control.tag = tag
     return control
   }
@@ -572,7 +616,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
       clearHistoryOnQuitButton.state = settings.clearHistoryOnQuit ? .on : .off
     case .pollProfile:
       select(pollProfilePopup, rawValue: settings.pollProfileRaw.rawValue)
-    case .panelLayout:
+    case .panelSide:
       select(panelSidePopup, rawValue: settings.panelSide.rawValue)
     case .showMenuBarIcon:
       refreshVisibilityControls()
@@ -859,7 +903,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     )
     cloudSyncStatusLabel.stringValue = presentation.message
     cloudSyncStatusLabel.textColor = presentation.textColor
-    let cloudActionsEnabled = settings.iCloudSyncEnabled && cloudStatus?.isAvailable == true
+    let cloudActionsEnabled = settings.iCloudSyncEnabled
+      && cloudStatus?.isAvailable == true
+      && !dataOperationInProgress
     iCloudSyncNowButton.isEnabled = cloudActionsEnabled
     iCloudRestoreButton.isEnabled = cloudActionsEnabled
     iCloudRevealButton.isEnabled = cloudActionsEnabled
@@ -1244,11 +1290,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     configureArchivePanel(panel)
 
     guard panel.runModal() == .OK, let url = panel.url else { return }
-    do {
-      let summary = try store.exportArchive(to: url)
-      setDataStatus("Exported \(summary.itemCount) clips and \(summary.sidecarCount) attachments.")
-    } catch {
-      setDataStatus(error.localizedDescription)
+    setDataStatus("Exporting archive…")
+    performDataOperation({ [store] in
+      Result { try store.exportArchive(to: url) }
+    }) { [weak self] result in
+      switch result {
+      case .success(let summary):
+        self?.setDataStatus("Exported \(summary.itemCount) clips and \(summary.sidecarCount) attachments.")
+      case .failure(let error):
+        self?.setDataStatus(error.localizedDescription)
+      }
     }
   }
 
@@ -1261,15 +1312,20 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     configureArchivePanel(panel)
 
     guard panel.runModal() == .OK, let url = panel.url else { return }
-    do {
-      let summary = try store.importArchive(from: url)
-      var message = "Imported \(summary.itemCount) clips and \(summary.sidecarCount) attachments."
-      if summary.skippedItemCount > 0 || summary.skippedSidecarCount > 0 {
-        message += " Skipped \(summary.skippedItemCount) clips and \(summary.skippedSidecarCount) attachments."
+    setDataStatus("Importing archive…")
+    performDataOperation({ [store] in
+      Result { try store.importArchive(from: url) }
+    }) { [weak self] result in
+      switch result {
+      case .success(let summary):
+        var message = "Imported \(summary.itemCount) clips and \(summary.sidecarCount) attachments."
+        if summary.skippedItemCount > 0 || summary.skippedSidecarCount > 0 {
+          message += " Skipped \(summary.skippedItemCount) clips and \(summary.skippedSidecarCount) attachments."
+        }
+        self?.setDataStatus(message)
+      case .failure(let error):
+        self?.setDataStatus(error.localizedDescription)
       }
-      setDataStatus(message)
-    } catch {
-      setDataStatus(error.localizedDescription)
     }
   }
 
@@ -1279,12 +1335,20 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
       return
     }
 
-    do {
-      let summary = try cloudSyncService.push(store: store)
-      cachedCloudSyncStatus = cloudSyncService.status()
-      settings.setCloudSyncStatus(message: "Synced \(summary.itemCount) clips and \(summary.sidecarCount) attachments to iCloud.")
-    } catch {
-      settings.setCloudSyncStatus(message: "iCloud Sync failed: \(error.localizedDescription)")
+    settings.setCloudSyncStatus(message: "Syncing with iCloud…")
+    performDataOperation({ [cloudSyncService, store] in
+      Result {
+        let summary = try cloudSyncService.push(store: store)
+        return (summary, cloudSyncService.status())
+      }
+    }) { [weak self] result in
+      switch result {
+      case .success(let (summary, status)):
+        self?.cachedCloudSyncStatus = status
+        self?.settings.setCloudSyncStatus(message: "Synced \(summary.itemCount) clips and \(summary.sidecarCount) attachments to iCloud.")
+      case .failure(let error):
+        self?.settings.setCloudSyncStatus(message: "iCloud Sync failed: \(error.localizedDescription)")
+      }
     }
   }
 
@@ -1294,16 +1358,45 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
       return
     }
 
-    do {
-      let summary = try cloudSyncService.pull(store: store)
-      cachedCloudSyncStatus = cloudSyncService.status()
-      var message = "Restored \(summary.itemCount) clips and \(summary.sidecarCount) attachments from iCloud."
-      if summary.skippedItemCount > 0 || summary.skippedSidecarCount > 0 {
-        message += " Skipped \(summary.skippedItemCount) clips and \(summary.skippedSidecarCount) attachments."
+    settings.setCloudSyncStatus(message: "Restoring from iCloud…")
+    performDataOperation({ [cloudSyncService, store] in
+      Result {
+        let summary = try cloudSyncService.pull(store: store)
+        return (summary, cloudSyncService.status())
       }
-      settings.setCloudSyncStatus(message: message)
-    } catch {
-      settings.setCloudSyncStatus(message: "iCloud Sync failed: \(error.localizedDescription)")
+    }) { [weak self] result in
+      switch result {
+      case .success(let (summary, status)):
+        self?.cachedCloudSyncStatus = status
+        var message = "Restored \(summary.itemCount) clips and \(summary.sidecarCount) attachments from iCloud."
+        if summary.skippedItemCount > 0 || summary.skippedSidecarCount > 0 {
+          message += " Skipped \(summary.skippedItemCount) clips and \(summary.skippedSidecarCount) attachments."
+        }
+        self?.settings.setCloudSyncStatus(message: message)
+      case .failure(let error):
+        self?.settings.setCloudSyncStatus(message: "iCloud Sync failed: \(error.localizedDescription)")
+      }
+    }
+  }
+
+  private func performDataOperation<ResultValue>(
+    _ operation: @escaping () -> ResultValue,
+    completion: @escaping (ResultValue) -> Void
+  ) {
+    dataOperationInProgress = true
+    exportArchiveButton.isEnabled = false
+    importArchiveButton.isEnabled = false
+    refreshCloudSyncControls(refreshStatus: false)
+    dataOperationQueue.addOperation { [weak self] in
+      let result = operation()
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        self.dataOperationInProgress = false
+        self.exportArchiveButton.isEnabled = true
+        self.importArchiveButton.isEnabled = true
+        completion(result)
+        self.refreshCloudSyncControls(refreshStatus: false)
+      }
     }
   }
 
@@ -1734,6 +1827,36 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
 
   var debugShortcutStatusText: String {
     shortcutStatusLabel.stringValue
+  }
+
+  var debugOpenShortcutModifierAccessibilityLabels: [String] {
+    guard let controls = openShortcutControls else { return [] }
+    return [controls.command, controls.option, controls.control, controls.shift]
+      .compactMap { $0.accessibilityLabel() }
+  }
+
+  var debugOpenShortcutModifierAccessibilityHelps: [String] {
+    guard let controls = openShortcutControls else { return [] }
+    return [controls.command, controls.option, controls.control, controls.shift]
+      .compactMap { $0.accessibilityHelp() }
+  }
+
+  var debugSettingsContentView: NSView? {
+    window?.contentView
+  }
+
+  func debugSelectSettingsTab(at index: Int) {
+    guard index >= 0, index < tabView.numberOfTabViewItems else { return }
+    tabSelector.selectedSegment = index
+    tabView.selectTabViewItem(at: index)
+    window?.contentView?.layoutSubtreeIfNeeded()
+  }
+
+  func debugPrepareWindowForSnapshot() {
+    window?.setFrameOrigin(.zero)
+    window?.orderFront(nil)
+    window?.contentView?.layoutSubtreeIfNeeded()
+    window?.contentView?.displayIfNeeded()
   }
 
   var debugFullRefreshCount: Int {

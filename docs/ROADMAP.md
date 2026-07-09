@@ -15,7 +15,8 @@ This roadmap keeps future work aligned with the project's constraints: small exe
 
 ## Product Polish
 
-- Improve keyboard focus states and VoiceOver labels.
+- Keep keyboard focus, VoiceOver descriptions, Command-click category unions, and context-menu parity covered as the side-rail shelf evolves.
+- Validate motion, cross-display placement, and card expansion on each supported macOS release, including the system Reduce Motion path.
 - Consider optional password-protected archive exports if migration needs outgrow owner-only local archive files.
 - Design true shared Pinboard collaboration separately from private iCloud archive sync.
 
@@ -24,4 +25,5 @@ This roadmap keeps future work aligned with the project's constraints: small exe
 - Keep measuring binary size after each feature.
 - Avoid continuous background file scans.
 - Revisit polling intervals only with measured idle wakeup evidence.
-- Keep image decoding lazy and cache bounded.
+- Track asynchronous preview latency and viewport materialization under large histories.
+- Keep card-thumbnail decoding and user-triggered image transforms off the main thread, with bounded queues and caches.

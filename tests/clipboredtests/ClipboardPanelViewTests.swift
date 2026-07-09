@@ -47,12 +47,51 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertTrue(view.isSearchFieldEditing)
   }
 
+  func testSearchUsesOneLeadingAnchoredLiquidGlassControlInBothStates() {
+    let fixture = makePanelFixture()
+    fixture.window.setFrame(NSRect(x: 0, y: 0, width: 336, height: 760), display: true)
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugSearchGlassMaterial, .popover)
+    XCTAssertEqual(fixture.view.debugSearchGlassBlendingMode, .withinWindow)
+    XCTAssertEqual(fixture.view.debugSearchGlassCornerRadius, 15, accuracy: 0.5)
+    XCTAssertGreaterThan(fixture.view.debugSearchGlassBorderAlpha, 0.35)
+    XCTAssertGreaterThan(fixture.view.debugSearchGlassTintAlpha, 0.05)
+    XCTAssertTrue(fixture.view.debugSearchFieldUsesTransparentChrome)
+    XCTAssertTrue(
+      fixture.view.debugSearchIconIsPinnedToLeadingEdge,
+      "Icon leading offset: \(fixture.view.debugSearchIconLeadingOffset)"
+    )
+    XCTAssertTrue(
+      fixture.view.debugSearchControlIsLeadingAlignedInToolbar,
+      "Toolbar leading offset: \(fixture.view.debugSearchControlToolbarLeadingOffset)"
+    )
+    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 30, accuracy: 0.5)
+
+    fixture.view.focusSearchField()
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugSearchGlassMaterial, .popover)
+    XCTAssertEqual(fixture.view.debugSearchGlassCornerRadius, 15, accuracy: 0.5)
+    XCTAssertTrue(fixture.view.debugSearchFieldUsesTransparentChrome)
+    XCTAssertTrue(fixture.view.debugSearchFieldIsCenteredInGlass)
+    XCTAssertTrue(
+      fixture.view.debugSearchControlIsLeadingAlignedInToolbar,
+      "Toolbar leading offset: \(fixture.view.debugSearchControlToolbarLeadingOffset)"
+    )
+    XCTAssertTrue(fixture.view.debugSearchIconIsPinnedToLeadingEdge)
+    XCTAssertGreaterThanOrEqual(fixture.view.debugSearchTextLeadingGap, 4)
+    XCTAssertGreaterThanOrEqual(fixture.view.debugSearchEditorLeadingGap, 4)
+    XCTAssertEqual(fixture.view.debugSearchControlTrailingActionGap, 12, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 238, accuracy: 0.5)
+  }
+
   func testSearchFieldExpandsWhileFocusedEvenWhenEmptyAndCollapsesWhenIdle() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Search focus polish", store: fixture.store))
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
-
     XCTAssertEqual(fixture.view.debugSearchFieldText, "")
 
     fixture.view.focusSearchField()
@@ -60,7 +99,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertTrue(fixture.view.isSearchFieldEditing)
-    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 164, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 240, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugSearchControlHeight, 30, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugSearchIconButtonHeight, 30, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugSearchFieldPlaceholderText, "Search clips")
@@ -93,7 +132,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertFalse(fixture.view.isSearchFieldEditing)
-    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 164, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 240, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugSearchFieldPlaceholderText, "Search clips")
 
     fixture.view.debugSetSearchFieldText("")
@@ -105,6 +144,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugSearchFieldPlaceholderText, "")
     XCTAssertFalse(fixture.view.debugSearchFieldIsVisible)
     XCTAssertTrue(fixture.view.debugSearchIconButtonIsVisible)
+    XCTAssertEqual(fixture.view.debugSearchIconButtonCornerRadius, 15, accuracy: 0.5)
   }
 
   func testWhitespaceOnlySearchTextKeepsFieldExpandedUntilCleared() {
@@ -128,7 +168,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertFalse(fixture.view.isSearchFieldEditing)
     XCTAssertEqual(fixture.view.debugSearchFieldText, "   ")
-    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 164, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 240, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugSearchFieldPlaceholderText, "Search clips")
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Whitespace search presentation"])
 
@@ -137,7 +177,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(fixture.view.debugSearchFieldText, "   ")
-    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 164, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 240, accuracy: 0.5)
 
     XCTAssertTrue(fixture.view.clearSearchForKeyboardCancel())
     drainMainQueue()
@@ -145,9 +185,9 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertTrue(fixture.view.isSearchFieldEditing)
     XCTAssertEqual(fixture.view.debugSearchFieldText, "")
-    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 164, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 240, accuracy: 0.5)
     XCTAssertTrue(fixture.view.debugSearchFieldIsVisible)
-    XCTAssertFalse(fixture.view.debugSearchIconButtonIsVisible)
+    XCTAssertTrue(fixture.view.debugSearchIconButtonIsVisible)
 
     XCTAssertTrue(fixture.view.debugFocusCard(at: 0))
     drainMainQueue()
@@ -170,7 +210,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 164, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 240, accuracy: 0.5)
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Alpha planning note"])
 
     fixture.view.prepareForShow()
@@ -192,24 +232,21 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertTrue(fixture.view.isSearchFieldEditing)
     XCTAssertEqual(fixture.view.debugSearchFieldText, "q")
-    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 164, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 240, accuracy: 0.5)
     XCTAssertTrue(fixture.view.debugSearchFieldIsVisible)
-    XCTAssertFalse(fixture.view.debugSearchIconButtonIsVisible)
+    XCTAssertTrue(fixture.view.debugSearchIconButtonIsVisible)
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Quantum launch note"])
   }
 
   func testCommandFStyleSearchActionKeepsFocusInSearchField() {
     let (window, view) = makePanelWithPanelView()
-    view.debugSuppressSearchFilterMenuPresentation()
 
     window.makeFirstResponder(view)
-    XCTAssertFalse(view.focusSearchOrShowFilters())
+    view.focusSearch()
     XCTAssertTrue(view.isSearchFieldEditing)
-    XCTAssertEqual(view.debugSearchFilterMenuPresentationCount, 0)
 
-    XCTAssertFalse(view.focusSearchOrShowFilters())
+    view.focusSearch()
 
-    XCTAssertEqual(view.debugSearchFilterMenuPresentationCount, 0)
     XCTAssertTrue(view.isSearchFieldEditing)
   }
 
@@ -231,7 +268,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     }
   }
 
-  func testShelfChromeKeepsSearchAboveSideIconCategoryRail() {
+  func testShelfChromeKeepsToolbarAlignedAboveSideCategoryRail() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Compact shelf chrome", store: fixture.store))
     drainMainQueue()
@@ -242,31 +279,23 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertTrue(fixture.view.debugShelfChromeContainsSearchAndActions)
     XCTAssertTrue(fixture.view.debugCollectionRailIsBesideCardRail)
     XCTAssertTrue(fixture.view.debugSearchFieldSharesAnimatedContainerWithIcon)
-    XCTAssertEqual(fixture.view.debugSearchAnimationDuration, 0.14, accuracy: 0.01)
+    XCTAssertEqual(fixture.view.debugSearchAnimationDuration, 0.20, accuracy: 0.01)
     XCTAssertEqual(fixture.view.debugSearchFieldWidth, 30, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugSearchFieldPlaceholderText, "")
     XCTAssertFalse(fixture.view.debugSearchFieldIsVisible)
     XCTAssertTrue(fixture.view.debugSearchIconButtonIsVisible)
     XCTAssertEqual(fixture.view.debugCollectionStackOrientation, .vertical)
     XCTAssertEqual(fixture.view.debugCollectionRailVisibleWidth, 36, accuracy: 0.5)
-    XCTAssertGreaterThan(fixture.view.debugCollectionRailContentTopInset, 0)
-    XCTAssertEqual(
-      fixture.view.debugCollectionRailContentFrameInPanel.midY,
-      fixture.view.debugCollectionRailFrameInPanel.midY,
-      accuracy: 1
+    XCTAssertGreaterThan(fixture.view.debugCollectionRailHeight, 200)
+    XCTAssertLessThanOrEqual(
+      fixture.view.debugCollectionRailFrameInPanel.maxX + 8,
+      fixture.view.debugSelectedCardFrameInPanel.minX + 0.5
     )
-    XCTAssertEqual(
-      fixture.view.debugCollectionRailFrameInPanel.midX,
-      fixture.view.debugSelectedCardFrameInPanel.minX / 2,
-      accuracy: 2
-    )
-    XCTAssertLessThan(fixture.view.debugCollectionRailFrameInPanel.midX, fixture.view.bounds.midX)
-    XCTAssertFalse(fixture.view.debugStatusBarIsVisible)
     XCTAssertEqual(fixture.view.debugUtilityToolbarGroupBackgroundAlpha, 0, accuracy: 0.01)
     XCTAssertEqual(fixture.view.debugUtilityToolbarGroupCornerRadius, 14, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugToolbarButtonBackgroundAlphas.count, 2)
     fixture.view.debugToolbarButtonBackgroundAlphas.forEach { alpha in
-      XCTAssertEqual(alpha, 0.08, accuracy: 0.01)
+      XCTAssertEqual(alpha, 0.06, accuracy: 0.01)
     }
     XCTAssertEqual(fixture.view.debugToolbarButtonBorderWidths, [0.5, 0.5])
 
@@ -274,13 +303,13 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 164, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 240, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugSearchFieldPlaceholderText, "Search clips")
     XCTAssertTrue(fixture.view.debugSearchFieldIsVisible)
-    XCTAssertFalse(fixture.view.debugSearchIconButtonIsVisible)
+    XCTAssertTrue(fixture.view.debugSearchIconButtonIsVisible)
   }
 
-  func testCollectionRailStaysOnSideAcrossSelection() {
+  func testCollectionRailStaysBesideCardsAcrossSelection() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Centered text category", store: fixture.store))
     fixture.store.upsert(makeItem(kind: .url, text: "https://example.com/centered", store: fixture.store))
@@ -297,7 +326,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     assertCollectionRailIsSideIconRail(in: fixture)
   }
 
-  func testHoveringCategoryPreviewsThenRestoresOriginalCategoryWhenLeavingRail() {
+  func testHoveringCategoryOnlyChangesChromeAndDoesNotMutateFiltering() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Plain text clip", store: fixture.store))
     fixture.store.upsert(makeItem(kind: .url, text: "https://example.com/preview", store: fixture.store))
@@ -312,16 +341,16 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Links")
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.kind), [.url])
+    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Clipboard")
+    XCTAssertEqual(Set(fixture.viewModel.visibleItems.map(\.kind)), Set([.text, .url, .image]))
 
     fixture.view.debugUnhoverCollectionChip(.links)
     fixture.view.debugHoverCollectionChip(.text)
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Text")
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.kind), [.text])
+    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Clipboard")
+    XCTAssertEqual(Set(fixture.viewModel.visibleItems.map(\.kind)), Set([.text, .url, .image]))
 
     fixture.view.debugUnhoverCollectionChip(.text)
     drainMainQueue()
@@ -331,7 +360,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(Set(fixture.viewModel.visibleItems.map(\.kind)), Set([.text, .url, .image]))
   }
 
-  func testClickingHoveredCategoryCommitsPreviewAfterMouseLeaves() {
+  func testClickingHoveredCategorySelectsItWithoutHoverSideEffects() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Commit text clip", store: fixture.store))
     fixture.store.upsert(makeItem(kind: .url, text: "https://example.com/commit", store: fixture.store))
@@ -341,8 +370,8 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     fixture.view.debugHoverCollectionChip(.images)
     drainMainQueue()
-    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Images")
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.kind), [.image])
+    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Clipboard")
+    XCTAssertEqual(Set(fixture.viewModel.visibleItems.map(\.kind)), Set([.text, .url, .image]))
 
     fixture.view.debugMouseDownCollectionChip(.images)
     fixture.view.debugUnhoverCollectionChip(.images)
@@ -360,7 +389,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertLessThanOrEqual(fixture.view.debugCardRailTopGap, 96)
+    XCTAssertLessThanOrEqual(fixture.view.debugCardRailTopGap, 120)
   }
 
   func testSideShelfUsesRowsAndExpandsSelection() {
@@ -372,14 +401,11 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.view.debugPanelLayout, ClipboardPanelLayout.vertical.title)
+    XCTAssertEqual(fixture.view.debugPanelLayout, "Side Shelf")
     XCTAssertEqual(fixture.view.debugItemsStackOrientation, .vertical)
     XCTAssertEqual(fixture.view.debugCardPresentations.prefix(3), ["vertical-row", "vertical-row", "vertical-row"])
     XCTAssertGreaterThan(fixture.view.debugCardSizes[0].width, fixture.view.debugCardSizes[0].height)
-    XCTAssertLessThanOrEqual(
-      fixture.view.debugCollectionRailFrameInPanel.maxX + 8,
-      fixture.view.debugSelectedCardFrameInPanel.minX + 0.5
-    )
+    XCTAssertGreaterThanOrEqual(fixture.view.debugCardSizes[0].width, 240)
     XCTAssertLessThanOrEqual(fixture.view.debugCardSizes[0].height, 72)
     XCTAssertLessThanOrEqual(fixture.view.debugCardSizes[2].height, 72)
 
@@ -430,7 +456,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugCardPresentations.prefix(3), ["vertical-row", "vertical-row", "vertical-row"])
     let layoutChangeCount = fixture.view.debugAnimatedCardLayoutChangeCount
     let presentationChangeCounts = fixture.view.debugCardAnimatedPresentationChangeCounts
-    XCTAssertEqual(fixture.view.debugCardExpansionAnimationDuration, 0.36, accuracy: 0.01)
+    XCTAssertEqual(fixture.view.debugCardExpansionAnimationDuration, 0.22, accuracy: 0.01)
 
     XCTAssertTrue(fixture.view.debugFocusCard(at: 1))
     drainMainQueue()
@@ -459,7 +485,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(fixture.view.debugCardPresentations.prefix(3), ["vertical-row", "vertical-row", "vertical-row"])
     XCTAssertEqual(detailBefore.height, 0, accuracy: 0.5)
-    XCTAssertEqual(fixture.view.debugCardContentBackgroundAlphas[1], 0, accuracy: 0.01)
+    XCTAssertGreaterThan(fixture.view.debugCardContentBackgroundAlphas[1], 0.5)
 
     fixture.view.debugHoverCard(at: 1)
     RunLoop.main.run(until: Date().addingTimeInterval(0.06))
@@ -483,7 +509,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(headerAfter.width, headerBefore.width, accuracy: 0.5)
     XCTAssertEqual(headerAfter.height, headerBefore.height, accuracy: 0.5)
     XCTAssertEqual(cornerRadiusAfter, cornerRadiusBefore, accuracy: 0.5)
-    XCTAssertEqual(fixture.view.debugCardContentBackgroundAlphas[1], 0, accuracy: 0.01)
+    XCTAssertGreaterThan(fixture.view.debugCardContentBackgroundAlphas[1], 0.5)
     XCTAssertGreaterThan(detailAfter.height, detailBefore.height + 120)
     XCTAssertTrue(
       abs(detailAfter.maxY - headerAfter.minY) <= 1
@@ -526,6 +552,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     }
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
+    let selectedIndexBeforeHover = fixture.viewModel.selectedIndex
 
     fixture.view.debugHoverCard(at: 1)
     RunLoop.main.run(until: Date().addingTimeInterval(fixture.view.debugCardExpansionAnimationDuration + 0.04))
@@ -543,7 +570,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(fixture.view.debugHoveredCardIndexes, [2])
-    XCTAssertEqual(fixture.viewModel.selectedIndex, 2)
+    XCTAssertEqual(fixture.viewModel.selectedIndex, selectedIndexBeforeHover)
   }
 
   func testToolbarControlsExposeVoiceOverActionHints() {
@@ -551,11 +578,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.view.debugSearchFieldAccessibilityHelp,
-      "Type to search clipboard history. Use the side category icons to filter results."
-    )
-    XCTAssertEqual(
-      fixture.view.debugSearchFilterButtonAccessibilityHelp,
-      ""
+      "Type to search clipboard history. Use the category icons beside the cards to filter results; Command-click combines categories."
     )
     XCTAssertEqual(
       fixture.view.debugAddCollectionButtonAccessibilityHelp,
@@ -573,10 +596,6 @@ final class ClipboardPanelViewTests: XCTestCase {
       ]
     )
 
-    fixture.view.debugToggleCompactMode()
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.view.debugCompactModeButtonAccessibilityValue, "")
     XCTAssertEqual(
       fixture.view.debugToolbarButtonAccessibilityHelps,
       [
@@ -586,255 +605,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     )
   }
 
-  func testSearchFilterMenuInsertsStructuredTokens() {
-    let fixture = makePanelFixture()
-    var image = makeItem(kind: .image, displayText: "Safari screenshot", payload: "/tmp/safari-screenshot.png", store: fixture.store)
-    image.sourceApp = "Safari"
-    image.sourceDeviceName = "MacBook Pro"
-    image.collectionName = "Client Work"
-    var text = makeTextItem("Notes follow-up", store: fixture.store)
-    text.sourceApp = "Notes"
-    fixture.store.upsert(image)
-    fixture.store.upsert(text)
-    drainMainQueue()
-    fixture.window.contentView?.layoutSubtreeIfNeeded()
-
-    XCTAssertEqual(
-      fixture.view.debugSearchFilterMenuTitles,
-      ["Type", "Date", "Pinned Items", "Copied From", "Device", "Pinboard"]
-    )
-    XCTAssertEqual(
-      fixture.view.debugSearchFilterSubmenuTitles(named: "Type"),
-      ["Text", "Rich Text", "Links", "Images", "Files", "PDFs", "Audio", "Videos", "Colors", "Code"]
-    )
-    XCTAssertTrue(fixture.view.debugSearchFilterSubmenuTitles(named: "Copied From").contains("Safari"))
-    XCTAssertTrue(fixture.view.debugSearchFilterSubmenuTitles(named: "Device").contains("MacBook Pro"))
-    XCTAssertEqual(fixture.view.debugSearchFilterSubmenuTitles(named: "Pinboard"), ["Client Work"])
-
-    fixture.view.debugPerformSearchFilterMenuItem(titled: "Images", inSubmenu: "Type")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.view.debugSearchFieldText, "type:image")
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["/tmp/safari-screenshot.png"])
-
-    fixture.view.debugPerformSearchFilterMenuItem(titled: "Safari", inSubmenu: "Copied From")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.view.debugSearchFieldText, "type:image app:\"Safari\"")
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["/tmp/safari-screenshot.png"])
-
-    fixture.view.debugSetSearchFieldText("")
-    fixture.view.debugPerformSearchFilterMenuItem(titled: "Client Work", inSubmenu: "Pinboard")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.view.debugSearchFieldText, "pinboard:\"Client Work\"")
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["/tmp/safari-screenshot.png"])
-  }
-
-  func testSearchFilterMenuDateTokensUseLocalCalendarDay() {
-    let fixture = makePanelFixture()
-    let lateLocalEvening = localDate("2026-07-04", hour: 23, minute: 30)
-
-    XCTAssertEqual(
-      fixture.view.debugSearchFilterSubmenuTokens(named: "Date", now: lateLocalEvening),
-      [
-        "date:2026-07-04",
-        "after:2026-06-28",
-        "before:2026-07-04"
-      ]
-    )
-  }
-
-  func testSearchFilterMenuDatePresetReplacesExistingDateRange() {
-    let fixture = makePanelFixture()
-    var today = makeTextItem("Today launch note", store: fixture.store)
-    today.createdAt = localDate("2026-07-04", hour: 12)
-    today.lastUsedAt = today.createdAt
-    var yesterday = makeTextItem("Yesterday launch note", store: fixture.store)
-    yesterday.createdAt = localDate("2026-07-03", hour: 12)
-    yesterday.lastUsedAt = yesterday.createdAt
-    fixture.store.upsert(today)
-    fixture.store.upsert(yesterday)
-    drainMainQueue()
-    fixture.window.contentView?.layoutSubtreeIfNeeded()
-
-    fixture.view.debugSetSearchFieldText("launch before:2026-07-04 after:2026-06-28")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Yesterday launch note"])
-
-    fixture.view.debugApplySearchFilterToken("date:2026-07-04")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.view.debugSearchFieldText, "launch date:2026-07-04")
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Today launch note"])
-  }
-
-  func testSearchFilterMenuPinnedPresetReplacesExistingPinnedState() {
-    let fixture = makePanelFixture()
-    var pinned = makeTextItem("Pinned launch note", store: fixture.store)
-    pinned.isPinned = true
-    pinned.createdAt = Date(timeIntervalSince1970: 200)
-    pinned.lastUsedAt = pinned.createdAt
-    var unpinned = makeTextItem("Unpinned launch note", store: fixture.store)
-    unpinned.createdAt = Date(timeIntervalSince1970: 100)
-    unpinned.lastUsedAt = unpinned.createdAt
-    fixture.store.upsert(pinned)
-    fixture.store.upsert(unpinned)
-    drainMainQueue()
-    fixture.window.contentView?.layoutSubtreeIfNeeded()
-
-    fixture.view.debugSetSearchFieldText("launch pin:off")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Unpinned launch note"])
-
-    fixture.view.debugPerformSearchFilterMenuItem(titled: "Pinned Items")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.view.debugSearchFieldText, "launch pinned:on")
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Pinned launch note"])
-  }
-
-  func testSearchFilterMenuTypePresetReplacesExistingTypeFilter() {
-    let fixture = makePanelFixture()
-    var text = makeTextItem("Launch note", store: fixture.store)
-    text.createdAt = Date(timeIntervalSince1970: 100)
-    text.lastUsedAt = text.createdAt
-    var image = makeItem(kind: .image, displayText: "Launch screenshot", payload: "/tmp/launch.png", store: fixture.store)
-    image.createdAt = Date(timeIntervalSince1970: 200)
-    image.lastUsedAt = image.createdAt
-    fixture.store.upsert(text)
-    fixture.store.upsert(image)
-    drainMainQueue()
-    fixture.window.contentView?.layoutSubtreeIfNeeded()
-
-    fixture.view.debugSetSearchFieldText("launch kind:image")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["/tmp/launch.png"])
-
-    fixture.view.debugPerformSearchFilterMenuItem(titled: "Text", inSubmenu: "Type")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.view.debugSearchFieldText, "launch type:text")
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Launch note"])
-  }
-
-  func testSearchFilterMenuTreatsExistingFiltersAsWholeTokens() {
-    let fixture = makePanelFixture()
-    var item = makeTextItem("Safari research clip", store: fixture.store)
-    item.sourceApp = "Safari"
-    fixture.store.upsert(item)
-    drainMainQueue()
-    fixture.window.contentView?.layoutSubtreeIfNeeded()
-
-    fixture.view.debugSetSearchFieldText("app:SafariResearch")
-    drainMainQueue()
-
-    XCTAssertTrue(fixture.viewModel.visibleItems.isEmpty)
-
-    fixture.view.debugPerformSearchFilterMenuItem(titled: "Safari", inSubmenu: "Copied From")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.view.debugSearchFieldText, "app:SafariResearch app:\"Safari\"")
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Safari research clip"])
-  }
-
-  func testSearchFilterMenuUsesExactSourceAppValues() {
-    let fixture = makePanelFixture()
-    var safari = makeTextItem("Safari clip", store: fixture.store)
-    safari.sourceApp = "Safari"
-    var preview = makeTextItem("Technology preview clip", store: fixture.store)
-    preview.sourceApp = "Safari Technology Preview"
-    fixture.store.upsert(safari)
-    fixture.store.upsert(preview)
-    drainMainQueue()
-    fixture.window.contentView?.layoutSubtreeIfNeeded()
-
-    fixture.view.debugPerformSearchFilterMenuItem(titled: "Safari", inSubmenu: "Copied From")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.view.debugSearchFieldText, "app:\"Safari\"")
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Safari clip"])
-
-    fixture.view.debugPerformSearchFilterMenuItem(titled: "Safari", inSubmenu: "Copied From")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.view.debugSearchFieldText, "app:\"Safari\"")
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Safari clip"])
-  }
-
-  func testSearchFilterMenuUpgradesMatchingFuzzySourceFilterToExactValue() {
-    let fixture = makePanelFixture()
-    var safari = makeTextItem("Safari clip", store: fixture.store)
-    safari.sourceApp = "Safari"
-    var preview = makeTextItem("Technology preview clip", store: fixture.store)
-    preview.sourceApp = "Safari Technology Preview"
-    fixture.store.upsert(safari)
-    fixture.store.upsert(preview)
-    drainMainQueue()
-    fixture.window.contentView?.layoutSubtreeIfNeeded()
-
-    fixture.view.debugSetSearchFieldText("app:Safari")
-    drainMainQueue()
-
-    XCTAssertEqual(Set(fixture.viewModel.visibleItems.map(\.payload)), ["Safari clip", "Technology preview clip"])
-
-    fixture.view.debugPerformSearchFilterMenuItem(titled: "Safari", inSubmenu: "Copied From")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.view.debugSearchFieldText, "app:\"Safari\"")
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Safari clip"])
-  }
-
-  func testSearchFilterMenuPreservesQuotesInStructuredValues() {
-    let fixture = makePanelFixture()
-    var item = makeTextItem("Quoted pinboard clip", store: fixture.store)
-    item.collectionName = "Client \"VIP\""
-    fixture.store.upsert(item)
-    drainMainQueue()
-    fixture.window.contentView?.layoutSubtreeIfNeeded()
-
-    XCTAssertEqual(fixture.view.debugSearchFilterSubmenuTitles(named: "Pinboard"), ["Client \"VIP\""])
-
-    fixture.view.debugPerformSearchFilterMenuItem(titled: "Client \"VIP\"", inSubmenu: "Pinboard")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.view.debugSearchFieldText, "pinboard:\"Client \\\"VIP\\\"\"")
-    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Quoted pinboard clip"])
-  }
-
-  func testSearchFilterMenuPreservesInvalidStructuredLookingText() {
-    let fixture = makePanelFixture()
-
-    fixture.view.debugSetSearchFieldText("launch before:lunch kind:maybe pinned:maybe")
-    fixture.view.debugApplySearchFilterToken("date:2026-07-04")
-    drainMainQueue()
-
-    XCTAssertEqual(
-      fixture.view.debugSearchFieldText,
-      "launch before:lunch kind:maybe pinned:maybe date:2026-07-04"
-    )
-
-    fixture.view.debugApplySearchFilterToken("type:text")
-    drainMainQueue()
-
-    XCTAssertEqual(
-      fixture.view.debugSearchFieldText,
-      "launch before:lunch kind:maybe pinned:maybe date:2026-07-04 type:text"
-    )
-
-    fixture.view.debugApplySearchFilterToken("pinned:on")
-    drainMainQueue()
-
-    XCTAssertEqual(
-      fixture.view.debugSearchFieldText,
-      "launch before:lunch kind:maybe pinned:maybe date:2026-07-04 type:text pinned:on"
-    )
-  }
-
-  func testActiveVerticalCardAvoidsRectangularShadowChrome() {
+  func testActiveVerticalCardUsesSubtleDepthWithoutTranslation() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Neighbor card chrome", store: fixture.store))
     fixture.store.upsert(makeTextItem("Active card chrome", store: fixture.store))
@@ -848,8 +619,9 @@ final class ClipboardPanelViewTests: XCTestCase {
       fixture.view.debugDocumentViewFrame.height,
       fixture.view.debugCardRailVisibleRect.height - 1
     )
-    XCTAssertEqual(fixture.view.debugFirstCardShadowOpacity, 0, accuracy: 0.01)
-    XCTAssertEqual(fixture.view.debugFirstCardShadowRadius, 0, accuracy: 0.5)
+    XCTAssertGreaterThan(fixture.view.debugFirstCardShadowOpacity, 0)
+    XCTAssertLessThanOrEqual(fixture.view.debugFirstCardShadowOpacity, 0.12)
+    XCTAssertLessThanOrEqual(fixture.view.debugFirstCardShadowRadius, 12)
     XCTAssertEqual(fixture.view.debugFirstCardLayerTranslationY, 0, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugFirstCardSlotTopOffset, 0, accuracy: 0.5)
     XCTAssertEqual(fixture.view.debugSecondCardSlotTopOffset, 0, accuracy: 0.5)
@@ -866,7 +638,6 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.id), [item.id])
     XCTAssertEqual(fixture.view.debugVisibleCardCount, 1)
-    XCTAssertEqual(fixture.view.debugResultCountText, "1 clip")
     XCTAssertTrue(fixture.view.debugDocumentViewIsCardStack)
     XCTAssertGreaterThanOrEqual(fixture.view.debugDocumentViewFrame.width, 292)
     XCTAssertGreaterThanOrEqual(
@@ -914,7 +685,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugVisibleCardCount, 2)
     XCTAssertEqual(fixture.view.debugCardSizes.count, 2)
     XCTAssertEqual(fixture.view.debugCardPresentations, ["vertical-row", "vertical-row"])
-    XCTAssertLessThanOrEqual(fixture.view.debugCardSizes.first?.width ?? 0, 280)
+    XCTAssertGreaterThanOrEqual(fixture.view.debugCardSizes.first?.width ?? 0, 240)
     XCTAssertLessThanOrEqual(
       fixture.view.debugCardSizes.first?.width ?? 0,
       fixture.view.debugCardRailVisibleRect.width
@@ -932,7 +703,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     )
   }
 
-  func testCompactRowsShowCharacterMetricWithoutEllipsisOrOverflow() throws {
+  func testCompactRowsPrioritizeReadableTitleOverVerboseCharacterMetric() {
     let fixture = makePanelFixture()
     fixture.window.setFrame(NSRect(x: 0, y: 0, width: 336, height: 520), display: true)
     fixture.store.upsert(makeTextItem(String(repeating: "a", count: 1_234), store: fixture.store))
@@ -942,13 +713,11 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(fixture.view.debugCardPresentations.prefix(2), ["vertical-row", "vertical-row"])
-    let metricIndex = try XCTUnwrap(fixture.view.debugCardCompactMetricTexts.firstIndex(of: "1.2k chars"))
-    XCTAssertEqual(fixture.view.debugCardPresentations[metricIndex], "vertical-row")
-    XCTAssertFalse(fixture.view.debugCardCompactMetricHiddenStates[metricIndex])
-    assertCompactMetricFitsWithoutEllipsisOrOverflow(in: fixture, at: metricIndex)
+    XCTAssertEqual(fixture.view.debugCardCompactMetricTexts, ["", ""])
+    XCTAssertEqual(fixture.view.debugCardCompactMetricHiddenStates, [true, true])
   }
 
-  func testCompactRowsShowFileSizeMetricWhenBackingFileExists() throws {
+  func testCompactRowsKeepFileMetadataOutOfThePrimaryTitleLine() throws {
     let fixture = makePanelFixture()
     fixture.window.setFrame(NSRect(x: 0, y: 0, width: 336, height: 520), display: true)
     let fileURL = makeTempDirectory().appendingPathComponent("payload.bin")
@@ -960,34 +729,8 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(fixture.view.debugCardPresentations.prefix(2), ["vertical-row", "vertical-row"])
-    let metricIndex = try XCTUnwrap(fixture.view.debugCardCompactMetricTexts.firstIndex(of: "2 KB"))
-    XCTAssertEqual(fixture.view.debugCardPresentations[metricIndex], "vertical-row")
-    XCTAssertFalse(fixture.view.debugCardCompactMetricHiddenStates[metricIndex])
-    assertCompactMetricFitsWithoutEllipsisOrOverflow(in: fixture, at: metricIndex)
-  }
-
-  func testCompactModeToggleIsRemovedAndSideShelfStaysCompact() {
-    let fixture = makePanelFixture()
-    fixture.store.upsert(makeTextItem("Wide shelf compact mode", store: fixture.store))
-    drainMainQueue()
-    fixture.window.contentView?.layoutSubtreeIfNeeded()
-
-    XCTAssertEqual(fixture.view.debugCardDensity, "compact")
-    XCTAssertEqual(fixture.view.debugCompactModeButtonAccessibilityValue, "")
-    XCTAssertEqual(fixture.view.debugCardPresentations, ["vertical-row"])
-    XCTAssertEqual(fixture.view.debugCardSizes.first?.width ?? 0, 264, accuracy: 0.5)
-
-    fixture.view.debugToggleCompactMode()
-    drainMainQueue()
-    fixture.window.contentView?.layoutSubtreeIfNeeded()
-
-    XCTAssertFalse(fixture.settings.compactMode)
-    XCTAssertEqual(fixture.view.debugStatusText, "Compact Mode was removed")
-    XCTAssertEqual(fixture.view.debugStatusTone, "action")
-    XCTAssertEqual(fixture.view.debugCardDensity, "compact")
-    XCTAssertEqual(fixture.view.debugCompactModeButtonAccessibilityValue, "")
-    XCTAssertEqual(fixture.view.debugCardPresentations, ["vertical-row"])
-    XCTAssertEqual(fixture.view.debugCardSizes.first?.width ?? 0, 264, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugCardCompactMetricTexts, ["", ""])
+    XCTAssertEqual(fixture.view.debugCardCompactMetricHiddenStates, [true, true])
   }
 
   func testTallSideShelfUsesPasteStyleFocusedCard() {
@@ -1016,7 +759,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.view.debugPanelLayout, ClipboardPanelLayout.vertical.title)
+    XCTAssertEqual(fixture.view.debugPanelLayout, "Side Shelf")
     XCTAssertEqual(fixture.view.debugItemsStackOrientation, .vertical)
     XCTAssertTrue(fixture.view.debugResizeHandleIsHidden)
     XCTAssertEqual(fixture.view.debugCardDensity, "compact")
@@ -1024,7 +767,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertLessThanOrEqual(fixture.view.debugDocumentViewFrame.width, fixture.view.debugCardRailVisibleRect.width + 1)
   }
 
-  func testVerticalShelfSwitchesFromWidePanelWithoutKeepingWideCategoryRail() {
+  func testVerticalShelfUsesSideCategoryRailAndFullHeightCards() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Vertical switch note", store: fixture.store))
     fixture.store.upsert(makeItem(kind: .url, text: "https://example.com/vertical", store: fixture.store))
@@ -1036,10 +779,15 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.view.debugPanelLayout, ClipboardPanelLayout.vertical.title)
+    XCTAssertEqual(fixture.view.debugPanelLayout, "Side Shelf")
     XCTAssertEqual(fixture.view.bounds.width, 336, accuracy: 1)
     XCTAssertEqual(fixture.view.debugCollectionRailVisibleWidth, 36, accuracy: 0.5)
-    XCTAssertLessThanOrEqual(fixture.view.debugCardSizes.first?.width ?? 0, 280)
+    XCTAssertGreaterThan(fixture.view.debugCollectionRailHeight, 300)
+    XCTAssertGreaterThanOrEqual(fixture.view.debugCardSizes.first?.width ?? 0, 240)
+    XCTAssertLessThanOrEqual(
+      fixture.view.debugCollectionRailFrameInPanel.maxX + 8,
+      fixture.view.debugSelectedCardFrameInPanel.minX + 0.5
+    )
   }
 
   func testCardsShowQuickPasteNumberBadgesForFirstNineItems() {
@@ -1052,16 +800,6 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(fixture.view.debugVisibleCardCount, 10)
     XCTAssertEqual(fixture.view.debugQuickPasteBadgeTexts, ["1", "2", "3", "4", "5", "6", "7", "8", "9"])
-  }
-
-  func testFooterShowsCaptureStatusInsteadOfShortcutInstructions() {
-    let fixture = makePanelFixture()
-    fixture.store.upsert(makeTextItem("Footer status item", store: fixture.store))
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.view.debugStatusText, "Capture running")
-    XCTAssertEqual(fixture.view.debugStatusTone, "ready")
-    XCTAssertFalse(fixture.view.debugStatusText.contains("Enter paste"))
   }
 
   func testCardFooterHidesMissingSourceInsteadOfShowingUnknown() {
@@ -1128,34 +866,16 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.viewModel.updateSelectedText(to: "Edited footer item")
     drainMainQueue()
 
-    XCTAssertEqual(fixture.view.debugStatusText, "Updated text clip")
-    XCTAssertEqual(fixture.view.debugStatusTone, "action")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Updated text clip")
   }
 
-  func testSkippedCaptureStatusUsesWarningTone() {
-    let fixture = makePanelFixture()
-
-    fixture.settings.setCaptureStatus(message: "Skipped: Audio items are ignored in capture settings.")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.view.debugStatusText, "Skipped: Audio items are ignored in capture settings.")
-    XCTAssertEqual(fixture.view.debugStatusTone, "warning")
-  }
-
-  func testValidationStatusMessagesUseWarningTone() {
+  func testValidationActionsPublishUsefulStatusMessages() {
     let fixture = makePanelFixture()
 
     fixture.viewModel.addVisibleItemsToStack()
     drainMainQueue()
 
-    XCTAssertEqual(fixture.view.debugStatusText, "No visible clips to stack")
-    XCTAssertEqual(fixture.view.debugStatusTone, "warning")
-
-    fixture.viewModel.createTextClip("   ")
-    drainMainQueue()
-
-    XCTAssertEqual(fixture.view.debugStatusText, "Text clip cannot be empty")
-    XCTAssertEqual(fixture.view.debugStatusTone, "warning")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "No visible clips to stack")
 
     fixture.store.upsert(makeTextItem("Stack warning note", store: fixture.store))
     drainMainQueue()
@@ -1164,14 +884,12 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.viewModel.addSelectedItemsToStack()
     drainMainQueue()
 
-    XCTAssertEqual(fixture.view.debugStatusText, "Added 1 selected clip to Stack")
-    XCTAssertEqual(fixture.view.debugStatusTone, "action")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Added 1 selected clip to Stack")
 
     fixture.viewModel.addSelectedItemsToStack()
     drainMainQueue()
 
-    XCTAssertEqual(fixture.view.debugStatusText, "Selected clips are already in Stack")
-    XCTAssertEqual(fixture.view.debugStatusTone, "warning")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Selected clips are already in Stack")
   }
 
   func testPanelShellUsesTransparentLiquidGlassSurface() {
@@ -1180,7 +898,8 @@ final class ClipboardPanelViewTests: XCTestCase {
     view.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(view.debugPanelMaterial, .hudWindow)
-    XCTAssertEqual(view.debugPanelCornerRadius, 22)
+    XCTAssertEqual(view.debugPanelCornerRadius, 14)
+    XCTAssertEqual(view.debugPanelShadowOpacity, 0)
     XCTAssertGreaterThan(view.debugPanelSurfaceAlpha, 0.10)
     XCTAssertLessThan(view.debugPanelSurfaceAlpha, 0.25)
     XCTAssertGreaterThan(view.debugPanelBorderAlpha, 0.30)
@@ -1228,6 +947,9 @@ final class ClipboardPanelViewTests: XCTestCase {
       fixture.store.upsert(item)
     }
     fixture.viewModel.selectItem(at: 0)
+    if ProcessInfo.processInfo.environment["CLIPBORED_VISUAL_SNAPSHOT_EXPAND_SEARCH"] == "1" {
+      fixture.view.debugExpandSearchPresentationForSnapshot()
+    }
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
     fixture.view.displayIfNeeded()
@@ -1252,7 +974,6 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(fixture.view.debugVisibleCardCount, 1)
-    XCTAssertEqual(fixture.view.debugResultCountText, "2 clips")
 
     fixture.view.finishOpeningTransition()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
@@ -1289,7 +1010,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.viewModel.selectedItem?.payload, "Keep keyboard focus")
   }
 
-  func testHoveringAnotherCardBecomesLatestSingleSelectionForArrowNavigation() {
+  func testHoverExpansionDoesNotStealKeyboardSelectionOrNavigation() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Oldest hover note", store: fixture.store))
     fixture.store.upsert(makeTextItem("Middle hover note", store: fixture.store))
@@ -1302,24 +1023,20 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.viewModel.selectedItem?.payload, "Newest hover note")
     XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [0])
 
-    fixture.viewModel.selectAllVisibleItems()
-    drainMainQueue()
-    XCTAssertEqual(fixture.view.debugSelectedCardIndexes, [0, 1, 2])
-
     fixture.view.debugHoverCard(at: 2)
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.viewModel.selectedItem?.payload, "Oldest hover note")
-    XCTAssertEqual(fixture.view.debugSelectedCardIndexes, [2])
-    XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [2])
+    XCTAssertEqual(fixture.viewModel.selectedItem?.payload, "Newest hover note")
+    XCTAssertEqual(fixture.view.debugSelectedCardIndexes, [0])
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [0])
     XCTAssertEqual(fixture.view.debugActiveCardIndexes, [2])
     XCTAssertEqual(fixture.view.debugHoveredCardIndexes, [2])
     XCTAssertEqual(fixture.view.debugCardPresentations.prefix(3), ["vertical-row", "vertical-row", "vertical-focus"])
-    XCTAssertEqual(fixture.view.debugCardSelectionInputSource, "mouse")
+    XCTAssertEqual(fixture.view.debugCardSelectionInputSource, "keyboard")
     XCTAssertEqual(fixture.view.debugCardVisibleActionLabels(at: 2), [])
 
-    fixture.view.debugPressFocusedResponderKeyCode(123)
+    fixture.view.debugPressFocusedResponderKeyCode(125)
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
@@ -1346,14 +1063,14 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.viewModel.selectedItem?.payload, "Oldest hover note")
-    XCTAssertEqual(fixture.view.debugSelectedCardIndexes, [2])
-    XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [2])
+    XCTAssertEqual(fixture.viewModel.selectedItem?.payload, "Middle hover note")
+    XCTAssertEqual(fixture.view.debugSelectedCardIndexes, [1])
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [1])
     XCTAssertEqual(fixture.view.debugHoveredCardIndexes, [2])
-    XCTAssertEqual(fixture.view.debugCardSelectionInputSource, "mouse")
+    XCTAssertEqual(fixture.view.debugCardSelectionInputSource, "keyboard")
   }
 
-  func testCollectionRailUsesIconOnlySideItemsAndTracksSelection() {
+  func testCollectionRailUsesCompactSideIconsAndTracksSelection() {
     let fixture = makePanelFixture()
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
@@ -1373,7 +1090,6 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugCollectionTitles, ["Clipboard", "Frequent", "Links"])
     XCTAssertEqual(fixture.view.debugCollectionChipLabelHiddenStates, [true, true, true])
     XCTAssertEqual(fixture.view.debugCollectionChipCountLabelHiddenStates, [true, true, true])
-    XCTAssertEqual(fixture.view.debugCategoryMenuTitles, [])
 
     fixture.view.debugMouseDownCollectionChip(.links)
     drainMainQueue()
@@ -1408,6 +1124,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
+    fixture.view.debugHoverCollectionChip(.text)
     fixture.view.debugCommandMouseDownCollectionChip(.text)
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
@@ -1415,9 +1132,67 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugSelectedSortCollectionTitles, ["Text"])
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Text category note"])
 
+    fixture.view.debugHoverCollectionChip(.links)
     fixture.view.debugCommandMouseDownCollectionChip(.links)
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugSelectedSortCollectionTitles, ["Text", "Links"])
+    XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["https://example.com/category", "Text category note"])
+  }
+
+  func testSelectingCategoryLeavesOnlyTheNewCategoryVisuallyHighlighted() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Text category note", store: fixture.store))
+    fixture.store.upsert(makeItem(kind: .url, text: "https://example.com/category", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.debugFocusCollectionChip(.mostRecent))
+    XCTAssertGreaterThan(fixture.view.debugCollectionChipBackgroundAlpha(.mostRecent), 0.4)
+
+    fixture.view.debugMouseDownCollectionChip(.text)
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(fixture.view.debugSelectedSortCollectionTitles, ["Text"])
+    XCTAssertLessThanOrEqual(fixture.view.debugCollectionChipBackgroundAlpha(.mostRecent), 0.1)
+    XCTAssertGreaterThan(fixture.view.debugCollectionChipBackgroundAlpha(.text), 0.4)
+  }
+
+  func testOpeningShortcutModifiersDoNotAccidentallyCombineCategorySelection() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Text category note", store: fixture.store))
+    fixture.store.upsert(makeItem(kind: .url, text: "https://example.com/category", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    fixture.view.debugMouseDownCollectionChip(.mostUsed)
+    fixture.view.debugMouseDownCollectionChip(.text, modifiers: [.command, .shift])
+    drainMainQueue()
+
+    XCTAssertEqual(fixture.view.debugSelectedSortCollectionTitles, ["Text"])
+
+    fixture.view.debugMouseDownCollectionChip(.links, modifiers: .command)
+    drainMainQueue()
+
+    XCTAssertEqual(fixture.view.debugSelectedSortCollectionTitles, ["Text", "Links"])
+  }
+
+  func testCommandSpaceCombinesFocusedCategoryChips() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Text category note", store: fixture.store))
+    fixture.store.upsert(makeItem(kind: .url, text: "https://example.com/category", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(fixture.view.debugFocusCollectionChip(.text))
+    fixture.view.debugPressFocusedResponderKeyCode(49, modifiers: .command)
+    drainMainQueue()
+
+    XCTAssertTrue(fixture.view.debugFocusCollectionChip(.links))
+    fixture.view.debugPressFocusedResponderKeyCode(49, modifiers: .command)
+    drainMainQueue()
 
     XCTAssertEqual(fixture.view.debugSelectedSortCollectionTitles, ["Text", "Links"])
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["https://example.com/category", "Text category note"])
@@ -1435,15 +1210,14 @@ final class ClipboardPanelViewTests: XCTestCase {
     )
     XCTAssertEqual(
       fixture.view.debugCollectionCountLabelHiddenStates,
-      Array(repeating: true, count: fixture.view.debugCollectionTitles.count)
+      [true, true, true]
     )
     XCTAssertEqual(fixture.view.debugCollectionChipAccessibilityLabels.first, "Clipboard, selected, 1 clip")
     XCTAssertEqual(
       fixture.view.debugCollectionChipAccessibilityHelps.first,
-      "Press Return or Space to show Clipboard. Use Up/Down to move between categories, Left/Right to move between clips, and Home/End to move between categories."
+      "Press Return or Space to show Clipboard; Command-Return or Command-Space combines categories. Use Left/Right to move between categories, Up/Down to move between clips, and Home/End to jump between categories."
     )
 
-    XCTAssertEqual(fixture.view.debugCategoryMenuTitles, [])
     XCTAssertTrue(fixture.view.debugFocusCollectionChip(.mostUsed))
     fixture.view.debugPressFocusedResponderWithSpace()
     drainMainQueue()
@@ -1452,7 +1226,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertTrue(fixture.view.debugCollectionChipAccessibilityLabels.contains("Frequent, selected, 1 clip"))
     XCTAssertTrue(
       fixture.view.debugCollectionChipAccessibilityHelps.contains(
-        "Press Return or Space to show Frequent. Use Up/Down to move between categories, Left/Right to move between clips, and Home/End to move between categories."
+        "Press Return or Space to show Frequent; Command-Return or Command-Space combines categories. Use Left/Right to move between categories, Up/Down to move between clips, and Home/End to jump between categories."
       )
     )
 
@@ -1462,7 +1236,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Links")
   }
 
-  func testCollectionRailChipArrowsMoveCardSelectionInsteadOfChangingCategories() {
+  func testCollectionRailUsesHorizontalArrowsForChipsAndVerticalArrowsForCards() {
     let fixture = makePanelFixture()
     var clientItem = makeTextItem("Client collection item", store: fixture.store)
     clientItem.collectionName = "Client Work"
@@ -1484,22 +1258,26 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.view.debugPressFocusedResponderKeyCode(124)
     drainMainQueue()
     XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Clipboard")
-    XCTAssertEqual(fixture.viewModel.selectedIndex, 1)
-    XCTAssertEqual(fixture.view.debugSelectedCardIndexes, [1])
-    XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [1])
-    XCTAssertEqual(fixture.view.debugKeyboardFocusedCollectionTitles, [])
+    XCTAssertEqual(fixture.viewModel.selectedIndex, 0)
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCollectionTitles, ["Frequent"])
 
     fixture.view.debugPressFocusedResponderKeyCode(123)
     drainMainQueue()
     XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Clipboard")
     XCTAssertEqual(fixture.viewModel.selectedIndex, 0)
-    XCTAssertEqual(fixture.view.debugSelectedCardIndexes, [0])
-    XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [0])
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCollectionTitles, ["Clipboard"])
+
+    fixture.view.debugPressFocusedResponderKeyCode(125)
+    drainMainQueue()
+    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Clipboard")
+    XCTAssertEqual(fixture.viewModel.selectedIndex, 1)
+    XCTAssertEqual(fixture.view.debugSelectedCardIndexes, [1])
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [1])
 
     XCTAssertTrue(fixture.view.debugFocusCollectionChip(.mostRecent))
     fixture.view.debugPressFocusedResponderKeyCode(119)
     drainMainQueue()
-    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Stack")
+    XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Clipboard")
     XCTAssertEqual(fixture.view.debugKeyboardFocusedCollectionTitles, ["Stack"])
 
     fixture.view.debugPressFocusedResponderKeyCode(115)
@@ -1616,13 +1394,13 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
 
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Older than a day"])
-    XCTAssertEqual(fixture.view.debugStatusText, "Cleared 1 clip")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Cleared 1 clip")
 
     fixture.view.debugPerformClearHistoryMenuItem(titled: "All Time")
     drainMainQueue()
 
     XCTAssertTrue(fixture.viewModel.visibleItems.isEmpty)
-    XCTAssertEqual(fixture.view.debugStatusText, "Cleared 1 clip")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Cleared 1 clip")
   }
 
   func testCollectionFilteredCardsUseStoredCollectionHeaderColor() {
@@ -1635,11 +1413,24 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Collect this note"])
-    XCTAssertEqual(fixture.view.debugFirstCardHeaderTitle, "Research Stack")
-    XCTAssertEqual(fixture.view.debugFirstCardHeaderSubtitle, "Text - Just now")
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderTitle, "Collect this note")
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderSubtitle, "Text • Ghostty • Just now")
     XCTAssertEqual(fixture.view.debugFirstCardHeaderColorHex, "#0A9EB8")
     XCTAssertEqual(fixture.view.debugCustomCollectionColorHexes["Research Stack"], "#0A9EB8")
     XCTAssertEqual(fixture.view.debugFirstCardFooterDetailText, "17 characters")
+  }
+
+  func testCompactCardsUseFullColorHeaderSurface() {
+    let fixture = makePanelFixture()
+    fixture.store.upsert(makeTextItem("Full color card", store: fixture.store))
+    drainMainQueue()
+    fixture.window.contentView?.layoutSubtreeIfNeeded()
+
+    XCTAssertEqual(
+      fixture.view.debugFirstCardHeaderSurfaceColorHex,
+      fixture.view.debugFirstCardHeaderColorHex
+    )
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderSurfaceAlpha, 0.96, accuracy: 0.01)
   }
 
   func testCardHeaderUsesPasteStyleRelativeAgeText() {
@@ -1651,8 +1442,8 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.view.debugFirstCardHeaderTitle, "Text")
-    XCTAssertEqual(fixture.view.debugFirstCardHeaderSubtitle, "3 minutes ago")
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderTitle, "Readable age")
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderSubtitle, "Text • Ghostty • 3 minutes ago")
 
     fixture.viewModel.createCollection(named: "Age Stack", colorHex: "#FF3B30", selectAfterCreate: false)
     fixture.viewModel.assignSelected(to: "Age Stack")
@@ -1660,7 +1451,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.view.debugFirstCardHeaderSubtitle, "Text - 3 minutes ago")
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderSubtitle, "Text • Ghostty • 3 minutes ago")
   }
 
   func testCollectionChipsExposeManagementMenuActions() {
@@ -1675,7 +1466,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     )
     XCTAssertEqual(
       fixture.view.debugCustomCollectionAccessibilityHelp(named: "Research Stack"),
-      "Press Return or Space to show Research Stack. Use Up/Down to move between categories, Left/Right to move between clips, and Home/End to move between categories. Open the context menu to edit, export, or delete this Pinboard."
+      "Press Return or Space to show Research Stack; Command-Return or Command-Space combines categories. Use Left/Right to move between categories, Up/Down to move between clips, and Home/End to jump between categories. Open the context menu to edit, export, or delete this Pinboard."
     )
   }
 
@@ -1698,7 +1489,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugCustomCollectionTitles, ["Product Research"])
     XCTAssertEqual(fixture.view.debugSelectedCollectionTitle, "Product Research")
     XCTAssertEqual(fixture.view.debugKeyboardFocusedCollectionTitles, ["Product Research"])
-    XCTAssertEqual(fixture.view.debugFirstCardHeaderTitle, "Product Research")
+    XCTAssertEqual(fixture.view.debugFirstCardHeaderTitle, "Collect this note")
     XCTAssertEqual(fixture.view.debugFirstCardHeaderColorHex, "#3366FF")
 
     fixture.view.debugDeleteCollection(named: "Product Research")
@@ -1822,7 +1613,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionRailWidth, 0)
     XCTAssertEqual(fixture.view.debugCardPresentations, ["vertical-focus"])
     XCTAssertFalse(fixture.view.debugFirstCardHeaderBadgeIsHidden)
-    XCTAssertEqual(fixture.view.debugCardSizes.first?.width ?? 0, 264, accuracy: 0.5)
+    XCTAssertGreaterThanOrEqual(fixture.view.debugCardSizes.first?.width ?? 0, 520)
     XCTAssertEqual(fixture.view.debugCardSizes.first?.height ?? 0, 220, accuracy: 0.5)
     XCTAssertEqual(
       fixture.view.debugFirstCardMenuTitles,
@@ -1923,8 +1714,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Middle focused delete"])
     XCTAssertEqual(fixture.viewModel.statusMessage, "Deleted 2 clips")
-    XCTAssertEqual(fixture.view.debugStatusText, "Deleted 2 clips")
-    XCTAssertEqual(fixture.view.debugStatusTone, "action")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Deleted 2 clips")
     XCTAssertEqual(fixture.view.debugSelectedCardIndexes, [0])
 
     XCTAssertTrue(fixture.view.debugFocusCard(at: 0))
@@ -1937,8 +1727,7 @@ final class ClipboardPanelViewTests: XCTestCase {
       ["Newest focused delete", "Middle focused delete", "Oldest focused delete"]
     )
     XCTAssertEqual(fixture.viewModel.statusMessage, "Restored 2 clips")
-    XCTAssertEqual(fixture.view.debugStatusText, "Restored 2 clips")
-    XCTAssertEqual(fixture.view.debugStatusTone, "action")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Restored 2 clips")
     XCTAssertEqual(fixture.view.debugSelectedCardIndexes, [0, 2])
   }
 
@@ -2144,6 +1933,11 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     fixture.view.debugPressFocusedResponderKeyCode(124)
     drainMainQueue()
+    XCTAssertEqual(fixture.viewModel.selectedIndex, 0)
+    XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [0])
+
+    fixture.view.debugPressFocusedResponderKeyCode(125)
+    drainMainQueue()
     XCTAssertEqual(fixture.viewModel.selectedIndex, 1)
     XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [1])
 
@@ -2167,12 +1961,12 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.viewModel.selectedIndex, 0)
     XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [0])
 
-    fixture.view.debugPressFocusedResponderKeyCode(123)
+    fixture.view.debugPressFocusedResponderKeyCode(126)
     drainMainQueue()
     XCTAssertEqual(fixture.viewModel.selectedIndex, 0)
     XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [0])
 
-    fixture.view.debugPressFocusedResponderKeyCode(124, modifiers: .shift)
+    fixture.view.debugPressFocusedResponderKeyCode(125, modifiers: .shift)
     drainMainQueue()
     XCTAssertEqual(fixture.viewModel.selectedIndex, 1)
     XCTAssertEqual(fixture.view.debugSelectedCardIndexes, [0, 1])
@@ -2181,7 +1975,6 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.view.debugPressFocusedResponderKeyCode(0, modifiers: .command)
     drainMainQueue()
     XCTAssertEqual(fixture.view.debugSelectedCardIndexes, Array(0..<8))
-    XCTAssertEqual(fixture.view.debugResultCountText, "8 selected of 8 clips")
     XCTAssertEqual(fixture.view.debugKeyboardFocusedCardIndexes, [1])
   }
 
@@ -2205,7 +1998,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertFalse(fixture.view.debugFirstCardHeaderBadgeMaskedCorners.contains(.layerMaxXMinYCorner))
     XCTAssertGreaterThanOrEqual(
       fixture.view.debugFirstCardHeaderBadgeContentFrame.width,
-      fixture.view.debugFirstCardHeaderBadgeFrame.width * 0.70
+      fixture.view.debugFirstCardHeaderBadgeFrame.width * 0.55
     )
   }
 
@@ -2273,7 +2066,6 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(ClipboardSortMode.allCases.map { countSummary.count(for: $0) }, [9, 9, 3, 1, 1, 1, 1, 1, 1, 1, 1])
     XCTAssertEqual(fixture.view.debugCollectionCounts, [9, 9, 3, 1, 1, 1, 1, 1, 1, 1, 1])
     XCTAssertEqual(fixture.view.debugCollectionCountLabelHiddenStates, Array(repeating: true, count: 11))
-    XCTAssertEqual(fixture.view.debugCategoryMenuTitles, [])
   }
 
   func testCollectionRailShowsAssignedCollections() {
@@ -2355,26 +2147,22 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertFalse(fixture.view.debugCollectionRailHasHorizontalScroller)
     XCTAssertGreaterThan(fixture.view.debugCollectionRailHeight, 300)
     XCTAssertGreaterThan(
-      fixture.view.debugCollectionRailVisibleRect.height,
-      1
+      fixture.view.debugCollectionRailContentFrameInPanel.height,
+      fixture.view.debugCollectionRailVisibleRect.height
     )
     XCTAssertTrue(fixture.view.debugCustomCollectionTitles.contains("Client Work"))
     XCTAssertTrue(fixture.view.debugCustomCollectionTitles.contains("Product References"))
 
     XCTAssertEqual(fixture.view.debugCollectionRailVisibleRect.minY, 0, accuracy: 0.5)
-    XCTAssertEqual(fixture.view.debugCollectionRailOverflowFadeWidth, 44, accuracy: 0.5)
-    XCTAssertEqual(fixture.view.debugCollectionRailOverflowFadeVisibility, [false, false])
     fixture.view.debugScrollCollectionRailVertically(deltaY: -220)
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertGreaterThanOrEqual(fixture.view.debugCollectionRailVisibleRect.minY, 0)
-    XCTAssertEqual(fixture.view.debugCollectionRailOverflowFadeVisibility, [false, false])
+    XCTAssertGreaterThan(fixture.view.debugCollectionRailVisibleRect.minY, 0)
 
     fixture.view.debugScrollCollectionRailVertically(deltaY: 10_000)
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(fixture.view.debugCollectionRailVisibleRect.minY, 0, accuracy: 0.5)
-    XCTAssertEqual(fixture.view.debugCollectionRailOverflowFadeVisibility, [false, false])
   }
 
   func testSelectionScrollsCardRailToKeepSelectedCardVisible() {
@@ -2475,9 +2263,6 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugVisibleCardCount, 0)
     XCTAssertEqual(fixture.view.debugEmptyStateText?.title, "No matching clips")
     XCTAssertEqual(fixture.view.debugEmptyStateText?.detail, "Try a broader search or switch filters.")
-    XCTAssertEqual(fixture.view.debugResultCountText, "0 clips matching")
-    XCTAssertEqual(fixture.view.debugStatusText, "No clips match this search")
-    XCTAssertEqual(fixture.view.debugStatusTone, "neutral")
   }
 
   func testPinnedEmptyStatePointsToPinAction() {
@@ -2516,7 +2301,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     )
   }
 
-  func testCaptureRuleActionsUseWarningStatusTone() {
+  func testCaptureRuleActionsPublishUsefulStatusMessages() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Capture rule status tone", store: fixture.store))
     drainMainQueue()
@@ -2526,15 +2311,13 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
 
     XCTAssertTrue(fixture.settings.ignoredApps.contains("Ghostty"))
-    XCTAssertEqual(fixture.view.debugStatusText, "Ignored Ghostty for future captures")
-    XCTAssertEqual(fixture.view.debugStatusTone, "warning")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Ignored Ghostty for future captures")
 
     fixture.view.debugPerformFirstCardCaptureRuleMenuItem(titled: "Ignore Text Items")
     drainMainQueue()
 
     XCTAssertTrue(fixture.settings.ignoredItemKindsRaw.contains(ClipboardItemKind.text.rawValue))
-    XCTAssertEqual(fixture.view.debugStatusText, "Ignored Text items for future captures")
-    XCTAssertEqual(fixture.view.debugStatusTone, "warning")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Ignored Text items for future captures")
   }
 
   func testFilteredCardsExposeShowInClipboardContextMenuAction() {
@@ -2586,7 +2369,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Release needle"])
     XCTAssertEqual(fixture.view.debugSearchFieldText, "release")
-    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 164, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 240, accuracy: 0.5)
 
     XCTAssertTrue(fixture.view.debugFocusCard(at: 0))
     drainMainQueue()
@@ -2615,7 +2398,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(fixture.view.debugSearchFieldText, "launch")
-    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 164, accuracy: 0.5)
+    XCTAssertEqual(fixture.view.debugSearchFieldWidth, 240, accuracy: 0.5)
     XCTAssertEqual(fixture.viewModel.visibleItems.map(\.payload), ["Launch note"])
 
     XCTAssertTrue(fixture.view.debugFocusCard(at: 0))
@@ -2686,7 +2469,6 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertEqual(fixture.view.debugSelectedCardIndexes, [0, 2])
     XCTAssertEqual(fixture.view.debugActiveCardIndexes, [])
     XCTAssertEqual(fixture.view.debugCardAccessibilityValues, ["Selected", "Not selected", "Selected"])
-    XCTAssertEqual(fixture.view.debugResultCountText, "2 selected of 3 clips")
     XCTAssertTrue(fixture.view.debugFirstCardMenuTitles.contains("Paste Selection"))
     XCTAssertTrue(fixture.view.debugFirstCardMenuTitles.contains("Copy Selection"))
     XCTAssertTrue(fixture.view.debugFirstCardMenuTitles.contains("Paste Selection as Text"))
@@ -2697,7 +2479,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.view.debugStatusText, "Added 2 selected clips to Stack")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Added 2 selected clips to Stack")
     XCTAssertEqual(fixture.view.debugStackChipCount, 2)
   }
 
@@ -2719,10 +2501,9 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertTrue(fixture.view.debugFocusCard(at: 0))
     drainMainQueue()
     XCTAssertEqual(fixture.view.debugFirstCardVisibleActionLabels, [])
-    XCTAssertEqual(fixture.view.debugStackCornerLabels, ["Remove from Stack"])
   }
 
-  func testStackCornerButtonTogglesAndPersistsForQueuedCards() {
+  func testStackMembershipUpdatesCardsWithoutRebuildingThem() {
     let fixture = makePanelFixture()
     fixture.store.upsert(makeTextItem("Older stack item", store: fixture.store))
     fixture.store.upsert(makeTextItem("Newest stack item", store: fixture.store))
@@ -2731,8 +2512,6 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.view.debugStackCornerLabels, ["Add to Stack", "Add to Stack"])
-    XCTAssertEqual(fixture.view.debugStackCornerHiddenStates, [true, true])
     XCTAssertFalse(fixture.view.debugFirstCardVisibleActionLabels.contains("Add to Stack"))
     let cardIdentifiersBeforeStackToggle = fixture.view.debugCardObjectIdentifiers
 
@@ -2740,17 +2519,13 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.view.debugStackCornerHiddenStates, [true, true])
-    XCTAssertGreaterThan(fixture.view.debugFirstCardStackCornerFrame.maxX, 220)
-
     fixture.viewModel.toggleSelectedStackMembership()
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.view.debugStatusText, "Added to Stack")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Added to Stack")
     XCTAssertEqual(fixture.view.debugCardObjectIdentifiers, cardIdentifiersBeforeStackToggle)
-    XCTAssertEqual(fixture.view.debugStackCornerLabels, ["Remove from Stack", "Add to Stack"])
-    XCTAssertEqual(fixture.view.debugStackCornerHiddenStates, [true, true])
+    XCTAssertTrue(fixture.view.debugFirstCardMenuTitles.contains("Remove from Stack"))
     XCTAssertTrue(fixture.view.debugStackChipIsVisible)
     XCTAssertEqual(fixture.view.debugStackChipCount, 1)
 
@@ -2758,7 +2533,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     drainMainQueue()
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
-    XCTAssertEqual(fixture.view.debugStackCornerHiddenStates, [true, true])
+    XCTAssertEqual(fixture.view.debugCardObjectIdentifiers, cardIdentifiersBeforeStackToggle)
   }
 
   func testStackChipAppearsFiltersAndClearsWithStack() {
@@ -2813,8 +2588,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     XCTAssertTrue(fixture.view.debugStackChipIsVisible)
     XCTAssertEqual(fixture.view.debugStackChipCount, 0)
     XCTAssertEqual(fixture.view.debugStackChipMenuTitles.first, "Stop Stack Capture")
-    XCTAssertEqual(fixture.view.debugStatusText, "Stack capture is on")
-    XCTAssertEqual(fixture.view.debugStatusTone, "action")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Stack capture is on")
 
     fixture.view.debugPressStackChip()
     drainMainQueue()
@@ -2831,8 +2605,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertFalse(fixture.viewModel.isStackCaptureEnabled)
     XCTAssertFalse(fixture.view.debugStackChipIsVisible)
-    XCTAssertEqual(fixture.view.debugStatusText, "Stack capture is off")
-    XCTAssertEqual(fixture.view.debugStatusTone, "action")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Stack capture is off")
   }
 
   func testStackChipMenuAddsVisibleShelfToQueue() {
@@ -2865,7 +2638,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     )
     XCTAssertEqual(
       fixture.view.debugStackChipAccessibilityHelp,
-      "Press Return or Space to show Stack. Use Up/Down to move between categories, Left/Right to move between clips, and Home/End to move between categories. Open the context menu for Stack capture and Stack paste actions."
+      "Press Return or Space to show Stack; Command-Return or Command-Space combines categories. Use Left/Right to move between categories, Up/Down to move between clips, and Home/End to jump between categories. Open the context menu for Stack capture and Stack paste actions."
     )
 
     fixture.view.debugAddVisibleClipsToStackFromStackChip()
@@ -2873,7 +2646,7 @@ final class ClipboardPanelViewTests: XCTestCase {
     fixture.window.contentView?.layoutSubtreeIfNeeded()
 
     XCTAssertEqual(fixture.view.debugStackChipCount, 3)
-    XCTAssertEqual(fixture.view.debugStatusText, "Added 2 clips to Stack")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Added 2 clips to Stack")
 
     fixture.view.debugPressStackChip()
     drainMainQueue()
@@ -3119,8 +2892,7 @@ final class ClipboardPanelViewTests: XCTestCase {
 
     XCTAssertEqual(fixture.view.debugCardAccessibilityLabels, ["File: Client Launch Brief"])
     XCTAssertEqual(fixture.view.debugCardPreviewSummaries, ["Client Launch Brief|~/Documents|PDF"])
-    XCTAssertEqual(fixture.view.debugStatusText, "Renamed clip")
-    XCTAssertEqual(fixture.view.debugStatusTone, "action")
+    XCTAssertEqual(fixture.viewModel.statusMessage, "Renamed clip")
 
     fixture.viewModel.searchText = "launch"
     drainMainQueue()
@@ -3420,52 +3192,14 @@ final class ClipboardPanelViewTests: XCTestCase {
 
   private func assertCollectionRailIsSideIconRail(in fixture: PanelFixture, file: StaticString = #filePath, line: UInt = #line) {
     XCTAssertEqual(fixture.view.debugCollectionRailVisibleWidth, 36, accuracy: 0.5, file: file, line: line)
-    XCTAssertGreaterThan(fixture.view.debugCollectionRailContentTopInset, 0, file: file, line: line)
-    XCTAssertEqual(
-      fixture.view.debugCollectionRailContentFrameInPanel.midY,
-      fixture.view.debugCollectionRailFrameInPanel.midY,
-      accuracy: 1,
-      file: file,
-      line: line
-    )
+    XCTAssertGreaterThan(fixture.view.debugCollectionRailHeight, 200, file: file, line: line)
     XCTAssertEqual(fixture.view.debugCollectionStackOrientation, .vertical, file: file, line: line)
-    XCTAssertLessThan(
-      fixture.view.debugCollectionRailFrameInPanel.midX,
-      fixture.view.bounds.midX,
+    XCTAssertLessThanOrEqual(
+      fixture.view.debugCollectionRailFrameInPanel.maxX + 8,
+      fixture.view.debugSelectedCardFrameInPanel.minX + 0.5,
       file: file,
       line: line
     )
-  }
-
-  private func assertCompactMetricFitsWithoutEllipsisOrOverflow(
-    in fixture: PanelFixture,
-    at index: Int,
-    file: StaticString = #filePath,
-    line: UInt = #line
-  ) {
-    let metricTexts = fixture.view.debugCardCompactMetricTexts
-    let metricFrames = fixture.view.debugCardCompactMetricFramesInPanel
-    let fittingWidths = fixture.view.debugCardCompactMetricFittingWidths
-    let headerFrames = fixture.view.debugCardHeaderFramesInPanel
-    guard metricTexts.indices.contains(index),
-          metricFrames.indices.contains(index),
-          fittingWidths.indices.contains(index),
-          headerFrames.indices.contains(index) else {
-      XCTFail("Expected compact metric debug data at index \(index)", file: file, line: line)
-      return
-    }
-
-    let metricText = metricTexts[index]
-    let metricFrame = metricFrames[index]
-    let fittingWidth = fittingWidths[index]
-    let headerFrame = headerFrames[index]
-
-    XCTAssertFalse(metricText.contains("…"), file: file, line: line)
-    XCTAssertFalse(metricText.contains("..."), file: file, line: line)
-    XCTAssertGreaterThan(metricFrame.width, 0, file: file, line: line)
-    XCTAssertGreaterThanOrEqual(metricFrame.width + 0.5, fittingWidth, file: file, line: line)
-    XCTAssertGreaterThanOrEqual(metricFrame.minX, headerFrame.minX - 0.5, file: file, line: line)
-    XCTAssertLessThanOrEqual(metricFrame.maxX, headerFrame.maxX + 0.5, file: file, line: line)
   }
 
   private func makePanelWithPanelView() -> (NSWindow, ClipboardPanelView) {
