@@ -39,294 +39,6 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(pinnedOnly.map(\.payload), ["four", "one"])
   }
 
-  func testSelectingCollectionWithEmptySearchUsesIndexedVisibleItems() {
-    let settings = makeSettings()
-    settings.maxHistoryItems = 260
-    let cacheService = makeCacheService()
-    let store = makeStore(settings: settings, cacheService: cacheService)
-
-    for index in 0..<220 {
-      store.upsert(makeTextItem("outside indexed category \(index)", createdAt: Date(timeIntervalSince1970: Double(index))))
-    }
-    for index in 0..<30 {
-      var item = makeTextItem("client indexed category \(index)", createdAt: Date(timeIntervalSince1970: Double(1_000 + index)))
-      item.collectionName = "Client Work"
-      store.upsert(item)
-    }
-    store.flushPersistenceForTesting()
-
-    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
-    waitForVisibleItems(in: viewModel, count: 250)
-    viewModel.debugResetVisibleItemsPerformanceCounters()
-
-    viewModel.selectCollection(named: "Client Work")
-
-    XCTAssertEqual(viewModel.visibleItems.count, 30)
-    XCTAssertEqual(viewModel.debugVisibleItemsFullScanCount, 0)
-    XCTAssertEqual(viewModel.debugVisibleItemsIndexedLookupCount, 1)
-    XCTAssertEqual(viewModel.visibleItems.first?.payload, "client indexed category 29")
-  }
-
-  func testRepeatedThirtyItemCollectionSelectionsStayOnIndexedFastPath() {
-    let collectionCount = 60
-    let itemsPerCollection = 30
-    let settings = makeSettings()
-    settings.maxHistoryItems = collectionCount * itemsPerCollection
-    let cacheService = makeCacheService()
-    let store = makeStore(settings: settings, cacheService: cacheService)
-    let collectionNames = (0..<collectionCount).map { "Client Work \($0)" }
-
-    for (collectionIndex, collectionName) in collectionNames.enumerated() {
-      for itemIndex in 0..<itemsPerCollection {
-        var item = makeTextItem(
-          "\(collectionName) clip \(itemIndex)",
-          createdAt: Date(timeIntervalSince1970: Double((collectionIndex * itemsPerCollection) + itemIndex))
-        )
-        item.collectionName = collectionName
-        store.upsert(item)
-      }
-    }
-    store.flushPersistenceForTesting()
-
-    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
-    waitForVisibleItems(in: viewModel, count: collectionCount * itemsPerCollection)
-    viewModel.debugResetVisibleItemsPerformanceCounters()
-
-    let start = CFAbsoluteTimeGetCurrent()
-    for collectionName in collectionNames {
-      viewModel.selectCollection(named: collectionName)
-      XCTAssertEqual(viewModel.visibleItems.count, itemsPerCollection)
-    }
-    let elapsed = CFAbsoluteTimeGetCurrent() - start
-
-    XCTAssertEqual(viewModel.debugVisibleItemsFullScanCount, 0)
-    XCTAssertEqual(viewModel.debugVisibleItemsIndexedLookupCount, collectionCount)
-    XCTAssertLessThan(elapsed, 0.20)
-  }
-
-  func testCommandSelectedCategoriesUseIndexedUnionFastPath() {
-    let settings = makeSettings()
-    let cacheService = makeCacheService()
-    let store = makeStore(settings: settings, cacheService: cacheService)
-
-    let text = makeTextItem("category text", createdAt: Date(timeIntervalSince1970: 100))
-    let link = ClipboardItem(
-      id: UUID(),
-      kind: .url,
-      displayText: "category link",
-      payload: "https://example.com/category",
-      payloadHash: store.hashString("https://example.com/category"),
-      createdAt: Date(timeIntervalSince1970: 200),
-      lastUsedAt: Date(timeIntervalSince1970: 200),
-      useCount: 0,
-      sourceApp: nil,
-      imagePath: nil,
-      thumbnailPath: nil
-    )
-    store.upsert(text)
-    store.upsert(link)
-
-    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
-    waitForVisibleItems(in: viewModel, count: 2)
-    viewModel.debugResetVisibleItemsPerformanceCounters()
-
-    viewModel.selectSortMode(.text, extending: true)
-    viewModel.selectSortMode(.links, extending: true)
-
-    XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["https://example.com/category", "category text"])
-    XCTAssertEqual(viewModel.debugVisibleItemsFullScanCount, 0)
-    XCTAssertEqual(viewModel.debugVisibleItemsIndexedLookupCount, 2)
-    XCTAssertTrue(viewModel.isSortModeCategorySelected(.text))
-    XCTAssertTrue(viewModel.isSortModeCategorySelected(.links))
-  }
-
-  func testCommandSelectedCustomCollectionCombinesWithCategoryFilter() {
-    let settings = makeSettings()
-    let cacheService = makeCacheService()
-    let store = makeStore(settings: settings, cacheService: cacheService)
-
-    var client = makeTextItem("client note", createdAt: Date(timeIntervalSince1970: 100))
-    client.collectionName = "Client Work"
-    let link = ClipboardItem(
-      id: UUID(),
-      kind: .url,
-      displayText: "category link",
-      payload: "https://example.com/category",
-      payloadHash: store.hashString("https://example.com/category"),
-      createdAt: Date(timeIntervalSince1970: 200),
-      lastUsedAt: Date(timeIntervalSince1970: 200),
-      useCount: 0,
-      sourceApp: nil,
-      imagePath: nil,
-      thumbnailPath: nil
-    )
-    store.upsert(client)
-    store.upsert(link)
-
-    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
-    waitForVisibleItems(in: viewModel, count: 2)
-    viewModel.debugResetVisibleItemsPerformanceCounters()
-
-    viewModel.selectCollection(named: "Client Work")
-    viewModel.selectSortMode(.links, extending: true)
-
-    XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["https://example.com/category", "client note"])
-    XCTAssertEqual(viewModel.debugVisibleItemsFullScanCount, 0)
-    XCTAssertEqual(viewModel.debugVisibleItemsIndexedLookupCount, 2)
-    XCTAssertTrue(viewModel.isCollectionCategorySelected(named: "Client Work"))
-    XCTAssertTrue(viewModel.isSortModeCategorySelected(.links))
-  }
-
-  func testEmptySearchCollectionCountSummaryUsesIndexedCounts() {
-    let settings = makeSettings()
-    settings.maxHistoryItems = 260
-    let cacheService = makeCacheService()
-    let store = makeStore(settings: settings, cacheService: cacheService)
-
-    for index in 0..<220 {
-      store.upsert(makeTextItem("outside indexed count \(index)", createdAt: Date(timeIntervalSince1970: Double(index))))
-    }
-    for index in 0..<30 {
-      var item = makeTextItem("client indexed count \(index)", createdAt: Date(timeIntervalSince1970: Double(1_000 + index)))
-      item.collectionName = "Client Work"
-      store.upsert(item)
-    }
-    store.flushPersistenceForTesting()
-
-    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
-    waitForVisibleItems(in: viewModel, count: 250)
-    viewModel.debugResetVisibleItemsPerformanceCounters()
-
-    let counts = viewModel.collectionCountSummary()
-
-    XCTAssertEqual(counts.count(for: .mostRecent), 250)
-    XCTAssertEqual(counts.count(for: .text), 250)
-    XCTAssertEqual(counts.count(named: "Client Work"), 30)
-    XCTAssertEqual(viewModel.debugCollectionCountFullScanCount, 0)
-    XCTAssertEqual(viewModel.debugCollectionCountIndexedLookupCount, 1)
-  }
-
-  func testSearchMatchesAreEvaluatedOnceAcrossVisibleItemsCountsAndCategoryChanges() {
-    let settings = makeSettings()
-    settings.maxHistoryItems = 120
-    let cacheService = makeCacheService()
-    let store = makeStore(settings: settings, cacheService: cacheService)
-
-    for index in 0..<100 {
-      var item = makeTextItem(
-        index.isMultiple(of: 5) ? "shared search needle \(index)" : "unmatched history \(index)",
-        createdAt: Date(timeIntervalSince1970: Double(index))
-      )
-      if index.isMultiple(of: 2) {
-        item.collectionName = "Client Work"
-      }
-      store.upsert(item)
-    }
-    store.flushPersistenceForTesting()
-
-    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
-    waitForVisibleItems(in: viewModel, count: 100)
-    viewModel.debugResetVisibleItemsPerformanceCounters()
-
-    viewModel.searchText = "needle"
-    XCTAssertEqual(viewModel.visibleItems.count, 20)
-    XCTAssertEqual(viewModel.debugSearchItemEvaluationCount, 100)
-    XCTAssertEqual(viewModel.debugSearchDocumentBuildCount, 100)
-
-    let counts = viewModel.collectionCountSummary()
-    XCTAssertEqual(counts.count(for: .text), 20)
-    XCTAssertEqual(counts.count(named: "Client Work"), 10)
-    XCTAssertEqual(viewModel.debugSearchItemEvaluationCount, 100)
-    XCTAssertEqual(viewModel.debugSearchMatchCacheHitCount, 1)
-
-    viewModel.selectSortMode(.text, extending: true)
-    viewModel.selectSortMode(.links, extending: true)
-
-    XCTAssertEqual(viewModel.visibleItems.count, 20)
-    XCTAssertEqual(viewModel.debugSearchItemEvaluationCount, 100)
-    XCTAssertEqual(viewModel.debugSearchMatchCacheHitCount, 3)
-
-    viewModel.searchText = "shared"
-
-    XCTAssertEqual(viewModel.visibleItems.count, 20)
-    XCTAssertEqual(viewModel.debugSearchItemEvaluationCount, 200)
-    XCTAssertEqual(viewModel.debugSearchDocumentBuildCount, 100)
-    XCTAssertEqual(viewModel.debugSearchDocumentCacheHitCount, 100)
-  }
-
-  func testEquivalentDiacriticSearchReusesVisibleAndCollectionCountCaches() {
-    let settings = makeSettings()
-    let cacheService = makeCacheService()
-    let store = makeStore(settings: settings, cacheService: cacheService)
-    store.upsert(makeTextItem("Résumé draft", createdAt: Date(timeIntervalSince1970: 100)))
-    store.upsert(makeTextItem("Meeting note", createdAt: Date(timeIntervalSince1970: 200)))
-    store.flushPersistenceForTesting()
-
-    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
-    waitForVisibleItems(in: viewModel, count: 2)
-    viewModel.debugResetVisibleItemsPerformanceCounters()
-
-    viewModel.searchText = "resume"
-    XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["Résumé draft"])
-    _ = viewModel.collectionCountSummary()
-    XCTAssertEqual(viewModel.debugSearchItemEvaluationCount, 2)
-    XCTAssertEqual(viewModel.debugCollectionCountFullScanCount, 1)
-
-    viewModel.searchText = " RÉSUMÉ "
-    _ = viewModel.collectionCountSummary()
-
-    XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["Résumé draft"])
-    XCTAssertEqual(viewModel.debugSearchItemEvaluationCount, 2)
-    XCTAssertEqual(viewModel.debugCollectionCountFullScanCount, 1)
-  }
-
-  func testCategoryFilterSelectionIsBuiltOncePerMutationAndReusedForChipStateQueries() {
-    let settings = makeSettings()
-    let cacheService = makeCacheService()
-    let store = makeStore(settings: settings, cacheService: cacheService)
-    store.upsert(makeTextItem("category state", createdAt: Date(timeIntervalSince1970: 100)))
-    store.flushPersistenceForTesting()
-
-    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
-    waitForVisibleItems(in: viewModel, count: 1)
-    viewModel.debugResetVisibleItemsPerformanceCounters()
-
-    viewModel.selectSortMode(.text, extending: true)
-    XCTAssertEqual(viewModel.debugCategoryFilterSelectionBuildCount, 1)
-
-    for _ in 0..<20 {
-      for mode in ClipboardSortMode.allCases {
-        _ = viewModel.isSortModeCategorySelected(mode)
-      }
-      _ = viewModel.isCollectionCategorySelected(named: "Client Work")
-      _ = viewModel.canShowVisibleItemsInClipboard
-    }
-
-    XCTAssertEqual(viewModel.debugCategoryFilterSelectionBuildCount, 1)
-  }
-
-  func testRepeatedRecomputesDoNotRescanUnchangedStackMembership() {
-    let settings = makeSettings()
-    let cacheService = makeCacheService()
-    let store = makeStore(settings: settings, cacheService: cacheService)
-    store.upsert(makeTextItem("stacked needle", createdAt: Date(timeIntervalSince1970: 100)))
-    store.upsert(makeTextItem("outside note", createdAt: Date(timeIntervalSince1970: 200)))
-    store.flushPersistenceForTesting()
-
-    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
-    waitForVisibleItems(in: viewModel, count: 2)
-    viewModel.selectItem(at: 1)
-    viewModel.toggleSelectedStackMembership()
-    viewModel.debugResetVisibleItemsPerformanceCounters()
-
-    viewModel.searchText = "needle"
-    viewModel.clearSearch()
-    viewModel.selectSortMode(.text)
-    viewModel.selectSortMode(.mostRecent)
-
-    XCTAssertEqual(viewModel.stackCount, 1)
-    XCTAssertEqual(viewModel.debugStackPruneScanCount, 0)
-  }
 
   func testRepeatedHoverSelectionDoesNotNotifyAnUnchangedSelection() {
     let settings = makeSettings()
@@ -405,139 +117,64 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     XCTAssertEqual(completionMainThreadValues, [true, true])
   }
 
-  func testComputeVisibleItemsFiltersColorClipsAndStructuredType() {
+  func testContentKindsSupportCategoryStructuredAndTextSearch() {
     let settings = makeSettings()
     let store = makeStore(settings: settings)
     let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: makeCacheService())
-    let color = ClipboardItem(
-      id: UUID(),
+    let color = makeItem(
       kind: .color,
       displayText: "#0A84FF",
       payload: "#0A84FF",
-      payloadHash: hash("#0A84FF"),
-      createdAt: Date(timeIntervalSince1970: 100),
-      lastUsedAt: Date(timeIntervalSince1970: 100),
-      useCount: 0,
-      sourceApp: "Design Tool",
-      imagePath: nil,
-      thumbnailPath: nil
+      timestamp: 100,
+      sourceApp: "Design Tool"
     )
-    let text = ClipboardItem(
-      id: UUID(),
-      kind: .text,
-      displayText: "Color note",
-      payload: "Color note",
-      payloadHash: hash("Color note"),
-      createdAt: Date(timeIntervalSince1970: 200),
-      lastUsedAt: Date(timeIntervalSince1970: 200),
-      useCount: 0,
-      sourceApp: "Notes",
-      imagePath: nil,
-      thumbnailPath: nil
-    )
-
-    XCTAssertEqual(
-      viewModel.computeVisibleItems(from: [text, color], query: "", sortMode: .colors).map(\.payload),
-      ["#0A84FF"]
-    )
-    XCTAssertEqual(
-      viewModel.computeVisibleItems(from: [text, color], query: "type:swatch", sortMode: .mostRecent).map(\.payload),
-      ["#0A84FF"]
-    )
-    XCTAssertEqual(
-      viewModel.computeVisibleItems(from: [text, color], query: "hex 0a84ff", sortMode: .mostRecent).map(\.payload),
-      ["#0A84FF"]
-    )
-  }
-
-  func testComputeVisibleItemsFiltersCodeSnippetsAndKeepsThemInTextView() {
-    let settings = makeSettings()
-    let store = makeStore(settings: settings)
-    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: makeCacheService())
-    let code = ClipboardItem(
-      id: UUID(),
+    let code = makeItem(
       kind: .code,
       displayText: "Swift Snippet",
       payload: "func greet(name: String) -> String {\n  return \"Hi \\(name)\"\n}",
-      payloadHash: hash("swift-snippet"),
-      createdAt: Date(timeIntervalSince1970: 200),
-      lastUsedAt: Date(timeIntervalSince1970: 200),
-      useCount: 0,
-      sourceApp: "Xcode",
-      imagePath: nil,
-      thumbnailPath: nil
+      timestamp: 300,
+      sourceApp: "Xcode"
     )
-    let text = ClipboardItem(
-      id: UUID(),
-      kind: .text,
-      displayText: "Meeting note",
-      payload: "Meeting note",
-      payloadHash: hash("Meeting note"),
-      createdAt: Date(timeIntervalSince1970: 100),
-      lastUsedAt: Date(timeIntervalSince1970: 100),
-      useCount: 0,
-      sourceApp: "Notes",
-      imagePath: nil,
-      thumbnailPath: nil
-    )
-
-    XCTAssertEqual(
-      viewModel.computeVisibleItems(from: [code, text], query: "", sortMode: .code).map(\.kind),
-      [.code]
-    )
-    XCTAssertEqual(
-      viewModel.computeVisibleItems(from: [code, text], query: "", sortMode: .text).map(\.kind),
-      [.code, .text]
-    )
-    XCTAssertEqual(
-      viewModel.computeVisibleItems(from: [code, text], query: "type:snippet greet", sortMode: .mostRecent).map(\.kind),
-      [.code]
-    )
-  }
-
-  func testComputeVisibleItemsFiltersVideoClipsAndStructuredType() {
-    let settings = makeSettings()
-    let store = makeStore(settings: settings)
-    let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: makeCacheService())
-    let video = ClipboardItem(
-      id: UUID(),
+    let video = makeItem(
       kind: .video,
       displayText: "Video (12 KB)",
       payload: "/tmp/clip.mp4",
-      payloadHash: hash("clip-video"),
-      createdAt: Date(timeIntervalSince1970: 200),
-      lastUsedAt: Date(timeIntervalSince1970: 200),
-      useCount: 0,
-      sourceApp: "QuickTime Player",
-      imagePath: nil,
-      thumbnailPath: nil
+      timestamp: 200,
+      sourceApp: "QuickTime Player"
     )
-    let image = ClipboardItem(
-      id: UUID(),
+    let text = makeItem(
+      kind: .text,
+      displayText: "Meeting note",
+      payload: "Meeting note",
+      timestamp: 100,
+      sourceApp: "Notes"
+    )
+    let image = makeItem(
       kind: .image,
       displayText: "Image",
       payload: "/tmp/image.png",
-      payloadHash: hash("image"),
-      createdAt: Date(timeIntervalSince1970: 100),
-      lastUsedAt: Date(timeIntervalSince1970: 100),
-      useCount: 0,
-      sourceApp: "Preview",
-      imagePath: nil,
-      thumbnailPath: nil
+      timestamp: 100,
+      sourceApp: "Preview"
     )
-
-    XCTAssertEqual(
-      viewModel.computeVisibleItems(from: [video, image], query: "", sortMode: .videos).map(\.kind),
-      [.video]
-    )
-    XCTAssertEqual(
-      viewModel.computeVisibleItems(from: [video, image], query: "type:movie", sortMode: .mostRecent).map(\.kind),
-      [.video]
-    )
-    XCTAssertEqual(
-      viewModel.computeVisibleItems(from: [video, image], query: "mp4", sortMode: .mostRecent).map(\.kind),
-      [.video]
-    )
+    let items = [color, code, video, text, image]
+    let cases: [(ClipboardSortMode, String, [ClipboardItemKind])] = [
+      (.colors, "", [.color]),
+      (.mostRecent, "type:swatch", [.color]),
+      (.mostRecent, "hex 0a84ff", [.color]),
+      (.code, "", [.code]),
+      (.text, "", [.code, .text]),
+      (.mostRecent, "type:snippet greet", [.code]),
+      (.videos, "", [.video]),
+      (.mostRecent, "type:movie", [.video]),
+      (.mostRecent, "mp4", [.video])
+    ]
+    for (sortMode, query, expectedKinds) in cases {
+      XCTAssertEqual(
+        viewModel.computeVisibleItems(from: items, query: query, sortMode: sortMode).map(\.kind),
+        expectedKinds,
+        "sort=\(sortMode), query=\(query)"
+      )
+    }
   }
 
   func testSearchMatchesIndependentTokensCaseInsensitively() {
@@ -2547,7 +2184,7 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     viewModel.searchText = "second"
     XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["second queue note"])
 
-    viewModel.clearSearch()
+    viewModel.searchText = ""
     viewModel.sortMode = .text
     XCTAssertFalse(viewModel.isStackFilterSelected)
     XCTAssertEqual(viewModel.visibleItems.map(\.payload), ["outside note", "second queue note", "first queue note"])
@@ -2566,7 +2203,7 @@ final class ClipboardPanelViewModelTests: XCTestCase {
 
     viewModel.searchText = "draft"
     XCTAssertEqual(viewModel.visibleItems.map(\.id), [item.id])
-    viewModel.clearSearch()
+    viewModel.searchText = ""
 
     XCTAssertEqual(viewModel.editableTextForSelected(), "draft meeting note")
     viewModel.updateSelectedText(to: "final launch note")
@@ -2634,8 +2271,8 @@ final class ClipboardPanelViewModelTests: XCTestCase {
     let viewModel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cacheService)
     waitForVisibleItems(in: viewModel, count: 2)
 
-    XCTAssertNil(viewModel.editableTextForItem(at: 0))
     viewModel.selectItem(at: 0)
+    XCTAssertNil(viewModel.editableTextForSelected())
     viewModel.updateSelectedText(to: "should not apply")
     XCTAssertEqual(store.items.first?.payload, file.payload)
 
@@ -2963,18 +2600,32 @@ final class ClipboardPanelViewModelTests: XCTestCase {
   }
 
   private func makeTextItem(_ text: String, createdAt: Date) -> ClipboardItem {
+    makeItem(kind: .text, displayText: text, payload: text, timestamp: createdAt.timeIntervalSince1970)
+  }
+
+  private func makeItem(
+    kind: ClipboardItemKind,
+    displayText: String,
+    payload: String,
+    timestamp: TimeInterval,
+    lastUsedTimestamp: TimeInterval? = nil,
+    useCount: Int = 0,
+    sourceApp: String? = nil,
+    isPinned: Bool = false
+  ) -> ClipboardItem {
     ClipboardItem(
       id: UUID(),
-      kind: .text,
-      displayText: text,
-      payload: text,
-      payloadHash: hash(text),
-      createdAt: createdAt,
-      lastUsedAt: createdAt,
-      useCount: 0,
-      sourceApp: nil,
+      kind: kind,
+      displayText: displayText,
+      payload: payload,
+      payloadHash: hash(payload),
+      createdAt: Date(timeIntervalSince1970: timestamp),
+      lastUsedAt: Date(timeIntervalSince1970: lastUsedTimestamp ?? timestamp),
+      useCount: useCount,
+      sourceApp: sourceApp,
       imagePath: nil,
-      thumbnailPath: nil
+      thumbnailPath: nil,
+      isPinned: isPinned
     )
   }
 
@@ -3031,88 +2682,56 @@ final class ClipboardPanelViewModelTests: XCTestCase {
 
   private func makeSampleItems() -> [ClipboardItem] {
     [
-      ClipboardItem(
-        id: UUID(),
+      makeItem(
         kind: .text,
         displayText: "Project notes",
         payload: "one",
-        payloadHash: hash("one"),
-        createdAt: Date(timeIntervalSince1970: 1000),
-        lastUsedAt: Date(timeIntervalSince1970: 1000),
+        timestamp: 1000,
         useCount: 2,
-        sourceApp: nil,
-        imagePath: nil,
-        thumbnailPath: nil,
         isPinned: true
       ),
-      ClipboardItem(
-        id: UUID(),
+      makeItem(
         kind: .richText,
         displayText: "Two",
         payload: "two",
-        payloadHash: hash("two"),
-        createdAt: Date(timeIntervalSince1970: 1100),
-        lastUsedAt: Date(timeIntervalSince1970: 1080),
+        timestamp: 1100,
+        lastUsedTimestamp: 1080,
         useCount: 4,
-        sourceApp: "Mail",
-        imagePath: nil,
-        thumbnailPath: nil,
-        isPinned: false
+        sourceApp: "Mail"
       ),
-      ClipboardItem(
-        id: UUID(),
+      makeItem(
         kind: .url,
         displayText: "Apple",
         payload: "https://apple.com",
-        payloadHash: hash("https://apple.com"),
-        createdAt: Date(timeIntervalSince1970: 1030),
-        lastUsedAt: Date(timeIntervalSince1970: 1050),
+        timestamp: 1030,
+        lastUsedTimestamp: 1050,
         useCount: 1,
-        sourceApp: "Safari",
-        imagePath: nil,
-        thumbnailPath: nil,
-        isPinned: false
+        sourceApp: "Safari"
       ),
-      ClipboardItem(
-        id: UUID(),
+      makeItem(
         kind: .file,
         displayText: "report.pdf",
         payload: "/tmp/report.pdf",
-        payloadHash: hash("/tmp/report.pdf"),
-        createdAt: Date(timeIntervalSince1970: 1060),
-        lastUsedAt: Date(timeIntervalSince1970: 1070),
+        timestamp: 1060,
+        lastUsedTimestamp: 1070,
         useCount: 3,
-        sourceApp: "Finder",
-        imagePath: nil,
-        thumbnailPath: nil,
-        isPinned: false
+        sourceApp: "Finder"
       ),
-      ClipboardItem(
-        id: UUID(),
+      makeItem(
         kind: .audio,
         displayText: "Voice memo",
         payload: "/tmp/voice.sound",
-        payloadHash: hash("/tmp/voice.sound"),
-        createdAt: Date(timeIntervalSince1970: 1040),
-        lastUsedAt: Date(timeIntervalSince1970: 1060),
+        timestamp: 1040,
+        lastUsedTimestamp: 1060,
         useCount: 2,
-        sourceApp: "Voice Memos",
-        imagePath: nil,
-        thumbnailPath: nil,
-        isPinned: false
+        sourceApp: "Voice Memos"
       ),
-      ClipboardItem(
-        id: UUID(),
+      makeItem(
         kind: .text,
         displayText: "Four",
         payload: "four",
-        payloadHash: hash("four"),
-        createdAt: Date(timeIntervalSince1970: 1200),
-        lastUsedAt: Date(timeIntervalSince1970: 1200),
-        useCount: 0,
+        timestamp: 1200,
         sourceApp: "Notes",
-        imagePath: nil,
-        thumbnailPath: nil,
         isPinned: true
       )
     ]

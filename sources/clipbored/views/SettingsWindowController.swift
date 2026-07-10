@@ -13,6 +13,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     static let settingsContentMinimumWidth: CGFloat = 440
     static let settingsLabelWidth: CGFloat = 128
   }
+  private enum ControlCommand: Int {
+    case historyLength, historyRetention, pruneDuplicates, keepFirstImage, defaultSort
+    case launchAtLogin, showMenuBarIcon, showDockIcon, panelSide
+    case pauseCapture, excludeSensitive, includeImageText
+    case clearHistoryOnQuit, hideFromScreenCapture, requestAccessibility, refreshAccessibility
+    case pollProfile, cacheLimit
+    case iCloudSync, pushICloudArchive, pullICloudArchive, revealICloudFile
+    case openHistoryFolder, exportArchive, importArchive, clearHistory, clearCache
+  }
   private static let tabTitles = ["General", "Shortcuts", "Capture", "Privacy", "Performance", "Data"]
   private static let allowedContentTypesValidationMessage = "At least one content type must stay enabled."
   private static let allowedContentTypesUpdatedMessage = "Allowed content types updated."
@@ -82,11 +91,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
   private let exportArchiveButton = NSButton()
   private let importArchiveButton = NSButton()
 
-  #if DEBUG
-  private var debugFullRefreshCountValue = 0
-  private var debugIgnoredAppsRefreshCountValue = 0
-  private var debugDestructiveActionConfirmationOverride: Bool?
-  #endif
 
   init(
     settings: SettingsModel,
@@ -180,10 +184,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     return item
   }
 
-  private func tabTitle(for item: NSTabViewItem) -> String {
-    item.label.clipboardTrimmed
-  }
-
   private func scrollContainer(for content: NSView) -> NSView {
     let scrollView = NSScrollView()
     scrollView.hasVerticalScroller = true
@@ -216,26 +216,25 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     historyStepper.minValue = Double(AppConfiguration.minHistoryLength)
     historyStepper.maxValue = Double(AppConfiguration.maxHistoryLength)
     historyStepper.increment = 25
-    historyStepper.target = self
-    historyStepper.action = #selector(historyLengthChanged)
+    bind(historyStepper, to: .historyLength)
     historyStepper.setAccessibilityLabel("History length")
-    configurePopup(historyRetentionPopup, action: #selector(historyRetentionChanged))
+    configurePopup(historyRetentionPopup, command: .historyRetention)
     historyRetentionPopup.setAccessibilityLabel("Keep history")
     for retention in HistoryRetention.allCases {
       addPopupItem(retention.title, retention.rawValue, to: historyRetentionPopup)
     }
 
-    configureCheckbox(pruneDuplicatesButton, title: "Ignore duplicate items", action: #selector(pruneDuplicatesChanged))
-    configureCheckbox(keepFirstImageButton, title: "Keep first image copy", action: #selector(keepFirstImageChanged))
-    configurePopup(defaultSortPopup, action: #selector(defaultSortChanged))
+    configureCheckbox(pruneDuplicatesButton, title: "Ignore duplicate items", command: .pruneDuplicates)
+    configureCheckbox(keepFirstImageButton, title: "Keep first image copy", command: .keepFirstImage)
+    configurePopup(defaultSortPopup, command: .defaultSort)
     defaultSortPopup.setAccessibilityLabel("Default sort")
     for mode in ClipboardSortMode.allCases {
       addPopupItem(mode.title, mode.rawValue, to: defaultSortPopup)
     }
-    configureCheckbox(launchAtLoginButton, title: "Launch at login", action: #selector(launchAtLoginChanged))
-    configureCheckbox(showMenuBarIconButton, title: "Show ClipBored in the menu bar", action: #selector(showMenuBarIconChanged))
-    configureCheckbox(showDockIconButton, title: "Show ClipBored in the Dock", action: #selector(showDockIconChanged))
-    configurePopup(panelSidePopup, action: #selector(panelSideChanged))
+    configureCheckbox(launchAtLoginButton, title: "Launch at login", command: .launchAtLogin)
+    configureCheckbox(showMenuBarIconButton, title: "Show ClipBored in the menu bar", command: .showMenuBarIcon)
+    configureCheckbox(showDockIconButton, title: "Show ClipBored in the Dock", command: .showDockIcon)
+    configurePopup(panelSidePopup, command: .panelSide)
     panelSidePopup.setAccessibilityLabel("Shelf side")
     for side in ClipboardPanelSide.allCases {
       addPopupItem(side.title, side.rawValue, to: panelSidePopup)
@@ -278,9 +277,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
   }
 
   private func captureSettingsView() -> NSView {
-    configureCheckbox(pauseCaptureButton, title: "Pause clipboard capture", action: #selector(pauseCaptureChanged))
-    configureCheckbox(excludeSensitiveButton, title: "Exclude likely secrets", action: #selector(excludeSensitiveChanged))
-    configureCheckbox(includeImageTextButton, title: "Search in image labels", action: #selector(includeImageTextChanged))
+    configureCheckbox(pauseCaptureButton, title: "Pause clipboard capture", command: .pauseCapture)
+    configureCheckbox(excludeSensitiveButton, title: "Exclude likely secrets", command: .excludeSensitive)
+    configureCheckbox(includeImageTextButton, title: "Search in image labels", command: .includeImageText)
     configureStatusLabel(captureStatusLabel)
 
     let allowedRows = [
@@ -333,11 +332,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     let storageLabel = caption("History stays in Application Support. Text and managed media are encrypted with Keychain or an owner-only fallback key.")
     let screenPrivacyLabel = caption("When enabled, the clipboard panel is hidden from screenshots, screen sharing, and screen recordings.")
     let permissionHelpLabel = caption("Clipboard capture works without this permission. Grant Accessibility only for direct paste.")
-    configureCheckbox(clearHistoryOnQuitButton, title: "Clear history on quit", action: #selector(clearHistoryOnQuitChanged))
-    configureCheckbox(hideFromScreenCaptureButton, title: "Hide panel from screen sharing and recordings", action: #selector(hideFromScreenCaptureChanged))
+    configureCheckbox(clearHistoryOnQuitButton, title: "Clear history on quit", command: .clearHistoryOnQuit)
+    configureCheckbox(hideFromScreenCaptureButton, title: "Hide panel from screen sharing and recordings", command: .hideFromScreenCapture)
     configureStatusLabel(accessibilityStatusLabel)
-    let requestButton = button("Open Accessibility Settings", #selector(requestAccessibilityAccess))
-    let refreshButton = button("Refresh Permission Status", #selector(refreshAccessibilityPermissionStatus))
+    let requestButton = button("Open Accessibility Settings", .requestAccessibility)
+    let refreshButton = button("Refresh Permission Status", .refreshAccessibility)
     configureStatusLabel(pasteStatusLabel)
 
     return page([
@@ -361,7 +360,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
   }
 
   private func performanceSettingsView() -> NSView {
-    configurePopup(pollProfilePopup, action: #selector(pollProfileChanged))
+    configurePopup(pollProfilePopup, command: .pollProfile)
     pollProfilePopup.setAccessibilityLabel("Polling profile")
     for profile in AppConfiguration.PollProfile.allCases {
       addPopupItem(profile.title, profile.rawValue, to: pollProfilePopup)
@@ -370,8 +369,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     cacheSlider.maxValue = Double(AppConfiguration.maxCacheMaxBytes) / 1024 / 1024
     cacheSlider.numberOfTickMarks = 9
     cacheSlider.allowsTickMarkValuesOnly = true
-    cacheSlider.target = self
-    cacheSlider.action = #selector(cacheLimitChanged)
+    bind(cacheSlider, to: .cacheLimit)
     cacheSlider.setAccessibilityLabel("Image cache cap in megabytes")
     configureStatusLabel(cacheLabel)
 
@@ -389,12 +387,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
   private func dataSettingsView() -> NSView {
     configureStatusLabel(dataStatusLabel)
     configureStatusLabel(cloudSyncStatusLabel)
-    configureCheckbox(iCloudSyncButton, title: "Sync history with iCloud", action: #selector(iCloudSyncChanged))
-    configureButton(iCloudSyncNowButton, title: "Sync Now", action: #selector(pushICloudSyncArchive))
-    configureButton(iCloudRestoreButton, title: "Restore from iCloud", action: #selector(pullICloudSyncArchive))
-    configureButton(iCloudRevealButton, title: "Reveal Sync File", action: #selector(revealICloudSyncFile))
-    configureButton(exportArchiveButton, title: "Export Archive...", action: #selector(exportClipboardArchive))
-    configureButton(importArchiveButton, title: "Import Archive...", action: #selector(importClipboardArchive))
+    configureCheckbox(iCloudSyncButton, title: "Sync history with iCloud", command: .iCloudSync)
+    configureButton(iCloudSyncNowButton, title: "Sync Now", command: .pushICloudArchive)
+    configureButton(iCloudRestoreButton, title: "Restore from iCloud", command: .pullICloudArchive)
+    configureButton(iCloudRevealButton, title: "Reveal Sync File", command: .revealICloudFile)
+    configureButton(exportArchiveButton, title: "Export Archive...", command: .exportArchive)
+    configureButton(importArchiveButton, title: "Import Archive...", command: .importArchive)
     let archiveLabel = caption("Export a portable archive for history, Pinboards, and managed attachments. Archives are not encrypted; file references stay path-based.")
     let cloudLabel = caption("Uses the same archive in ClipBored's private iCloud container when iCloud signing and iCloud Drive are available.")
     return page([
@@ -416,9 +414,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
         ])
       ]),
       section("Data", [
-        button("Open History Folder", #selector(openHistoryFolder)),
-        button("Clear Clipboard History", #selector(clearClipboardHistory)),
-        button("Clear Thumbnail Cache", #selector(clearThumbnailCache)),
+        button("Open History Folder", .openHistoryFolder),
+        button("Clear Clipboard History", .clearHistory),
+        button("Clear Thumbnail Cache", .clearCache),
         dataStatusLabel
       ])
     ])
@@ -472,18 +470,22 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     return label
   }
 
-  private func button(_ title: String, _ action: Selector) -> NSButton {
+  private func button(_ title: String, _ command: ControlCommand) -> NSButton {
     let control = NSButton()
-    configureButton(control, title: title, action: action)
+    configureButton(control, title: title, command: command)
     return control
   }
 
-  private func configureButton(_ control: NSButton, title: String, action: Selector) {
+  private func configureButton(_ control: NSButton, title: String, command: ControlCommand) {
     control.title = title
-    control.target = self
-    control.action = action
+    bind(control, to: command)
     control.bezelStyle = .rounded
     control.setAccessibilityLabel(title)
+  }
+
+  private func configureCheckbox(_ control: NSButton, title: String, command: ControlCommand) {
+    configureCheckbox(control, title: title, action: #selector(performControlCommand(_:)))
+    control.tag = command.rawValue
   }
 
   private func configureCheckbox(_ control: NSButton, title: String, action: Selector) {
@@ -504,10 +506,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
   }
 
-  private func configurePopup(_ popup: NSPopUpButton, action: Selector) {
+  private func configurePopup(_ popup: NSPopUpButton, command: ControlCommand) {
     popup.removeAllItems()
-    popup.target = self
-    popup.action = action
+    bind(popup, to: command)
+  }
+
+  private func bind(_ control: NSControl, to command: ControlCommand) {
+    control.tag = command.rawValue
+    control.target = self
+    control.action = #selector(performControlCommand(_:))
   }
 
   private func addPopupItem(_ title: String, _ rawValue: Int, to popup: NSPopUpButton) {
@@ -628,9 +635,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
   }
 
   private func refreshFromSettings(refreshCloudSyncStatus: Bool = false) {
-    #if DEBUG
-    debugFullRefreshCountValue += 1
-    #endif
 
     refreshHistoryLimitControls()
     refreshHistoryRetentionControl()
@@ -969,9 +973,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
   }
 
   private func refreshIgnoredAppsTextView(force: Bool = false) {
-    #if DEBUG
-    debugIgnoredAppsRefreshCountValue += 1
-    #endif
 
     guard force || !isEditingIgnoredApps else { return }
 
@@ -1048,67 +1049,98 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     }
   }
 
-  @objc private func historyLengthChanged() {
-    settings.maxHistoryItems = historyStepper.integerValue
-    refreshHistoryLimitControls()
-  }
-
-  @objc private func historyRetentionChanged() {
-    if let rawValue = historyRetentionPopup.selectedItem?.representedObject as? Int,
-       let retention = HistoryRetention(rawValue: rawValue) {
-      settings.historyRetention = retention
-    }
-  }
-
-  @objc private func pruneDuplicatesChanged() {
-    settings.pruneDuplicates = pruneDuplicatesButton.state == .on
-  }
-
-  @objc private func keepFirstImageChanged() {
-    settings.keepFirstImage = keepFirstImageButton.state == .on
-  }
-
-  @objc private func defaultSortChanged() {
-    if let rawValue = defaultSortPopup.selectedItem?.representedObject as? Int,
-       let mode = ClipboardSortMode(rawValue: rawValue) {
-      settings.defaultSortMode = mode
-    }
-  }
-
-  @objc private func launchAtLoginChanged() {
-    let enabled = launchAtLoginButton.state == .on
-    settings.launchAtLogin = enabled
-    if !enabled {
-      settings.setLaunchAtLoginStatus(message: "")
-    }
-    refreshLaunchAtLoginControls()
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-      self?.refreshLaunchAtLoginControls()
-    }
-  }
-
-  @objc private func showMenuBarIconChanged() {
-    let shouldShowMenuBarIcon = showMenuBarIconButton.state == .on
-    settings.showMenuBarIcon = shouldShowMenuBarIcon
-    if !shouldShowMenuBarIcon && !settings.showDockIcon {
-      settings.showDockIcon = true
-    }
-    refreshVisibilityControls()
-  }
-
-  @objc private func showDockIconChanged() {
-    let shouldShowDockIcon = showDockIconButton.state == .on
-    settings.showDockIcon = shouldShowDockIcon
-    if !shouldShowDockIcon && !settings.showMenuBarIcon {
-      settings.showMenuBarIcon = true
-    }
-    refreshVisibilityControls()
-  }
-
-  @objc private func panelSideChanged() {
-    if let rawValue = panelSidePopup.selectedItem?.representedObject as? Int,
-       let side = ClipboardPanelSide(rawValue: rawValue) {
-      settings.panelSide = side
+  @objc private func performControlCommand(_ sender: NSControl) {
+    guard let command = ControlCommand(rawValue: sender.tag) else { return }
+    switch command {
+    case .historyLength:
+      settings.maxHistoryItems = historyStepper.integerValue
+      refreshHistoryLimitControls()
+    case .historyRetention:
+      if let rawValue = historyRetentionPopup.selectedItem?.representedObject as? Int,
+         let retention = HistoryRetention(rawValue: rawValue) {
+        settings.historyRetention = retention
+      }
+    case .pruneDuplicates:
+      settings.pruneDuplicates = pruneDuplicatesButton.state == .on
+    case .keepFirstImage:
+      settings.keepFirstImage = keepFirstImageButton.state == .on
+    case .defaultSort:
+      if let rawValue = defaultSortPopup.selectedItem?.representedObject as? Int,
+         let mode = ClipboardSortMode(rawValue: rawValue) {
+        settings.defaultSortMode = mode
+      }
+    case .launchAtLogin:
+      let enabled = launchAtLoginButton.state == .on
+      settings.launchAtLogin = enabled
+      if !enabled {
+        settings.setLaunchAtLoginStatus(message: "")
+      }
+      refreshLaunchAtLoginControls()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+        self?.refreshLaunchAtLoginControls()
+      }
+    case .showMenuBarIcon:
+      let shouldShow = showMenuBarIconButton.state == .on
+      settings.showMenuBarIcon = shouldShow
+      if !shouldShow && !settings.showDockIcon {
+        settings.showDockIcon = true
+      }
+      refreshVisibilityControls()
+    case .showDockIcon:
+      let shouldShow = showDockIconButton.state == .on
+      settings.showDockIcon = shouldShow
+      if !shouldShow && !settings.showMenuBarIcon {
+        settings.showMenuBarIcon = true
+      }
+      refreshVisibilityControls()
+    case .panelSide:
+      if let rawValue = panelSidePopup.selectedItem?.representedObject as? Int,
+         let side = ClipboardPanelSide(rawValue: rawValue) {
+        settings.panelSide = side
+      }
+    case .pauseCapture:
+      if pauseCaptureButton.state == .on {
+        settings.pauseCaptureUntil = nil
+        settings.pauseCapture = true
+      } else {
+        settings.pauseCapture = false
+        settings.pauseCaptureUntil = nil
+      }
+    case .excludeSensitive:
+      settings.excludeSensitive = excludeSensitiveButton.state == .on
+    case .includeImageText:
+      settings.includeImageTextInSearch = includeImageTextButton.state == .on
+    case .clearHistoryOnQuit:
+      settings.clearHistoryOnQuit = clearHistoryOnQuitButton.state == .on
+    case .hideFromScreenCapture:
+      settings.hideFromScreenCapture = hideFromScreenCaptureButton.state == .on
+    case .requestAccessibility: requestAccessibilityAccess()
+    case .refreshAccessibility: refreshAccessibilityPermissionStatus()
+    case .pollProfile:
+      if let rawValue = pollProfilePopup.selectedItem?.representedObject as? Int,
+         let profile = AppConfiguration.PollProfile(rawValue: rawValue) {
+        settings.pollProfileRaw = profile
+      }
+    case .cacheLimit:
+      let megabytes = Int(cacheSlider.doubleValue.rounded())
+      settings.imageCacheMaxBytes = Int64(megabytes * 1024 * 1024)
+      refreshCacheControls()
+    case .iCloudSync:
+      let enabled = iCloudSyncButton.state == .on
+      settings.iCloudSyncEnabled = enabled
+      settings.setCloudSyncStatus(message: "")
+      if !enabled {
+        cachedCloudSyncStatus = nil
+      }
+      refreshCloudSyncControls(refreshStatus: enabled && cachedCloudSyncStatus == nil)
+    case .openHistoryFolder: openHistoryFolder()
+    case .exportArchive: exportClipboardArchive()
+    case .importArchive: importClipboardArchive()
+    case .pushICloudArchive: pushICloudSyncArchive()
+    case .pullICloudArchive: pullICloudSyncArchive()
+    case .revealICloudFile: revealICloudSyncFile()
+    case .clearHistory: clearClipboardHistory()
+    case .clearCache: clearThumbnailCache()
     }
   }
 
@@ -1171,24 +1203,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     }
   }
 
-  @objc private func pauseCaptureChanged() {
-    if pauseCaptureButton.state == .on {
-      settings.pauseCaptureUntil = nil
-      settings.pauseCapture = true
-    } else {
-      settings.pauseCapture = false
-      settings.pauseCaptureUntil = nil
-    }
-  }
-
-  @objc private func excludeSensitiveChanged() {
-    settings.excludeSensitive = excludeSensitiveButton.state == .on
-  }
-
-  @objc private func includeImageTextChanged() {
-    settings.includeImageTextInSearch = includeImageTextButton.state == .on
-  }
-
   @objc private func allowedKindChanged(_ sender: NSButton) {
     guard let kind = ClipboardItemKind(rawValue: sender.tag) else { return }
     var ignored = settings.ignoredItemKindsRaw
@@ -1228,15 +1242,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     commitIgnoredAppsDraftIfNeeded()
   }
 
-  @objc private func clearHistoryOnQuitChanged() {
-    settings.clearHistoryOnQuit = clearHistoryOnQuitButton.state == .on
-  }
-
-  @objc private func hideFromScreenCaptureChanged() {
-    settings.hideFromScreenCapture = hideFromScreenCaptureButton.state == .on
-  }
-
-  @objc private func requestAccessibilityAccess() {
+  private func requestAccessibilityAccess() {
     _ = AccessibilityPermissionService.requestPromptIfNeeded()
     if !AccessibilityPermissionService.isTrusted {
       AccessibilityPermissionService.openSystemSettings()
@@ -1247,7 +1253,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     refreshAccessibilityPermissionStatus()
   }
 
-  @objc private func refreshAccessibilityPermissionStatus() {
+  private func refreshAccessibilityPermissionStatus() {
     settings.setAccessibilityPermissionStatus(
       message: AccessibilityPermissionService.isTrusted
       ? ""
@@ -1256,34 +1262,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     refreshAccessibilityPermissionStatusLabel()
   }
 
-  @objc private func pollProfileChanged() {
-    if let rawValue = pollProfilePopup.selectedItem?.representedObject as? Int,
-       let profile = AppConfiguration.PollProfile(rawValue: rawValue) {
-      settings.pollProfileRaw = profile
-    }
-  }
-
-  @objc private func cacheLimitChanged() {
-    let megabytes = Int(cacheSlider.doubleValue.rounded())
-    settings.imageCacheMaxBytes = Int64(megabytes * 1024 * 1024)
-    refreshCacheControls()
-  }
-
-  @objc private func iCloudSyncChanged() {
-    let enabled = iCloudSyncButton.state == .on
-    settings.iCloudSyncEnabled = enabled
-    settings.setCloudSyncStatus(message: "")
-    if !enabled {
-      cachedCloudSyncStatus = nil
-    }
-    refreshCloudSyncControls(refreshStatus: enabled && cachedCloudSyncStatus == nil)
-  }
-
-  @objc private func openHistoryFolder() {
+  private func openHistoryFolder() {
     NSWorkspace.shared.open(ClipboardStore.storageDirectory())
   }
 
-  @objc private func exportClipboardArchive() {
+  private func exportClipboardArchive() {
     let panel = NSSavePanel()
     panel.title = "Export ClipBored Archive"
     panel.nameFieldStringValue = defaultArchiveFileName()
@@ -1303,7 +1286,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     }
   }
 
-  @objc private func importClipboardArchive() {
+  private func importClipboardArchive() {
     let panel = NSOpenPanel()
     panel.title = "Import ClipBored Archive"
     panel.canChooseFiles = true
@@ -1329,7 +1312,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     }
   }
 
-  @objc private func pushICloudSyncArchive() {
+  private func pushICloudSyncArchive() {
     guard settings.iCloudSyncEnabled else {
       settings.setCloudSyncStatus(message: "Turn on iCloud Sync before syncing.")
       return
@@ -1352,7 +1335,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     }
   }
 
-  @objc private func pullICloudSyncArchive() {
+  private func pullICloudSyncArchive() {
     guard settings.iCloudSyncEnabled else {
       settings.setCloudSyncStatus(message: "Turn on iCloud Sync before restoring.")
       return
@@ -1400,7 +1383,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     }
   }
 
-  @objc private func revealICloudSyncFile() {
+  private func revealICloudSyncFile() {
     do {
       let url = try cloudSyncService.syncArchiveURL()
       if FileManager.default.fileExists(atPath: url.path) {
@@ -1415,7 +1398,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     }
   }
 
-  @objc private func clearClipboardHistory() {
+  private func clearClipboardHistory() {
     guard confirmDestructiveAction(
       title: "Clear Clipboard History?",
       message: "This permanently removes saved clipboard items, app-managed attachments, temporary decrypted previews, and the local fallback encryption key when present. The current system clipboard is not changed.",
@@ -1426,7 +1409,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     setDataStatus("Cleared clipboard history.")
   }
 
-  @objc private func clearThumbnailCache() {
+  private func clearThumbnailCache() {
     guard confirmDestructiveAction(
       title: "Clear Thumbnail Cache?",
       message: "This removes cached image previews and temporary decrypted previews. ClipBored will recreate previews as needed.",
@@ -1437,11 +1420,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
   }
 
   private func confirmDestructiveAction(title: String, message: String, buttonTitle: String) -> Bool {
-    #if DEBUG
-    if let override = debugDestructiveActionConfirmationOverride {
-      return override
-    }
-    #endif
 
     let alert = NSAlert()
     alert.messageText = title
@@ -1551,447 +1529,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSTextFieldDel
     return nil
   }
 
-  #if DEBUG
-  var debugWindowStyleMask: NSWindow.StyleMask {
-    window?.styleMask ?? []
-  }
-
-  var debugWindowMinSize: NSSize {
-    window?.minSize ?? .zero
-  }
-
-  var debugWindowContentSize: NSSize {
-    window?.contentView?.bounds.size ?? .zero
-  }
-
-  var debugRawSettingsTabLabels: [String] {
-    tabView.tabViewItems.map(\.label)
-  }
-
-  func debugSetWindowContentSize(_ size: NSSize) {
-    window?.setContentSize(size)
-    window?.contentView?.layoutSubtreeIfNeeded()
-  }
-
-  var debugSettingsTabLayoutMetrics: [(label: String, viewport: NSSize, document: NSSize, hasHorizontalScroller: Bool)] {
-    let originalSelection = tabView.selectedTabViewItem
-    defer {
-      if let originalSelection {
-        tabView.selectTabViewItem(originalSelection)
-      }
-      window?.contentView?.layoutSubtreeIfNeeded()
-    }
-
-    return tabView.tabViewItems.map { item in
-      tabView.selectTabViewItem(item)
-      window?.contentView?.layoutSubtreeIfNeeded()
-      item.view?.layoutSubtreeIfNeeded()
-      guard let scrollView = item.view as? NSScrollView else {
-        return (tabTitle(for: item), .zero, .zero, true)
-      }
-      scrollView.documentView?.layoutSubtreeIfNeeded()
-      return (
-        tabTitle(for: item),
-        scrollView.contentView.bounds.size,
-        scrollView.documentView?.frame.size ?? .zero,
-        scrollView.hasHorizontalScroller
-      )
-    }
-  }
-
-  var debugSettingsTabLayoutAuditMetrics: [(label: String, overflowingViewCount: Int, zeroSizedControlCount: Int)] {
-    let originalSelection = tabView.selectedTabViewItem
-    defer {
-      if let originalSelection {
-        tabView.selectTabViewItem(originalSelection)
-      }
-      window?.contentView?.layoutSubtreeIfNeeded()
-    }
-
-    func visibleDescendants(of root: NSView) -> [NSView] {
-      var result: [NSView] = []
-      func visit(_ view: NSView) {
-        guard !view.isHidden else { return }
-        result.append(view)
-        for subview in view.subviews {
-          visit(subview)
-        }
-      }
-      for subview in root.subviews {
-        visit(subview)
-      }
-      return result
-    }
-
-    func shouldAudit(_ view: NSView) -> Bool {
-      !(view is NSScroller)
-    }
-
-    func canCollapseToZero(_ view: NSView) -> Bool {
-      view is NSControl || view is NSTextView
-    }
-
-    return tabView.tabViewItems.map { item in
-      tabView.selectTabViewItem(item)
-      window?.contentView?.layoutSubtreeIfNeeded()
-      item.view?.layoutSubtreeIfNeeded()
-      guard let scrollView = item.view as? NSScrollView,
-            let documentView = scrollView.documentView else {
-        return (tabTitle(for: item), 1, 1)
-      }
-
-      documentView.layoutSubtreeIfNeeded()
-      let auditedViews = visibleDescendants(of: documentView).filter(shouldAudit)
-      let documentBounds = documentView.bounds
-      let overflowing = auditedViews.filter { view in
-        let frame = view.convert(view.bounds, to: documentView)
-        return frame.minX < -1 || frame.maxX > documentBounds.width + 1
-      }
-      let zeroSizedControls = auditedViews.filter { view in
-        guard canCollapseToZero(view) else { return false }
-        let frame = view.convert(view.bounds, to: documentView)
-        return frame.width <= 0.5 || frame.height <= 0.5
-      }
-      return (tabTitle(for: item), overflowing.count, zeroSizedControls.count)
-    }
-  }
-
-  var debugSettingsTabContentPlacementMetrics: [(label: String, contentBounds: NSRect, document: NSSize)] {
-    let originalSelection = tabView.selectedTabViewItem
-    defer {
-      if let originalSelection {
-        tabView.selectTabViewItem(originalSelection)
-      }
-      window?.contentView?.layoutSubtreeIfNeeded()
-    }
-
-    func visibleControlsAndLabels(of root: NSView) -> [NSView] {
-      var result: [NSView] = []
-      func visit(_ view: NSView) {
-        guard !view.isHidden else { return }
-        if view is NSControl || view is NSTextView {
-          result.append(view)
-        }
-        for subview in view.subviews {
-          visit(subview)
-        }
-      }
-      for subview in root.subviews {
-        visit(subview)
-      }
-      return result
-    }
-
-    return tabView.tabViewItems.map { item in
-      tabView.selectTabViewItem(item)
-      window?.contentView?.layoutSubtreeIfNeeded()
-      item.view?.layoutSubtreeIfNeeded()
-      guard let scrollView = item.view as? NSScrollView,
-            let documentView = scrollView.documentView else {
-        return (tabTitle(for: item), .zero, .zero)
-      }
-
-      documentView.layoutSubtreeIfNeeded()
-      let bounds = visibleControlsAndLabels(of: documentView)
-        .map { $0.convert($0.bounds, to: documentView) }
-        .reduce(NSRect.null) { $0.union($1) }
-      return (tabTitle(for: item), bounds.isNull ? .zero : bounds, documentView.frame.size)
-    }
-  }
-
-  var debugCloudSyncStatusText: String {
-    cloudSyncStatusLabel.stringValue
-  }
-
-  var debugCloudSyncActionButtonsAreEnabled: [Bool] {
-    [
-      iCloudSyncNowButton.isEnabled,
-      iCloudRestoreButton.isEnabled,
-      iCloudRevealButton.isEnabled
-    ]
-  }
-
-  var debugHistoryText: String {
-    historyLabel.stringValue
-  }
-
-  var debugHistoryStepperValue: Int {
-    historyStepper.integerValue
-  }
-
-  var debugCacheStatusText: String {
-    cacheLabel.stringValue
-  }
-
-  var debugCacheSliderMegabytes: Int {
-    Int(cacheSlider.doubleValue.rounded())
-  }
-
-  var debugDataStatusText: String {
-    dataStatusLabel.stringValue
-  }
-
-  var debugDataStatusColor: NSColor {
-    dataStatusLabel.textColor ?? .clear
-  }
-
-  var debugDataStatusSectionTitle: String {
-    guard let section = dataStatusLabel.superview as? NSStackView,
-          let titleLabel = section.arrangedSubviews.first as? NSTextField else {
-      return ""
-    }
-    return titleLabel.stringValue
-  }
-
-  var debugPasteStatusText: String {
-    pasteStatusLabel.stringValue
-  }
-
-  var debugAccessibilityStatusText: String {
-    accessibilityStatusLabel.stringValue
-  }
-
-  var debugCaptureStatusText: String {
-    captureStatusLabel.stringValue
-  }
-
-  var debugCaptureStatusColor: NSColor {
-    captureStatusLabel.textColor ?? .clear
-  }
-
-  var debugStatusLabelsAllowWrapping: Bool {
-    [
-      launchStatusLabel,
-      shortcutStatusLabel,
-      captureStatusLabel,
-      accessibilityStatusLabel,
-      pasteStatusLabel,
-      cacheLabel,
-      dataStatusLabel,
-      cloudSyncStatusLabel
-    ].allSatisfy { label in
-      label.lineBreakMode == .byWordWrapping
-        && label.maximumNumberOfLines == 0
-        && !label.usesSingleLineMode
-        && (label.cell?.wraps ?? false)
-    }
-  }
-
-  var debugDefaultSortTitle: String {
-    defaultSortPopup.selectedItem?.title ?? ""
-  }
-
-  var debugPruneDuplicatesIsEnabled: Bool {
-    pruneDuplicatesButton.state == .on
-  }
-
-  var debugKeepFirstImageIsEnabled: Bool {
-    keepFirstImageButton.state == .on
-  }
-
-  var debugIncludeImageTextIsEnabled: Bool {
-    includeImageTextButton.state == .on
-  }
-
-  var debugExcludeSensitiveIsEnabled: Bool {
-    excludeSensitiveButton.state == .on
-  }
-
-  var debugClearHistoryOnQuitIsEnabled: Bool {
-    clearHistoryOnQuitButton.state == .on
-  }
-
-  var debugLaunchAtLoginIsEnabled: Bool {
-    launchAtLoginButton.state == .on
-  }
-
-  var debugShowMenuBarIconIsEnabled: Bool {
-    showMenuBarIconButton.state == .on
-  }
-
-  var debugShowDockIconIsEnabled: Bool {
-    showDockIconButton.state == .on
-  }
-
-  var debugLaunchStatusText: String {
-    launchStatusLabel.stringValue
-  }
-
-  var debugOpenShortcutKeyText: String {
-    openShortcutControls?.keyField.stringValue ?? ""
-  }
-
-  var debugSettingsShortcutKeyText: String {
-    settingsShortcutControls?.keyField.stringValue ?? ""
-  }
-
-  var debugShortcutStatusText: String {
-    shortcutStatusLabel.stringValue
-  }
-
-  var debugOpenShortcutModifierAccessibilityLabels: [String] {
-    guard let controls = openShortcutControls else { return [] }
-    return [controls.command, controls.option, controls.control, controls.shift]
-      .compactMap { $0.accessibilityLabel() }
-  }
-
-  var debugOpenShortcutModifierAccessibilityHelps: [String] {
-    guard let controls = openShortcutControls else { return [] }
-    return [controls.command, controls.option, controls.control, controls.shift]
-      .compactMap { $0.accessibilityHelp() }
-  }
-
-  var debugSettingsContentView: NSView? {
-    window?.contentView
-  }
-
-  func debugSelectSettingsTab(at index: Int) {
-    guard index >= 0, index < tabView.numberOfTabViewItems else { return }
-    tabSelector.selectedSegment = index
-    tabView.selectTabViewItem(at: index)
-    window?.contentView?.layoutSubtreeIfNeeded()
-  }
-
-  func debugPrepareWindowForSnapshot() {
-    window?.setFrameOrigin(.zero)
-    window?.orderFront(nil)
-    window?.contentView?.layoutSubtreeIfNeeded()
-    window?.contentView?.displayIfNeeded()
-  }
-
-  var debugFullRefreshCount: Int {
-    debugFullRefreshCountValue
-  }
-
-  var debugIgnoredAppsRefreshCount: Int {
-    debugIgnoredAppsRefreshCountValue
-  }
-
-  var debugIgnoredAppsText: String {
-    ignoredAppsTextView.string
-  }
-
-  var debugIgnoredAppsEditorIsFocused: Bool {
-    isEditingIgnoredApps
-  }
-
-  @discardableResult
-  func debugFocusIgnoredAppsEditor() -> Bool {
-    textDidBeginEditing(Notification(name: NSText.didBeginEditingNotification, object: ignoredAppsTextView))
-    _ = window?.makeFirstResponder(ignoredAppsTextView)
-    return isEditingIgnoredApps
-  }
-
-  func debugSetIgnoredAppsText(_ text: String) {
-    ignoredAppsTextView.string = text
-    textDidChange(Notification(name: NSText.didChangeNotification, object: ignoredAppsTextView))
-  }
-
-  func debugSetHistoryStepperValue(_ value: Int) {
-    historyStepper.integerValue = value
-    historyLengthChanged()
-  }
-
-  func debugSetCacheSliderMegabytes(_ value: Int) {
-    cacheSlider.doubleValue = Double(value)
-    cacheLimitChanged()
-  }
-
-  func debugEndIgnoredAppsEditing() {
-    window?.makeFirstResponder(nil)
-    textDidEndEditing(Notification(name: NSText.didEndEditingNotification, object: ignoredAppsTextView))
-  }
-
-  func debugCloseWindow() {
-    windowWillClose(Notification(name: NSWindow.willCloseNotification, object: window))
-    window?.makeFirstResponder(nil)
-  }
-
-  @discardableResult
-  func debugBeginOpenShortcutKeyEditing() -> Bool {
-    guard let field = openShortcutControls?.keyField else { return false }
-    controlTextDidBeginEditing(Notification(name: NSControl.textDidBeginEditingNotification, object: field))
-    _ = window?.makeFirstResponder(field)
-    return isEditingShortcutKeyField(field)
-  }
-
-  func debugSetOpenShortcutKeyDraft(_ text: String) {
-    openShortcutControls?.keyField.stringValue = text
-  }
-
-  func debugEndOpenShortcutKeyEditing() {
-    guard let field = openShortcutControls?.keyField else { return }
-    window?.makeFirstResponder(nil)
-    controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: field))
-  }
-
-  func debugCommitOpenShortcutKeyText(_ text: String) {
-    guard let controls = openShortcutControls else { return }
-    controls.keyField.stringValue = text
-    shortcutChanged(controls.keyField)
-  }
-
-  func debugSetOpenShortcutModifiers(command: Bool, option: Bool, control: Bool, shift: Bool) {
-    guard let controls = openShortcutControls else { return }
-    controls.command.state = command ? .on : .off
-    controls.option.state = option ? .on : .off
-    controls.control.state = control ? .on : .off
-    controls.shift.state = shift ? .on : .off
-    shortcutChanged(controls.command)
-  }
-
-  func debugCommitSettingsShortcutKeyText(_ text: String) {
-    guard let controls = settingsShortcutControls else { return }
-    controls.keyField.stringValue = text
-    shortcutChanged(controls.keyField)
-  }
-
-  func debugSetLaunchAtLoginEnabled(_ enabled: Bool) {
-    launchAtLoginButton.state = enabled ? .on : .off
-    launchAtLoginChanged()
-  }
-
-  func debugSetShowMenuBarIconEnabled(_ enabled: Bool) {
-    showMenuBarIconButton.state = enabled ? .on : .off
-    showMenuBarIconChanged()
-  }
-
-  func debugSetShowDockIconEnabled(_ enabled: Bool) {
-    showDockIconButton.state = enabled ? .on : .off
-    showDockIconChanged()
-  }
-
-  func debugSetICloudSyncEnabled(_ enabled: Bool) {
-    iCloudSyncButton.state = enabled ? .on : .off
-    iCloudSyncChanged()
-  }
-
-  func debugSetDestructiveActionConfirmation(_ confirmed: Bool?) {
-    debugDestructiveActionConfirmationOverride = confirmed
-  }
-
-  func debugClearClipboardHistory() {
-    clearClipboardHistory()
-  }
-
-  func debugClearThumbnailCache() {
-    clearThumbnailCache()
-  }
-
-  func debugAllowedKindIsEnabled(_ kind: ClipboardItemKind) -> Bool {
-    allowedKindButtons.first { $0.0 == kind }?.1.state == .on
-  }
-
-  func debugSetAllowedKindEnabled(_ kind: ClipboardItemKind, _ enabled: Bool) {
-    guard let button = allowedKindButtons.first(where: { $0.0 == kind })?.1 else { return }
-    button.state = enabled ? .on : .off
-    allowedKindChanged(button)
-  }
-
-  func debugRefreshAccessibilityPermissionStatus() {
-    refreshAccessibilityPermissionStatus()
-  }
-  #endif
 }
 
 private struct ShortcutControlSet {

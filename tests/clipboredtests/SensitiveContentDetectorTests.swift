@@ -43,6 +43,7 @@ final class SensitiveContentDetectorTests: XCTestCase {
 
   func testDetectsCreditCardWithLuhnCheck() {
     XCTAssertEqual(SensitiveContentDetector.detect("4242424242424242"), .creditCard)
+    XCTAssertEqual(SensitiveContentDetector.detect("Card: 4242 4242 4242 4242"), .creditCard)
     XCTAssertNil(SensitiveContentDetector.detect("4242424242424241"))
   }
 

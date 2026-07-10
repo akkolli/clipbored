@@ -329,7 +329,6 @@ final class ClipboardCacheService {
 
   func purgeIfNeeded(maxBytes: Int64) {
     queue.async {
-      DiagnosticsService.shared.incrementCachePurge()
       let urls = (try? self.fileManager.contentsOfDirectory(at: self.imageDirectory, includingPropertiesForKeys: nil, options: [])) ?? []
       var items: [(url: URL, size: Int64, date: Date)] = []
       var totalSize: Int64 = 0

@@ -110,10 +110,6 @@ private enum ClipboardCollectionVisuals {
     }
   }
 
-  static func defaultColorHex(forCollectionNamed name: String) -> String {
-    hexString(for: defaultColor(forCollectionNamed: name))
-  }
-
   static func hexString(for color: NSColor) -> String {
     let rgb = color.usingColorSpace(.deviceRGB) ?? color
     let red = Int((rgb.redComponent * 255).rounded())
@@ -189,6 +185,15 @@ private final class ClipboardPanelSearchFieldCell: NSSearchFieldCell {
 
   override func searchButtonRect(forBounds rect: NSRect) -> NSRect {
     .zero
+  }
+
+  override func setUpFieldEditorAttributes(_ textObj: NSText) -> NSText {
+    let editor = super.setUpFieldEditorAttributes(textObj)
+    if let textView = editor as? NSTextView {
+      textView.drawsBackground = false
+      textView.backgroundColor = .clear
+    }
+    return editor
   }
 
   override func cancelButtonRect(forBounds rect: NSRect) -> NSRect {
@@ -375,9 +380,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private var shelfChromeHeightConstraint: NSLayoutConstraint?
   private var searchControlCenterYConstraint: NSLayoutConstraint?
   private var utilityToolbarCenterYConstraint: NSLayoutConstraint?
-  private var collectionScrollCenterYConstraint: NSLayoutConstraint?
-  private var collectionAvoidsSearchConstraint: NSLayoutConstraint?
-  private var collectionAvoidsActionsConstraint: NSLayoutConstraint?
   private weak var shelfChromeView: NSView?
   private weak var headerStack: NSStackView?
   private weak var contentStack: NSView?
@@ -400,15 +402,10 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private var hoverSelectionRequiresFreshMouseMovement = false
   private var hoverSelectionKeyboardBarrierLocation: NSPoint?
   private var cardSelectionInputSource: CardSelectionInputSource = .mouse
-  #if DEBUG
-  private var animatedCardLayoutChangeCount = 0
-  private var debugItemReloadCountValue = 0
-  #endif
   private var defersVisualReloads = false
   private var pendingItemReload = false
   private var pendingCollectionReload = false
   private var cardReloadGeneration = 0
-  private var lastSynchronousCardRenderCount = 0
   private weak var activeWritingToolsTextView: NSTextView?
 
   private struct FocusedCardReloadTarget {
@@ -431,15 +428,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private let cardRenderRetentionBuffer = 8
   private var currentCardRenderContext: CardRenderContext?
 
-  #if DEBUG
-  private var collectionNameProviderForTesting: (() -> String?)?
-  private var suppressClipEditDialogsForTesting = false
-  private var renameClipRequestCountForTesting = 0
-  private var editClipRequestCountForTesting = 0
-  private var suppressClipOpenActionsForTesting = false
-  private var openClipRequestCountForTesting = 0
-  private var showInClipboardRequestCountForTesting = 0
-  #endif
 
   init(
     viewModel: ClipboardPanelViewModel,
@@ -494,12 +482,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     searchField.sendsWholeSearchString = false
     searchField.isBezeled = false
     searchField.drawsBackground = false
-    searchField.placeholderAttributedString = NSAttributedString(
-      string: "Search clips",
-      attributes: [
-        .foregroundColor: NSColor.tertiaryLabelColor
-      ]
-    )
     searchField.backgroundColor = .clear
     searchField.font = .systemFont(ofSize: 13, weight: .regular)
     searchField.focusRingType = .none
@@ -1127,9 +1109,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func reloadItems() {
-    #if DEBUG
-    debugItemReloadCountValue += 1
-    #endif
     cardReloadGeneration += 1
     let reloadGeneration = cardReloadGeneration
     let focusedCardReloadTarget = focusedCardReloadTarget()
@@ -1148,7 +1127,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     let items = viewModel.visibleItems
     let shouldAnimateReload = window != nil && !defersVisualReloads
     if items.isEmpty {
-      lastSynchronousCardRenderCount = 0
       emptyStateText = emptyStateCopy()
       scrollView.documentView = emptyStateView()
     } else {
@@ -1175,7 +1153,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       sizeItemsDocument(itemCount: items.count)
 
       let synchronousRange = initialCardRenderRange(itemCount: items.count)
-      lastSynchronousCardRenderCount = synchronousRange.count
       renderCards(in: synchronousRange, reloadGeneration: reloadGeneration)
     }
 
@@ -1609,13 +1586,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       self?.viewModel.pasteboardWriters(forItemAt: selected) ?? []
     }
     card.onOpen = { [weak self] selected in
-      #if DEBUG
-      self?.openClipRequestCountForTesting += 1
-      if self?.suppressClipOpenActionsForTesting == true {
-        self?.viewModel.selectItem(at: selected)
-        return
-      }
-      #endif
       self?.viewModel.selectItem(at: selected)
       self?.viewModel.openSelected()
     }
@@ -1898,12 +1868,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private func editText(at index: Int) {
     viewModel.selectItem(at: index)
     guard let currentText = viewModel.editableTextForSelected() else { return }
-    #if DEBUG
-    editClipRequestCountForTesting += 1
-    if suppressClipEditDialogsForTesting {
-      return
-    }
-    #endif
 
     let textView = Self.makePlainTextEditor(initialText: currentText)
     let accessoryView = textEditorAccessoryView(for: textView)
@@ -1932,12 +1896,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   private func renameClip(at index: Int) {
     viewModel.selectItem(at: index)
     guard let currentTitle = viewModel.editableTitleForSelected() else { return }
-    #if DEBUG
-    renameClipRequestCountForTesting += 1
-    if suppressClipEditDialogsForTesting {
-      return
-    }
-    #endif
 
     let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
     input.placeholderString = "Clip title"
@@ -2013,9 +1971,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       return
     }
 
-    #if DEBUG
-    animatedCardLayoutChangeCount += 1
-    #endif
 
     NSAnimationContext.runAnimationGroup { context in
       context.duration = Motion.duration(Motion.cardExpansionDuration)
@@ -2250,8 +2205,9 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
       || searchField.isHidden == isActive
       || searchIconButton.isHidden
     searchFieldPresentationIsExpanded = isActive
+    let placeholder = isActive && !isSearchFieldEditing ? "Search clips" : ""
     searchField.placeholderAttributedString = NSAttributedString(
-      string: isActive ? "Search clips" : "",
+      string: placeholder,
       attributes: [
         .foregroundColor: NSColor.tertiaryLabelColor
       ]
@@ -2402,1122 +2358,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
     flushDeferredVisualReloads()
   }
 
-  #if DEBUG
-  var debugVisibleCardCount: Int {
-    cardViews.count
-  }
-
-  var debugCardSlotCount: Int {
-    cardSlots.count
-  }
-
-  var debugCardItemCount: Int {
-    cardItemCount
-  }
-
-  var debugItemReloadCount: Int {
-    debugItemReloadCountValue
-  }
-
-  var debugLastSynchronousCardRenderCount: Int {
-    lastSynchronousCardRenderCount
-  }
-
-  var debugIsDeferringVisualReloads: Bool {
-    defersVisualReloads
-  }
-
-  var debugDocumentViewFrame: NSRect {
-    scrollView.documentView?.frame ?? .zero
-  }
-
-  var debugDocumentViewIsCardStack: Bool {
-    scrollView.documentView === itemsStack
-  }
-
-  var debugContentInsets: NSEdgeInsets {
-    mainStack?.edgeInsets ?? NSEdgeInsets()
-  }
-
-  var debugPanelCornerRadius: CGFloat {
-    layer?.cornerRadius ?? 0
-  }
-
-  var debugPanelMaterial: NSVisualEffectView.Material {
-    material
-  }
-
-  var debugPanelSurfaceAlpha: CGFloat {
-    Self.debugAlpha(layer?.backgroundColor)
-  }
-
-  var debugPanelBorderAlpha: CGFloat {
-    Self.debugAlpha(layer?.borderColor)
-  }
-
-  var debugPanelShadowOpacity: Float {
-    layer?.shadowOpacity ?? 0
-  }
-
-  var debugCardAccessibilityLabels: [String] {
-    cardViews.compactMap { $0.accessibilityLabel() }
-  }
-
-  var debugCardAccessibilityValues: [String] {
-    cardViews.compactMap { $0.accessibilityValue() as? String }
-  }
-
-  var debugCardAccessibilityHelps: [String] {
-    cardViews.compactMap { $0.accessibilityHelp() }
-  }
-
-  var debugCardAcceptsFirstResponder: [Bool] {
-    cardViews.map(\.acceptsFirstResponder)
-  }
-
-  var debugKeyboardFocusedCardIndexes: [Int] {
-    cardViews.enumerated().compactMap { index, card in
-      card.debugIsKeyboardFocused ? index : nil
-    }
-  }
-
-  var debugSelectedCardIndexes: [Int] {
-    cardViews.enumerated().compactMap { index, card in
-      card.debugIsSelected ? index : nil
-    }
-  }
-
-  var debugActiveCardIndexes: [Int] {
-    cardViews.enumerated().compactMap { index, card in
-      card.debugIsActiveSelection ? index : nil
-    }
-  }
-
-  var debugCardBorderWidths: [CGFloat] {
-    cardViews.map(\.debugBorderWidth)
-  }
-
-  var debugCardPreviewSummaries: [String] {
-    cardViews.map(\.debugPreviewSummary)
-  }
-
-  var debugCardTextPreviewTitles: [String] {
-    cardViews.map(\.debugTextPreviewTitle)
-  }
-
-  var debugCardTextPreviewBodies: [String] {
-    cardViews.map(\.debugTextPreviewBody)
-  }
-
-  var debugCardTextPreviewChromes: [String] {
-    cardViews.map(\.debugTextPreviewChrome)
-  }
-
-  var debugCardTextPreviewAccentHexes: [String] {
-    cardViews.map(\.debugTextPreviewAccentHex)
-  }
-
-  var debugCardTextPreviewFadePlacements: [String] {
-    cardViews.map(\.debugTextPreviewFadePlacement)
-  }
-
-  var debugCardPreviewStyles: [String] {
-    cardViews.map(\.debugPreviewStyle)
-  }
-
-  var debugCardDensity: String {
-    cardDensity.rawValue
-  }
-
-  var debugPanelLayout: String {
-    "Side Shelf"
-  }
-
-  var debugResizeHandleIsHidden: Bool {
-    true
-  }
-
-  var debugItemsStackOrientation: NSUserInterfaceLayoutOrientation {
-    itemsStack.orientation
-  }
-
-  private var debugToolbarButtons: [NSButton] {
-    [clearHistoryButton, settingsButton].compactMap { $0 }
-  }
-
-  var debugToolbarButtonAccessibilityLabels: [String] {
-    debugToolbarButtons.compactMap { $0.accessibilityLabel() }
-  }
-
-  var debugToolbarButtonAccessibilityHelps: [String] {
-    debugToolbarButtons.compactMap { $0.accessibilityHelp() }
-  }
-
-  var debugUtilityToolbarGroupBackgroundAlpha: CGFloat {
-    Self.debugAlpha(utilityToolbarGroup?.layer?.backgroundColor)
-  }
-
-  var debugUtilityToolbarGroupCornerRadius: CGFloat {
-    utilityToolbarGroup?.layer?.cornerRadius ?? 0
-  }
-
-  var debugToolbarButtonBackgroundAlphas: [CGFloat] {
-    debugToolbarButtons.map { Self.debugAlpha($0.layer?.backgroundColor) }
-  }
-
-  var debugToolbarButtonBorderWidths: [CGFloat] {
-    debugToolbarButtons.map { $0.layer?.borderWidth ?? 0 }
-  }
-
-  var debugSearchFieldAccessibilityHelp: String {
-    searchField.accessibilityHelp() ?? ""
-  }
-
-  var debugAddCollectionButtonAccessibilityHelp: String {
-    addCollectionButton.accessibilityHelp() ?? ""
-  }
-
-  var debugCardSizes: [NSSize] {
-    cardViews.map { $0.frame.size }
-  }
-
-  var debugCardHeaderFramesInPanel: [NSRect] {
-    cardViews.map { card in
-      card.convert(card.debugHeaderFrame, to: self)
-    }
-  }
-
-  var debugFirstCardHeaderMaskedCorners: CACornerMask {
-    cardViews.first?.debugHeaderMaskedCorners ?? []
-  }
-
-  var debugCardExpandedDetailFramesInPanel: [NSRect] {
-    cardViews.map { card in
-      card.convert(card.debugExpandedDetailFrame, to: self)
-    }
-  }
-
-  var debugCardExpandedDetailPresentationHeights: [CGFloat] {
-    cardViews.map(\.debugExpandedDetailPresentationHeight)
-  }
-
-  var debugCardSlotPresentationFramesInPanel: [NSRect] {
-    cardSlots.keys.sorted().compactMap { index in
-      guard let slot = cardSlots[index],
-            let superview = slot.superview else {
-        return nil
-      }
-      return superview.convert(slot.debugPresentationFrame, to: self)
-    }
-  }
-
-  var debugCardContentCornerRadii: [CGFloat] {
-    cardViews.map(\.debugContentCornerRadius)
-  }
-
-  var debugCardContentBackgroundAlphas: [CGFloat] {
-    cardViews.map(\.debugContentBackgroundAlpha)
-  }
-
-  var debugCardPresentations: [String] {
-    cardViews.map(\.debugPresentation)
-  }
-
-  var debugCardAnimatedPresentationChangeCounts: [Int] {
-    cardViews.map(\.debugAnimatedPresentationChangeCount)
-  }
-
-  var debugCardHeaderBadgeSymbols: [String] {
-    cardViews.map(\.debugHeaderBadgeSymbol)
-  }
-
-  var debugCardHeaderBadgeTexts: [String] {
-    cardViews.map(\.debugHeaderBadgeText)
-  }
-
-  var debugCardCompactMetricTexts: [String] {
-    cardViews.map(\.debugCompactMetricText)
-  }
-
-  var debugCardCompactMetricHiddenStates: [Bool] {
-    cardViews.map(\.debugCompactMetricIsHidden)
-  }
-
-  var debugCardCompactMetricFramesInPanel: [NSRect] {
-    cardViews.map { card in
-      card.convert(card.debugCompactMetricFrame, to: self)
-    }
-  }
-
-  var debugCardCompactMetricFittingWidths: [CGFloat] {
-    cardViews.map(\.debugCompactMetricFittingWidth)
-  }
-
-  var debugFirstCardHeaderTitle: String {
-    cardViews.first?.debugHeaderTitle ?? ""
-  }
-
-  var debugFirstCardHeaderSubtitle: String {
-    cardViews.first?.debugHeaderSubtitle ?? ""
-  }
-
-  var debugFirstCardHeaderColorHex: String {
-    cardViews.first?.debugHeaderColorHex ?? ""
-  }
-
-  var debugFirstCardHeaderSurfaceColorHex: String {
-    cardViews.first?.debugHeaderSurfaceColorHex ?? ""
-  }
-
-  var debugFirstCardHeaderSurfaceAlpha: CGFloat {
-    cardViews.first?.debugHeaderSurfaceAlpha ?? 0
-  }
-
-  var debugFirstCardFooterDetailText: String {
-    cardViews.first?.debugFooterDetailText ?? ""
-  }
-
-  var debugFirstCardFooterSourceText: String {
-    cardViews.first?.debugFooterSourceText ?? ""
-  }
-
-  var debugFirstCardFooterSourceIsHidden: Bool {
-    cardViews.first?.debugFooterSourceIsHidden ?? true
-  }
-
-  var debugFirstCardLinkPreviewChrome: String {
-    cardViews.first?.debugLinkPreviewChrome ?? ""
-  }
-
-  var debugFirstCardLinkPreviewHostText: String {
-    cardViews.first?.debugLinkPreviewHostText ?? ""
-  }
-
-  var debugFirstCardLinkPreviewMonogram: String {
-    cardViews.first?.debugLinkPreviewMonogram ?? ""
-  }
-
-  var debugFirstCardLinkPreviewAccentHex: String {
-    cardViews.first?.debugLinkPreviewAccentHex ?? ""
-  }
-
-  var debugFirstCardLinkPreviewHeroHeight: CGFloat {
-    cardViews.first?.debugLinkPreviewHeroHeight ?? 0
-  }
-
-  var debugFirstCardLinkMediaPreviewChrome: String {
-    cardViews.first?.debugLinkMediaPreviewChrome ?? ""
-  }
-
-  var debugFirstCardLinkMediaPreviewImageHeight: CGFloat {
-    cardViews.first?.debugLinkMediaPreviewImageHeight ?? 0
-  }
-
-  var debugFirstCardLinkMediaPreviewHostText: String {
-    cardViews.first?.debugLinkMediaPreviewHostText ?? ""
-  }
-
-  var debugFirstCardFilePreviewChrome: String {
-    cardViews.first?.debugFilePreviewChrome ?? ""
-  }
-
-  var debugFirstCardFilePreviewExtensionText: String {
-    cardViews.first?.debugFilePreviewExtensionText ?? ""
-  }
-
-  var debugFirstCardFilePreviewLocationPlacement: String {
-    cardViews.first?.debugFilePreviewLocationPlacement ?? ""
-  }
-
-  var debugFirstCardFilePreviewCoverSize: NSSize {
-    cardViews.first?.debugFilePreviewCoverSize ?? .zero
-  }
-
-  var debugFirstCardColorPreviewChrome: String {
-    cardViews.first?.debugColorPreviewChrome ?? ""
-  }
-
-  var debugFirstCardColorPreviewHexText: String {
-    cardViews.first?.debugColorPreviewHexText ?? ""
-  }
-
-  var debugFirstCardColorPreviewSwatchPlacement: String {
-    cardViews.first?.debugColorPreviewSwatchPlacement ?? ""
-  }
-
-  var debugFirstCardColorPreviewChipSize: NSSize {
-    cardViews.first?.debugColorPreviewChipSize ?? .zero
-  }
-
-  var debugFirstCardMediaMetricText: String {
-    cardViews.first?.debugMediaMetricText ?? ""
-  }
-
-  var debugFirstCardMediaMetricPlacement: String {
-    cardViews.first?.debugMediaMetricPlacement ?? ""
-  }
-
-  var debugFirstCardAudioPreviewChrome: String {
-    cardViews.first?.debugAudioPreviewChrome ?? ""
-  }
-
-  var debugFirstCardAudioArtworkSize: CGFloat {
-    cardViews.first?.debugAudioArtworkSize ?? 0
-  }
-
-  var debugFirstCardAudioLabelPlacement: String {
-    cardViews.first?.debugAudioLabelPlacement ?? ""
-  }
-
-  var debugFirstCardVideoPreviewChrome: String {
-    cardViews.first?.debugVideoPreviewChrome ?? ""
-  }
-
-  var debugFirstCardVideoFrameHeight: CGFloat {
-    cardViews.first?.debugVideoFrameHeight ?? 0
-  }
-
-  var debugFirstCardVideoFormatPlacement: String {
-    cardViews.first?.debugVideoFormatPlacement ?? ""
-  }
-
-  var debugQuickPasteBadgeTexts: [String] {
-    cardViews.compactMap(\.debugQuickPasteBadgeText)
-  }
-
-  var debugSelectedCardFrameInDocument: NSRect {
-    guard viewModel.selectedIndex >= 0, viewModel.selectedIndex < cardItemCount else {
-      return .zero
-    }
-    renderCardIfNeeded(at: viewModel.selectedIndex)
-    guard cardView(at: viewModel.selectedIndex) != nil else { return .zero }
-    return cardSlotFrame(at: viewModel.selectedIndex, layout: currentCardLayout())
-  }
-
-  var debugSelectedCardFrameInPanel: NSRect {
-    guard viewModel.selectedIndex >= 0, viewModel.selectedIndex < cardItemCount else {
-      return .zero
-    }
-    renderCardIfNeeded(at: viewModel.selectedIndex)
-    guard cardView(at: viewModel.selectedIndex) != nil else { return .zero }
-    return itemsStack.convert(cardSlotFrame(at: viewModel.selectedIndex, layout: currentCardLayout()), to: self)
-  }
-
-  var debugSelectedCardVisualTopInset: CGFloat {
-    debugSelectedCardFrameInPanel.minY
-  }
-
-  var debugCardRailVisibleRect: NSRect {
-    scrollView.contentView.bounds
-  }
-
-  var debugCardRailFrameInPanel: NSRect {
-    scrollView.convert(scrollView.bounds, to: self)
-  }
-
-  var debugCardRailTopGap: CGFloat {
-    bounds.maxY - scrollView.frame.maxY
-  }
-
-  var debugCardRailDocumentWidth: CGFloat {
-    scrollView.documentView?.frame.width ?? 0
-  }
-
-  var debugCardRailDocumentHeight: CGFloat {
-    scrollView.documentView?.frame.height ?? 0
-  }
-
-  var debugVisibleCardPageStep: Int {
-    visibleCardPageStep
-  }
-
-  var debugCardRailOverflowFadeVisibility: [Bool] {
-    scrollView.overflowFadeVisibility
-  }
-
-  var debugCardRailOverflowFadeWidth: CGFloat {
-    scrollView.overflowFadeWidth
-  }
-
-  func debugScrollCardRailVertically(deltaY: CGFloat) {
-    scrollView.scrollVerticallyByVerticalDelta(deltaY)
-  }
-
-  var debugFirstCardMenuTitles: [String] {
-    cardViews.first?.debugMenuTitles ?? []
-  }
-
-  var debugFirstCardCollectionMenuTitles: [String] {
-    cardViews.first?.debugCollectionMenuTitles ?? []
-  }
-
-  var debugFirstCardCollectActionMenuTitles: [String] {
-    cardViews.first?.debugCollectActionMenuTitles ?? []
-  }
-
-  var debugFirstCardCaptureRuleMenuTitles: [String] {
-    cardViews.first?.debugCaptureRuleMenuTitles ?? []
-  }
-
-  var debugFirstCardVisibleActionLabels: [String] {
-    cardViews.first?.debugVisibleActionLabels ?? []
-  }
-
-  func debugCardVisibleActionLabels(at index: Int) -> [String] {
-    cardViews.first { $0.representedIndex == index }?.debugVisibleActionLabels ?? []
-  }
-
-  var debugFirstCardVisibleActionRailWidth: CGFloat {
-    cardViews.first?.debugVisibleActionRailWidth ?? 0
-  }
-
-  var debugConstructedActionButtonCount: Int {
-    cardViews.reduce(0) { $0 + $1.debugConstructedActionButtonCount }
-  }
-
-  var debugFirstCardShadowOpacity: Float {
-    cardViews.first?.debugShadowOpacity ?? 0
-  }
-
-  var debugFirstCardShadowRadius: CGFloat {
-    cardViews.first?.debugShadowRadius ?? 0
-  }
-
-  var debugFirstCardLayerTranslationY: CGFloat {
-    cardViews.first?.debugLayerTranslationY ?? 0
-  }
-
-  var debugFirstCardSlotTopOffset: CGFloat {
-    cardSlots[0]?.debugCardTopOffset ?? 0
-  }
-
-  var debugSecondCardSlotTopOffset: CGFloat {
-    cardSlots[1]?.debugCardTopOffset ?? 0
-  }
-
-  var debugFirstCardSlotZPosition: CGFloat {
-    cardSlots[0]?.debugZPosition ?? 0
-  }
-
-  var debugSecondCardSlotZPosition: CGFloat {
-    cardSlots[1]?.debugZPosition ?? 0
-  }
-
-  var debugFirstCardFooterDetailIsHidden: Bool {
-    cardViews.first?.debugFooterDetailIsHidden ?? true
-  }
-
-  var debugFirstCardHeaderBadgeIsHidden: Bool {
-    cardViews.first?.debugHeaderBadgeIsHidden ?? false
-  }
-
-  var debugFirstCardHeaderBadgeFrame: NSRect {
-    cardViews.first?.debugHeaderBadgeFrame ?? .zero
-  }
-
-  var debugFirstCardHeaderBadgeContentFrame: NSRect {
-    cardViews.first?.debugHeaderBadgeContentFrame ?? .zero
-  }
-
-  var debugFirstCardHeaderBadgeMaskedCorners: CACornerMask {
-    cardViews.first?.debugHeaderBadgeMaskedCorners ?? []
-  }
-
-  var debugFirstCardHeaderBadgeCornerRadius: CGFloat {
-    cardViews.first?.debugHeaderBadgeCornerRadius ?? 0
-  }
-
-  var debugFirstCardHeaderBadgeShadowOpacity: Float {
-    cardViews.first?.debugHeaderBadgeShadowOpacity ?? 0
-  }
-
-  var debugFirstCardHeaderBadgeShadowRadius: CGFloat {
-    cardViews.first?.debugHeaderBadgeShadowRadius ?? 0
-  }
-
-  var debugFirstCardHeaderBadgeBorderWidth: CGFloat {
-    cardViews.first?.debugHeaderBadgeBorderWidth ?? 0
-  }
-
-  var debugCardObjectIdentifiers: [ObjectIdentifier] {
-    cardViews.map(ObjectIdentifier.init)
-  }
-
-  var debugHoveredCardIndexes: [Int] {
-    cardViews.filter(\.debugIsHovered).map(\.representedIndex)
-  }
-
-  var debugCardSelectionInputSource: String {
-    switch cardSelectionInputSource {
-    case .keyboard:
-      return "keyboard"
-    case .mouse:
-      return "mouse"
-    }
-  }
-
-  var debugAnimatedCardLayoutChangeCount: Int {
-    animatedCardLayoutChangeCount
-  }
-
-  func debugPerformFirstCardMenuItem(titled title: String) {
-    cardViews.first?.debugPerformMenuItem(titled: title)
-  }
-
-  func debugPerformFirstCardCaptureRuleMenuItem(titled title: String) {
-    cardViews.first?.debugPerformCaptureRuleMenuItem(titled: title)
-  }
-
-  var debugCollectionTitles: [String] {
-    configuredSortModes.compactMap { collectionButtons[$0]?.titleText }
-  }
-
-  var debugCollectionLeadingSymbols: [String] {
-    configuredSortModes.compactMap { collectionButtons[$0]?.debugLeadingSymbolName }
-  }
-
-  var debugCollectionChipWidths: [CGFloat] {
-    configuredSortModes.compactMap { collectionButtons[$0]?.debugFrameWidth }
-  }
-
-  var debugCollectionChipLabelHiddenStates: [Bool] {
-    configuredSortModes.compactMap { collectionButtons[$0]?.debugLabelIsHidden }
-  }
-
-  var debugCollectionChipCountLabelHiddenStates: [Bool] {
-    configuredSortModes.compactMap { collectionButtons[$0]?.debugCountLabelIsHidden }
-  }
-
-  var debugCollectionStackOrientation: NSUserInterfaceLayoutOrientation {
-    collectionStack.orientation
-  }
-
-  var debugSelectedCollectionTitle: String? {
-    if stackChip.isSelected {
-      return stackChip.titleText
-    }
-    if let custom = customCollectionButtons.first(where: { $0.value.isSelected }) {
-      return custom.value.titleText
-    }
-    if let mode = configuredSortModes.first(where: { viewModel.isSortModeCategorySelected($0) }) {
-      return collectionButtons[mode]?.titleText ?? collectionTitle(for: mode)
-    }
-    return nil
-  }
-
-  var debugSelectedSortCollectionTitles: [String] {
-    configuredSortModes.compactMap { mode in
-      viewModel.isSortModeCategorySelected(mode) ? collectionTitle(for: mode) : nil
-    }
-  }
-
-  var debugCollectionCounts: [Int] {
-    updateCollectionButtons()
-    return configuredSortModes.compactMap { collectionButtons[$0]?.count }
-  }
-
-  var debugCollectionCountLabelHiddenStates: [Bool] {
-    updateCollectionButtons()
-    return configuredSortModes.compactMap { collectionButtons[$0]?.debugCountLabelIsHidden }
-  }
-
-  var debugCollectionChipAccessibilityLabels: [String] {
-    updateCollectionButtons()
-    return configuredSortModes.compactMap { collectionButtons[$0]?.accessibilityLabel() }
-  }
-
-  var debugCollectionChipAccessibilityHelps: [String] {
-    updateCollectionButtons()
-    return configuredSortModes.compactMap { collectionButtons[$0]?.accessibilityHelp() }
-  }
-
-  var debugCollectionChipAcceptsFirstResponder: [Bool] {
-    configuredSortModes.compactMap { collectionButtons[$0]?.acceptsFirstResponder }
-  }
-
-  var debugKeyboardFocusedCollectionTitles: [String] {
-    collectionChipOrder.compactMap { $0.debugIsKeyboardFocused ? $0.titleText : nil }
-  }
-
-  func debugFocusCollectionChip(_ mode: ClipboardSortMode) -> Bool {
-    guard let chip = collectionButtons[mode] else { return false }
-    return window?.makeFirstResponder(chip) ?? false
-  }
-
-  func debugFocusCustomCollectionChip(named name: String) -> Bool {
-    guard let chip = customCollectionButtons[name] else { return false }
-    return window?.makeFirstResponder(chip) ?? false
-  }
-
-  func debugFocusCard(at index: Int) -> Bool {
-    guard index >= 0, index < cardItemCount else { return false }
-    renderCardIfNeeded(at: index)
-    guard let card = cardView(at: index) else { return false }
-    return window?.makeFirstResponder(card) ?? false
-  }
-
-  func debugHoverCard(at index: Int) {
-    guard index >= 0, index < cardItemCount else { return }
-    renderCardIfNeeded(at: index)
-    hoverSelectionRequiresFreshMouseMovement = false
-    hoverSelectionKeyboardBarrierLocation = nil
-    cardView(at: index)?.debugSetHovered(true)
-  }
-
-  func debugHoverCard(at index: Int, mouseLocationInPanel location: NSPoint) {
-    guard index >= 0, index < cardItemCount else { return }
-    renderCardIfNeeded(at: index)
-    hoverSelectionRequiresFreshMouseMovement = false
-    hoverSelectionKeyboardBarrierLocation = nil
-    cardView(at: index)?.debugSetHovered(true, mouseLocation: convert(location, to: nil))
-  }
-
-  func debugUnhoverCard(at index: Int) {
-    guard index >= 0, index < cardItemCount else { return }
-    renderCardIfNeeded(at: index)
-    cardView(at: index)?.debugSetHovered(false)
-  }
-
-  func debugRefreshHoverCardWithoutMouseMovement(at index: Int) {
-    guard index >= 0, index < cardItemCount else { return }
-    renderCardIfNeeded(at: index)
-    cardView(at: index)?.debugSetHovered(true)
-  }
-
-  func debugPressFocusedResponderWithReturn() {
-    debugPressFocusedResponder(characters: "\r", keyCode: 36)
-  }
-
-  func debugPressFocusedResponderWithSpace() {
-    debugPressFocusedResponder(characters: " ", keyCode: 49)
-  }
-
-  func debugPressFocusedResponderKeyCode(_ keyCode: UInt16) {
-    debugPressFocusedResponder(characters: "", keyCode: keyCode)
-  }
-
-  func debugPressFocusedResponderKeyCode(_ keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
-    debugPressFocusedResponder(characters: "", keyCode: keyCode, modifiers: modifiers)
-  }
-
-  func debugTypeFocusedResponder(_ characters: String, keyCode: UInt16) {
-    debugPressFocusedResponder(characters: characters, keyCode: keyCode)
-  }
-
-  func debugSetSearchFieldText(_ text: String) {
-    searchField.stringValue = text
-    updateSearchText()
-  }
-
-  func debugExpandSearchPresentationForSnapshot() {
-    searchFieldPresentationRequested = true
-    searchFieldCollapsedWhileIdle = false
-    updateSearchFieldPresentation(animated: false)
-  }
-
-  private func debugPressFocusedResponder(
-    characters: String,
-    keyCode: UInt16,
-    modifiers: NSEvent.ModifierFlags = []
-  ) {
-    guard let window,
-          let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: modifiers,
-            timestamp: 0,
-            windowNumber: window.windowNumber,
-            context: nil,
-            characters: characters,
-            charactersIgnoringModifiers: characters,
-            isARepeat: false,
-            keyCode: keyCode
-          ) else {
-      return
-    }
-    window.firstResponder?.keyDown(with: event)
-  }
-
-  var debugCustomCollectionTitles: [String] {
-    viewModel.collectionNames
-  }
-
-  var debugCustomCollectionCounts: [Int] {
-    updateCollectionButtons()
-    return viewModel.collectionNames.compactMap { customCollectionButtons[$0]?.count }
-  }
-
-  var debugCustomCollectionCountLabelHiddenStates: [Bool] {
-    updateCollectionButtons()
-    return viewModel.collectionNames.compactMap { customCollectionButtons[$0]?.debugCountLabelIsHidden }
-  }
-
-  var debugCustomCollectionColorHexes: [String: String] {
-    Dictionary(uniqueKeysWithValues: viewModel.collectionNames.map { name in
-      (name, ClipboardCollectionVisuals.hexString(for: collectionColor(forCollectionNamed: name)))
-    })
-  }
-
-  var debugStackChipIsVisible: Bool {
-    collectionStack.arrangedSubviews.contains(stackChip)
-  }
-
-  var debugStackChipCount: Int {
-    updateCollectionButtons()
-    return stackChip.count
-  }
-
-  var debugStackChipIsSelected: Bool {
-    stackChip.isSelected
-  }
-
-  var debugStackChipMenuTitles: [String] {
-    stackChip.debugMenuTitles
-  }
-
-  var debugStackChipAccessibilityHelp: String? {
-    updateCollectionButtons()
-    return stackChip.accessibilityHelp()
-  }
-
-  func debugAddVisibleClipsToStackFromStackChip() {
-    stackChip.debugPerformMenuItem(titled: "Add Visible Clips to Stack")
-  }
-
-  func debugToggleStackCaptureFromStackChip() {
-    let title = viewModel.isStackCaptureEnabled ? "Stop Stack Capture" : "Start Stack Capture"
-    stackChip.debugPerformMenuItem(titled: title)
-  }
-
-  func debugPressStackChip() {
-    stackChip.onPress(false)
-  }
-
-  func debugMouseDownCollectionChip(_ mode: ClipboardSortMode) {
-    collectionButtons[mode]?.debugMouseDown()
-  }
-
-  func debugHoverCollectionChip(_ mode: ClipboardSortMode) {
-    collectionButtons[mode]?.debugSetHovered(true)
-  }
-
-  func debugUnhoverCollectionChip(_ mode: ClipboardSortMode) {
-    collectionButtons[mode]?.debugSetHovered(false)
-  }
-
-  func debugCommandMouseDownCollectionChip(_ mode: ClipboardSortMode) {
-    collectionButtons[mode]?.debugCommandMouseDown()
-  }
-
-  func debugMouseDownCollectionChip(
-    _ mode: ClipboardSortMode,
-    modifiers: NSEvent.ModifierFlags
-  ) {
-    collectionButtons[mode]?.debugMouseDown(modifiers: modifiers)
-  }
-
-  func debugCollectionChipBackgroundAlpha(_ mode: ClipboardSortMode) -> CGFloat {
-    collectionButtons[mode]?.debugBackgroundAlpha ?? 0
-  }
-
-  var debugClearHistoryMenuTitles: [String] {
-    clearHistoryMenu().items.map { $0.title }
-  }
-
-  func debugPerformClearHistoryMenuItem(titled title: String) {
-    let menu = clearHistoryMenu()
-    guard let item = menu.items.first(where: { $0.title == title }) else { return }
-    _ = item.target?.perform(item.action, with: item)
-  }
-
-  func debugMouseDownCustomCollectionChip(named name: String) {
-    customCollectionButtons[name]?.debugMouseDown()
-  }
-
-  func debugHoverCustomCollectionChip(named name: String) {
-    customCollectionButtons[name]?.debugSetHovered(true)
-  }
-
-  func debugUnhoverCustomCollectionChip(named name: String) {
-    customCollectionButtons[name]?.debugSetHovered(false)
-  }
-
-  func debugCommandMouseDownCustomCollectionChip(named name: String) {
-    customCollectionButtons[name]?.debugCommandMouseDown()
-  }
-
-  var debugCollectionRailVisibleWidth: CGFloat {
-    collectionScrollView.contentView.bounds.width
-  }
-
-  var debugCollectionRailFrameInPanel: NSRect {
-    collectionScrollView.convert(collectionScrollView.bounds, to: self)
-  }
-
-  var debugCollectionRailHasHorizontalScroller: Bool {
-    collectionScrollView.hasHorizontalScroller
-  }
-
-  var debugCollectionRailHeight: CGFloat {
-    collectionScrollView.frame.height
-  }
-
-  var debugCollectionRailDocumentWidth: CGFloat {
-    collectionScrollView.documentView?.frame.width ?? 0
-  }
-
-  var debugCollectionRailDocumentMinX: CGFloat {
-    collectionScrollView.documentView?.frame.minX ?? 0
-  }
-
-  var debugCollectionRailVisibleRect: NSRect {
-    collectionScrollView.contentView.bounds
-  }
-
-  var debugCollectionRailContentTopInset: CGFloat {
-    collectionStack.frame.minY
-  }
-
-  var debugCollectionRailContentFrameInPanel: NSRect {
-    collectionStack.convert(collectionStack.bounds, to: self)
-  }
-
-  var debugCollectionRailOverflowFadeVisibility: [Bool] {
-    collectionScrollView.overflowFadeVisibility
-  }
-
-  var debugCollectionRailOverflowFadeWidth: CGFloat {
-    collectionScrollView.overflowFadeWidth
-  }
-
-  func debugScrollCollectionRailVertically(deltaY: CGFloat) {
-    collectionScrollView.scrollVerticallyByVerticalDelta(deltaY)
-  }
-
-  var debugEmptyStateText: (title: String, detail: String)? {
-    emptyStateText
-  }
-
-  var debugAddCollectionButtonIsEnabled: Bool {
-    addCollectionButton.isEnabled
-  }
-
-  var debugCollectionRailContainsAddButton: Bool {
-    collectionStack.arrangedSubviews.contains(addCollectionButton)
-  }
-
-  func debugSetCollectionNameProvider(_ provider: @escaping () -> String?) {
-    collectionNameProviderForTesting = provider
-  }
-
-  func debugSuppressClipEditDialogs(_ suppress: Bool = true) {
-    suppressClipEditDialogsForTesting = suppress
-  }
-
-  func debugSuppressClipOpenActions(_ suppress: Bool = true) {
-    suppressClipOpenActionsForTesting = suppress
-  }
-
-  var debugRenameClipRequestCount: Int {
-    renameClipRequestCountForTesting
-  }
-
-  var debugEditClipRequestCount: Int {
-    editClipRequestCountForTesting
-  }
-
-  var debugOpenClipRequestCount: Int {
-    openClipRequestCountForTesting
-  }
-
-  var debugShowInClipboardRequestCount: Int {
-    showInClipboardRequestCountForTesting
-  }
-
-  func debugPressAddCollectionButton() {
-    createCollectionFromToolbar()
-  }
-
-  func debugCustomCollectionMenuTitles(named collectionName: String) -> [String] {
-    customCollectionButtons[collectionName]?.debugMenuTitles ?? []
-  }
-
-  func debugCustomCollectionAccessibilityHelp(named collectionName: String) -> String? {
-    updateCollectionButtons()
-    return customCollectionButtons[collectionName]?.accessibilityHelp()
-  }
-
-  func debugEditCollection(named collectionName: String, to newName: String, colorHex: String) {
-    viewModel.updateCollection(named: collectionName, to: newName, colorHex: colorHex)
-    focusSelectedCollectionChip()
-  }
-
-  func debugDeleteCollection(named collectionName: String) {
-    viewModel.deleteCollection(named: collectionName)
-    focusSelectedCollectionChip()
-  }
-
-  func debugRenameFirstCard(to title: String) {
-    viewModel.selectItem(at: 0)
-    viewModel.updateSelectedTitle(to: title)
-  }
-
-  func debugShowFirstCardInClipboard() {
-    showSelectedInClipboard(at: 0)
-  }
-
-  var debugSearchFieldText: String {
-    searchField.stringValue
-  }
-
-  var debugSearchFieldWidth: CGFloat {
-    searchFieldWidthConstraint?.constant ?? searchControlContainer.frame.width
-  }
-
-  var debugSearchControlHeight: CGFloat {
-    searchControlContainer.frame.height
-  }
-
-  var debugSearchIconButtonHeight: CGFloat {
-    min(searchIconButton.frame.height, searchControlContainer.bounds.height)
-  }
-
-  var debugSearchIconButtonCornerRadius: CGFloat {
-    searchIconButton.layer?.cornerRadius ?? 0
-  }
-
-  var debugSearchGlassMaterial: NSVisualEffectView.Material {
-    searchControlContainer.material
-  }
-
-  var debugSearchGlassBlendingMode: NSVisualEffectView.BlendingMode {
-    searchControlContainer.blendingMode
-  }
-
-  var debugSearchGlassCornerRadius: CGFloat {
-    searchControlContainer.layer?.cornerRadius ?? 0
-  }
-
-  var debugSearchGlassBorderAlpha: CGFloat {
-    Self.debugAlpha(searchControlContainer.layer?.borderColor)
-  }
-
-  var debugSearchGlassTintAlpha: CGFloat {
-    Self.debugAlpha(searchControlContainer.layer?.backgroundColor)
-  }
-
-  var debugSearchFieldUsesTransparentChrome: Bool {
-    !searchField.isBezeled && !searchField.drawsBackground
-  }
-
-  var debugSearchIconIsPinnedToLeadingEdge: Bool {
-    abs(searchIconButton.frame.minX - searchControlContainer.bounds.minX) <= 0.5
-      && abs(searchIconButton.frame.midY - searchControlContainer.bounds.midY) <= 0.5
-  }
-
-  var debugSearchIconLeadingOffset: NSPoint {
-    NSPoint(
-      x: searchIconButton.frame.minX - searchControlContainer.bounds.minX,
-      y: searchIconButton.frame.midY - searchControlContainer.bounds.midY
-    )
-  }
-
-  var debugSearchFieldIsCenteredInGlass: Bool {
-    abs(searchField.frame.midY - searchControlContainer.bounds.midY) < 0.5
-  }
-
-  var debugSearchControlIsLeadingAlignedInToolbar: Bool {
-    guard let shelfChromeView else { return false }
-    return abs(searchControlContainer.frame.minX - shelfChromeView.bounds.minX) <= 0.5
-  }
-
-  var debugSearchControlToolbarLeadingOffset: CGFloat {
-    guard let shelfChromeView else { return .infinity }
-    return searchControlContainer.frame.minX - shelfChromeView.bounds.minX
-  }
-
-  var debugSearchTextLeadingGap: CGFloat {
-    guard let cell = searchField.cell as? NSSearchFieldCell else { return -.infinity }
-    let textRect = cell.searchTextRect(forBounds: searchField.bounds)
-    let textMinX = searchField.frame.minX + textRect.minX
-    return textMinX - searchIconButton.frame.maxX
-  }
-
-  var debugSearchEditorLeadingGap: CGFloat {
-    guard let editor = searchField.currentEditor() else { return -.infinity }
-    let editorFrame = searchControlContainer.convert(editor.bounds, from: editor)
-    return editorFrame.minX - searchIconButton.frame.maxX
-  }
-
-  var debugSearchControlTrailingActionGap: CGFloat {
-    guard let utilityToolbarGroup else { return -.infinity }
-    return utilityToolbarGroup.frame.minX - searchControlContainer.frame.maxX
-  }
-
-  var debugSearchAnimationDuration: TimeInterval {
-    Motion.searchFieldResizeDuration
-  }
-
-  var debugCardExpansionAnimationDuration: TimeInterval {
-    Motion.cardExpansionDuration
-  }
-
-  var debugSearchFieldSharesAnimatedContainerWithIcon: Bool {
-    searchField.superview === searchControlContainer
-      && searchIconButton.superview === searchControlContainer
-      && searchControlContainer.superview === shelfChromeView
-      && searchField.superview !== shelfChromeView
-      && searchIconButton.superview !== shelfChromeView
-  }
-
-  var debugSearchFieldPlaceholderText: String {
-    searchField.placeholderAttributedString?.string ?? searchField.placeholderString ?? ""
-  }
-
-  var debugSearchFieldIsVisible: Bool {
-    !searchField.isHidden
-  }
-
-  var debugSearchIconButtonIsVisible: Bool {
-    !searchIconButton.isHidden
-  }
-
-  var debugShelfChromeRowCount: Int {
-    headerStack?.arrangedSubviews.count ?? 0
-  }
-
-  var debugShelfChromeContainsSearchAndCollections: Bool {
-    guard let shelfChromeView else { return false }
-    return searchControlContainer.superview === shelfChromeView
-      && collectionScrollView.superview === shelfChromeView
-  }
-
-  var debugShelfChromeContainsSearchAndActions: Bool {
-    guard let shelfChromeView else { return false }
-    return searchControlContainer.superview === shelfChromeView
-      && utilityToolbarGroup?.superview === shelfChromeView
-      && collectionScrollView.superview !== shelfChromeView
-  }
-
-  var debugCollectionRailIsBesideCardRail: Bool {
-    collectionScrollView.superview === contentStack && scrollView.superview === contentStack
-  }
-
-  func debugDropFirstCard(onCollectionNamed collectionName: String) {
-    guard let itemID = cardViews.first?.debugItemID else { return }
-    customCollectionButtons[collectionName]?.debugDropItem(itemID)
-  }
-
-  private static func debugAlpha(_ cgColor: CGColor?) -> CGFloat {
-    guard let cgColor, let color = NSColor(cgColor: cgColor) else { return 0 }
-    return (color.usingColorSpace(.deviceRGB) ?? color).alphaComponent
-  }
-
-  var debugCustomCollectionDropTargets: [String] {
-    viewModel.collectionNames.filter { customCollectionButtons[$0]?.debugAcceptsItemDrops == true }
-  }
-
-  #endif
 
   func controlTextDidChange(_ notification: Notification) {
     guard notification.object as? NSSearchField === searchField else { return }
@@ -3757,9 +2597,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func showSelectedInClipboard(at index: Int) {
-    #if DEBUG
-    showInClipboardRequestCountForTesting += 1
-    #endif
     viewModel.selectItem(at: index)
     viewModel.showSelectedInClipboard()
     syncSearchFieldFromViewModel()
@@ -3919,17 +2756,6 @@ final class ClipboardPanelView: NSVisualEffectView, NSSearchFieldDelegate {
   }
 
   private func requestCollectionCreation() -> CollectionCreationRequest? {
-    #if DEBUG
-    if let collectionNameProviderForTesting {
-      guard let name = ClipboardCollectionDefaults.normalizedName(collectionNameProviderForTesting()) else {
-        return nil
-      }
-      return CollectionCreationRequest(
-        name: name,
-        colorHex: ClipboardCollectionVisuals.defaultColorHex(forCollectionNamed: name)
-      )
-    }
-    #endif
 
     return requestCollectionDetails(
       title: "New Collection",
@@ -4104,23 +2930,6 @@ private final class HorizontalRailScrollView: NSScrollView {
     onVisibleBoundsChanged?()
   }
 
-  func scrollHorizontallyByVerticalDelta(_ deltaY: CGFloat) {
-    scrollHorizontally(by: -deltaY)
-  }
-
-  func scrollVerticallyByVerticalDelta(_ deltaY: CGFloat) {
-    scrollVertically(by: -deltaY)
-  }
-
-  var overflowFadeVisibility: [Bool] {
-    updateOverflowFades()
-    return [!leadingFade.isHidden, !trailingFade.isHidden]
-  }
-
-  var overflowFadeWidth: CGFloat {
-    fadeWidth
-  }
-
   private func configureOverflowFades() {
     leadingFade.translatesAutoresizingMaskIntoConstraints = false
     trailingFade.translatesAutoresizingMaskIntoConstraints = false
@@ -4149,11 +2958,6 @@ private final class HorizontalRailScrollView: NSScrollView {
     return max(0, documentView.frame.width - contentView.bounds.width)
   }
 
-  private var maxVerticalOffset: CGFloat {
-    guard let documentView else { return 0 }
-    return max(0, documentView.frame.height - contentView.bounds.height)
-  }
-
   private func scrollHorizontally(by deltaX: CGFloat) {
     let maxOffset = maxHorizontalOffset
     guard maxOffset > 0 else { return }
@@ -4162,17 +2966,6 @@ private final class HorizontalRailScrollView: NSScrollView {
     guard targetX != origin.x else { return }
 
     contentView.scroll(to: NSPoint(x: targetX, y: origin.y))
-    reflectScrolledClipView(contentView)
-  }
-
-  private func scrollVertically(by deltaY: CGFloat) {
-    let maxOffset = maxVerticalOffset
-    guard maxOffset > 0 else { return }
-    let origin = contentView.bounds.origin
-    let targetY = min(max(origin.y + deltaY, 0), maxOffset)
-    guard targetY != origin.y else { return }
-
-    contentView.scroll(to: NSPoint(x: origin.x, y: targetY))
     reflectScrolledClipView(contentView)
   }
 
@@ -4268,6 +3061,19 @@ private final class TextPreviewBottomFadeView: NSView {
 private final class CollectionChipView: NSView {
   private enum Metrics {
     static let iconOnlySize: CGFloat = 34
+  }
+
+  private enum MenuCommand: Int {
+    case toggleStackCapture
+    case addVisibleToStack
+    case pasteStackNext
+    case copyStackNext
+    case pasteStackText
+    case copyStackText
+    case clearStack
+    case edit
+    case export
+    case delete
   }
 
   let titleText: String
@@ -4622,9 +3428,11 @@ private final class CollectionChipView: NSView {
     let menu = NSMenu(title: titleText)
     menu.autoenablesItems = false
     if onToggleStackCapture != nil {
-      let item = NSMenuItem(title: isStackCaptureActive ? "Stop Stack Capture" : "Start Stack Capture", action: #selector(toggleStackCaptureFromMenu), keyEquivalent: "")
-      item.target = self
-      menu.addItem(item)
+      addMenuItem(
+        isStackCaptureActive ? "Stop Stack Capture" : "Start Stack Capture",
+        command: .toggleStackCapture,
+        to: menu
+      )
     }
     if onToggleStackCapture != nil && (
       onAddVisibleToStack != nil
@@ -4637,97 +3445,62 @@ private final class CollectionChipView: NSView {
       menu.addItem(NSMenuItem.separator())
     }
     if onAddVisibleToStack != nil {
-      let item = NSMenuItem(title: "Add Visible Clips to Stack", action: #selector(addVisibleToStackFromMenu), keyEquivalent: "")
-      item.target = self
-      menu.addItem(item)
+      addMenuItem("Add Visible Clips to Stack", command: .addVisibleToStack, to: menu)
     }
     if onPasteStackNext != nil {
-      let item = NSMenuItem(title: "Paste Stack Next", action: #selector(pasteStackNextFromMenu), keyEquivalent: "")
-      item.target = self
-      menu.addItem(item)
+      addMenuItem("Paste Stack Next", command: .pasteStackNext, to: menu)
     }
     if onCopyStackNext != nil {
-      let item = NSMenuItem(title: "Copy Stack Next", action: #selector(copyStackNextFromMenu), keyEquivalent: "")
-      item.target = self
-      menu.addItem(item)
+      addMenuItem("Copy Stack Next", command: .copyStackNext, to: menu)
     }
     if onPasteStackText != nil {
-      let item = NSMenuItem(title: "Paste Stack as Text", action: #selector(pasteStackTextFromMenu), keyEquivalent: "")
-      item.target = self
-      menu.addItem(item)
+      addMenuItem("Paste Stack as Text", command: .pasteStackText, to: menu)
     }
     if onCopyStackText != nil {
-      let item = NSMenuItem(title: "Copy Stack as Text", action: #selector(copyStackTextFromMenu), keyEquivalent: "")
-      item.target = self
-      menu.addItem(item)
+      addMenuItem("Copy Stack as Text", command: .copyStackText, to: menu)
     }
     if onClearStack != nil {
-      let item = NSMenuItem(title: "Clear Stack", action: #selector(clearStackFromMenu), keyEquivalent: "")
-      item.target = self
-      menu.addItem(item)
+      addMenuItem("Clear Stack", command: .clearStack, to: menu)
     }
     if (onEdit != nil || onExport != nil || onDelete != nil) && !menu.items.isEmpty {
       menu.addItem(NSMenuItem.separator())
     }
     if onEdit != nil {
-      let item = NSMenuItem(title: "Edit Collection...", action: #selector(editFromMenu), keyEquivalent: "")
-      item.target = self
-      menu.addItem(item)
+      addMenuItem("Edit Collection...", command: .edit, to: menu)
     }
     if onExport != nil {
-      let item = NSMenuItem(title: "Export Pinboard...", action: #selector(exportFromMenu), keyEquivalent: "")
-      item.target = self
-      menu.addItem(item)
+      addMenuItem("Export Pinboard...", command: .export, to: menu)
     }
     if onDelete != nil {
       if !menu.items.isEmpty {
         menu.addItem(NSMenuItem.separator())
       }
-      let item = NSMenuItem(title: "Delete Collection", action: #selector(deleteFromMenu), keyEquivalent: "")
-      item.target = self
-      menu.addItem(item)
+      addMenuItem("Delete Collection", command: .delete, to: menu)
     }
     return menu
   }
 
-  @objc private func addVisibleToStackFromMenu() {
-    onAddVisibleToStack?()
+  private func addMenuItem(_ title: String, command: MenuCommand, to menu: NSMenu) {
+    let item = NSMenuItem(title: title, action: #selector(performMenuCommand(_:)), keyEquivalent: "")
+    item.target = self
+    item.tag = command.rawValue
+    menu.addItem(item)
   }
 
-  @objc private func pasteStackNextFromMenu() {
-    onPasteStackNext?()
-  }
-
-  @objc private func copyStackNextFromMenu() {
-    onCopyStackNext?()
-  }
-
-  @objc private func pasteStackTextFromMenu() {
-    onPasteStackText?()
-  }
-
-  @objc private func copyStackTextFromMenu() {
-    onCopyStackText?()
-  }
-
-  @objc private func clearStackFromMenu() {
-    onClearStack?()
-  }
-
-  @objc private func toggleStackCaptureFromMenu() {
-    onToggleStackCapture?()
-  }
-
-  @objc private func editFromMenu() {
-    onEdit?()
-  }
-
-  @objc private func exportFromMenu() {
-    onExport?()
-  }
-
-  @objc private func deleteFromMenu() {
-    onDelete?()
+  @objc private func performMenuCommand(_ sender: NSMenuItem) {
+    guard let command = MenuCommand(rawValue: sender.tag) else { return }
+    switch command {
+    case .toggleStackCapture: onToggleStackCapture?()
+    case .addVisibleToStack: onAddVisibleToStack?()
+    case .pasteStackNext: onPasteStackNext?()
+    case .copyStackNext: onCopyStackNext?()
+    case .pasteStackText: onPasteStackText?()
+    case .copyStackText: onCopyStackText?()
+    case .clearStack: onClearStack?()
+    case .edit: onEdit?()
+    case .export: onExport?()
+    case .delete: onDelete?()
+    }
   }
 
   override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
@@ -4774,69 +3547,6 @@ private final class CollectionChipView: NSView {
       .flatMap(UUID.init(uuidString:))
   }
 
-  #if DEBUG
-  var debugAcceptsItemDrops: Bool {
-    onDropItem != nil
-  }
-
-  var debugIsKeyboardFocused: Bool {
-    isKeyboardFocused
-  }
-
-  var debugCountLabelIsHidden: Bool {
-    countLabel.isHidden
-  }
-
-  var debugLabelIsHidden: Bool {
-    label.isHidden
-  }
-
-  var debugLeadingSymbolName: String {
-    symbolName ?? ""
-  }
-
-  var debugFrameWidth: CGFloat {
-    frame.width
-  }
-
-  var debugBackgroundAlpha: CGFloat {
-    guard let backgroundColor = layer?.backgroundColor,
-          let color = NSColor(cgColor: backgroundColor) else {
-      return 0
-    }
-    return (color.usingColorSpace(.deviceRGB) ?? color).alphaComponent
-  }
-
-  func debugDropItem(_ itemID: UUID) {
-    onDropItem?(itemID)
-  }
-
-  func debugMouseDown() {
-    activateFromUserInteraction(extending: false)
-  }
-
-  func debugCommandMouseDown() {
-    activateFromUserInteraction(extending: true)
-  }
-
-  func debugMouseDown(modifiers: NSEvent.ModifierFlags) {
-    activateFromUserInteraction(extending: Self.shouldExtendSelection(for: modifiers))
-  }
-
-  func debugSetHovered(_ hovered: Bool) {
-    setHoveredForPresentation(hovered)
-    onHover(hovered)
-  }
-
-  var debugMenuTitles: [String] {
-    contextMenu().items.map { $0.isSeparatorItem ? "-" : $0.title }
-  }
-
-  func debugPerformMenuItem(titled title: String) {
-    guard let item = contextMenu().items.first(where: { $0.title == title }) else { return }
-    _ = item.target?.perform(item.action, with: item)
-  }
-  #endif
 }
 
 private final class AspectFillImageView: NSView {
@@ -5007,25 +3717,42 @@ private final class ClipboardItemCardSlotView: NSView {
     CGFloat(layer?.presentation()?.zPosition ?? layer?.zPosition ?? 0)
   }
 
-  #if DEBUG
-  var debugPresentationFrame: NSRect {
-    visualFrame
-  }
-
-  var debugCardTopOffset: CGFloat {
-    topConstraint?.constant ?? inactiveTopOffset
-  }
-
-  var debugZPosition: CGFloat {
-    CGFloat(layer?.zPosition ?? 0)
-  }
-
-  #endif
 }
 
 private final class ClipboardItemCardView: NSView, NSDraggingSource {
   private enum Metrics {
     static let dragThreshold: CGFloat = 4
+  }
+  private enum MenuCommand: Int {
+    case paste
+    case copy
+    case pastePlainText
+    case copyPlainText
+    case pasteSelectionText
+    case copySelectionText
+    case addSelectionToStack
+    case showInClipboard
+    case rename
+    case toggleStack
+    case addVisibleToStack
+    case pasteStackNext
+    case copyStackNext
+    case pasteStackText
+    case copyStackText
+    case clearStack
+    case editText
+    case rotateImage
+    case extractImageText
+    case preview
+    case togglePin
+    case open
+    case reveal
+    case assignToCollection
+    case createCollection
+    case removeFromCollection
+    case ignoreSourceApp
+    case ignoreKind
+    case delete
   }
   private enum Palette {
     static let border = NSColor.white.withAlphaComponent(0.42).cgColor
@@ -5295,9 +4022,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
         expandedDetailHeightConstraint?.constant = 0
         superview?.layoutSubtreeIfNeeded()
         layoutSubtreeIfNeeded()
-        #if DEBUG
-        debugAnimatedPresentationChangeCount += 1
-        #endif
         NSAnimationContext.runAnimationGroup { context in
           context.duration = ClipboardPanelView.Motion.duration(ClipboardPanelView.Motion.cardExpansionDuration)
           context.timingFunction = ClipboardPanelView.Motion.cardExpansionTiming
@@ -5322,9 +4046,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
         expandedDetailHeightConstraint?.constant = expandedDetailHeight
         superview?.layoutSubtreeIfNeeded()
         layoutSubtreeIfNeeded()
-        #if DEBUG
-        debugAnimatedPresentationChangeCount += 1
-        #endif
         NSAnimationContext.runAnimationGroup { context in
           context.duration = ClipboardPanelView.Motion.duration(ClipboardPanelView.Motion.cardExpansionDuration)
           context.timingFunction = ClipboardPanelView.Motion.cardExpansionTiming
@@ -5346,9 +4067,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
       superview?.layoutSubtreeIfNeeded()
       layoutSubtreeIfNeeded()
-      #if DEBUG
-      debugAnimatedPresentationChangeCount += 1
-      #endif
       NSAnimationContext.runAnimationGroup { context in
         context.duration = ClipboardPanelView.Motion.duration(ClipboardPanelView.Motion.cardExpansionDuration)
         context.timingFunction = ClipboardPanelView.Motion.cardExpansionTiming
@@ -5370,9 +4088,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
     superview?.layoutSubtreeIfNeeded()
     layoutSubtreeIfNeeded()
-    #if DEBUG
-    debugAnimatedPresentationChangeCount += 1
-    #endif
     NSAnimationContext.runAnimationGroup { context in
       context.duration = ClipboardPanelView.Motion.duration(ClipboardPanelView.Motion.cardExpansionDuration)
       context.timingFunction = ClipboardPanelView.Motion.cardExpansionTiming
@@ -5645,317 +4360,56 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     return contextMenu()
   }
 
-  #if DEBUG
-  private(set) var debugPreviewSummary = ""
-  private(set) var debugPreviewStyle = ""
-  private(set) var debugAnimatedPresentationChangeCount = 0
-  private(set) var debugHeaderBadgeSymbol = ""
-  private(set) var debugHeaderBadgeText = ""
-  private(set) var debugHeaderTitle = ""
-  private(set) var debugHeaderSubtitle = ""
-  private(set) var debugHeaderColorHex = ""
-  private(set) var debugTextPreviewTitle = ""
-  private(set) var debugTextPreviewBody = ""
-  private(set) var debugTextPreviewChrome = ""
-  private(set) var debugTextPreviewAccentHex = ""
-  private(set) var debugTextPreviewFadePlacement = ""
-  private(set) var debugLinkPreviewChrome = ""
-  private(set) var debugLinkPreviewHostText = ""
-  private(set) var debugLinkPreviewMonogram = ""
-  private(set) var debugLinkPreviewAccentHex = ""
-  private(set) var debugLinkPreviewHeroHeight: CGFloat = 0
-  private(set) var debugLinkMediaPreviewChrome = ""
-  private(set) var debugLinkMediaPreviewImageHeight: CGFloat = 0
-  private(set) var debugLinkMediaPreviewHostText = ""
-  private(set) var debugFilePreviewChrome = ""
-  private(set) var debugFilePreviewExtensionText = ""
-  private(set) var debugFilePreviewLocationPlacement = ""
-  private(set) var debugFilePreviewCoverSize = NSSize.zero
-  private(set) var debugColorPreviewChrome = ""
-  private(set) var debugColorPreviewHexText = ""
-  private(set) var debugColorPreviewSwatchPlacement = ""
-  private(set) var debugColorPreviewChipSize = NSSize.zero
-  private(set) var debugMediaMetricText = ""
-  private(set) var debugMediaMetricPlacement = ""
-  private(set) var debugAudioPreviewChrome = ""
-  private(set) var debugAudioArtworkSize: CGFloat = 0
-  private(set) var debugAudioLabelPlacement = ""
-  private(set) var debugVideoPreviewChrome = ""
-  private(set) var debugVideoFrameHeight: CGFloat = 0
-  private(set) var debugVideoFormatPlacement = ""
-
-  var debugMenuTitles: [String] {
-    contextMenu().items.map { $0.isSeparatorItem ? "-" : $0.title }
-  }
-
-  var debugCollectionMenuTitles: [String] {
-    guard let collectionMenu = contextMenu().items.first(where: { $0.title == "Add to Collection" })?.submenu else {
-      return []
-    }
-    return collectionMenu.items.map { $0.isSeparatorItem ? "-" : $0.title }
-  }
-
-  var debugCollectActionMenuTitles: [String] {
-    collectionAssignmentMenu().items.map { $0.isSeparatorItem ? "-" : $0.title }
-  }
-
-  var debugCaptureRuleMenuTitles: [String] {
-    guard let rulesMenu = contextMenu().items.first(where: { $0.title == "Capture Rules" })?.submenu else {
-      return []
-    }
-    return rulesMenu.items.map { $0.isSeparatorItem ? "-" : $0.title }
-  }
-
-  var debugVisibleActionLabels: [String] {
-    []
-  }
-
-  var debugVisibleActionRailWidth: CGFloat {
-    0
-  }
-
-  var debugActionRailAlpha: CGFloat {
-    0
-  }
-
-  var debugConstructedActionButtonCount: Int {
-    0
-  }
-
-  var debugShadowOpacity: Float {
-    layer?.shadowOpacity ?? 0
-  }
-
-  var debugShadowRadius: CGFloat {
-    layer?.shadowRadius ?? 0
-  }
-
-  var debugLayerTranslationY: CGFloat {
-    layer.map { CGFloat($0.transform.m42) } ?? 0
-  }
-
-  var debugFooterDetailIsHidden: Bool {
-    footerDetailLabel.isHidden
-  }
-
-  var debugHeaderBadgeIsHidden: Bool {
-    headerBadgeView?.isHidden ?? false
-  }
-
-  var debugHeaderBadgeFrame: NSRect {
-    guard let headerBadgeView else { return .zero }
-    return headerBadgeView.convert(headerBadgeView.bounds, to: self)
-  }
-
-  var debugHeaderBadgeContentFrame: NSRect {
-    guard let headerBadgeContentView else { return .zero }
-    return headerBadgeContentView.convert(headerBadgeContentView.bounds, to: self)
-  }
-
-  var debugCompactMetricText: String {
-    compactMetricLabel?.stringValue ?? ""
-  }
-
-  var debugCompactMetricIsHidden: Bool {
-    compactMetricLabel?.isHidden ?? true
-  }
-
-  var debugCompactMetricFrame: NSRect {
-    guard let compactMetricLabel else { return .zero }
-    return compactMetricLabel.convert(compactMetricLabel.bounds, to: self)
-  }
-
-  var debugCompactMetricFittingWidth: CGFloat {
-    compactMetricLabel?.fittingSize.width ?? 0
-  }
-
-  var debugHeaderBadgeMaskedCorners: CACornerMask {
-    headerBadgeView?.layer?.maskedCorners ?? []
-  }
-
-  var debugHeaderFrame: NSRect {
-    guard let compactContentView else { return .zero }
-    return compactContentView.convert(compactContentView.bounds, to: self)
-  }
-
-  var debugHeaderMaskedCorners: CACornerMask {
-    compactContentView?.layer?.maskedCorners ?? []
-  }
-
-  var debugHeaderSurfaceColorHex: String {
-    guard let backgroundColor = compactContentView?.layer?.backgroundColor,
-          let color = NSColor(cgColor: backgroundColor) else {
-      return ""
-    }
-    return Self.debugHex(color)
-  }
-
-  var debugHeaderSurfaceAlpha: CGFloat {
-    guard let backgroundColor = compactContentView?.layer?.backgroundColor,
-          let color = NSColor(cgColor: backgroundColor) else {
-      return 0
-    }
-    return (color.usingColorSpace(.deviceRGB) ?? color).alphaComponent
-  }
-
-  var debugExpandedDetailFrame: NSRect {
-    guard let fullContentView else { return .zero }
-    return fullContentView.convert(fullContentView.bounds, to: self)
-  }
-
-  var debugExpandedDetailPresentationHeight: CGFloat {
-    guard let fullContentView else { return 0 }
-    return fullContentView.layer?.presentation()?.bounds.height ?? fullContentView.bounds.height
-  }
-
-  var debugContentCornerRadius: CGFloat {
-    contentView.layer?.cornerRadius ?? 0
-  }
-
-  var debugContentBackgroundAlpha: CGFloat {
-    guard let backgroundColor = contentView.layer?.backgroundColor,
-          let color = NSColor(cgColor: backgroundColor) else {
-      return 0
-    }
-    return (color.usingColorSpace(.deviceRGB) ?? color).alphaComponent
-  }
-
-  var debugHeaderBadgeCornerRadius: CGFloat {
-    headerBadgeView?.layer?.cornerRadius ?? 0
-  }
-
-  var debugHeaderBadgeShadowOpacity: Float {
-    headerBadgeView?.layer?.shadowOpacity ?? 0
-  }
-
-  var debugHeaderBadgeShadowRadius: CGFloat {
-    headerBadgeView?.layer?.shadowRadius ?? 0
-  }
-
-  var debugHeaderBadgeBorderWidth: CGFloat {
-    headerBadgeView?.layer?.borderWidth ?? 0
-  }
-
-  func debugPerformMenuItem(titled title: String) {
-    guard let item = contextMenu().items.first(where: { $0.title == title }) else { return }
-    _ = item.target?.perform(item.action, with: item)
-  }
-
-  func debugPerformCaptureRuleMenuItem(titled title: String) {
-    guard let rulesMenu = contextMenu().items.first(where: { $0.title == "Capture Rules" })?.submenu,
-          let item = rulesMenu.items.first(where: { $0.title == title }) else {
-      return
-    }
-    _ = item.target?.perform(item.action, with: item)
-  }
-
-  var debugQuickPasteBadgeText: String? {
-    quickPasteBadgeLabel?.stringValue
-  }
-
-  var debugIsKeyboardFocused: Bool {
-    isKeyboardFocused
-  }
-
-  var debugIsSelected: Bool {
-    isSelected
-  }
-
-  var debugIsActiveSelection: Bool {
-    isActiveSelection
-  }
-
-  var debugIsHovered: Bool {
-    isHovered
-  }
-
-  var debugPresentation: String {
-    switch presentation {
-    case .verticalRow:
-      return "vertical-row"
-    case .verticalFocus:
-      return "vertical-focus"
-    }
-  }
-
-  func debugSetHovered(_ hovered: Bool, mouseLocation: NSPoint? = nil) {
-    setHoverState(hovered, notifySelection: hovered, mouseLocation: mouseLocation)
-  }
-
-  var debugBorderWidth: CGFloat {
-    contentView.layer?.borderWidth ?? 0
-  }
-
-  var debugFooterDetailText: String {
-    footerDetailLabel.stringValue
-  }
-
-  var debugFooterSourceText: String {
-    footerSourceLabel.stringValue
-  }
-
-  var debugFooterSourceIsHidden: Bool {
-    footerSourceLabel.isHidden
-  }
-
-  var debugItemID: UUID {
-    itemID
-  }
-
-  static func debugHex(_ color: NSColor) -> String {
-    ClipboardCollectionVisuals.hexString(for: color)
-  }
-  #endif
 
   private func contextMenu() -> NSMenu {
     let menu = NSMenu()
     menu.autoenablesItems = false
-    addMenuItem(selectedGroupCount > 1 ? "Paste Selection" : "Paste", action: #selector(pasteFromMenu), to: menu)
-    addMenuItem(selectedGroupCount > 1 ? "Copy Selection" : "Copy", action: #selector(copyFromMenu), to: menu)
+    addMenuItem(selectedGroupCount > 1 ? "Paste Selection" : "Paste", command: .paste, to: menu)
+    addMenuItem(selectedGroupCount > 1 ? "Copy Selection" : "Copy", command: .copy, to: menu)
     if canPlainText {
-      addMenuItem("Paste Plain Text", action: #selector(pastePlainTextFromMenu), to: menu)
-      addMenuItem("Copy Plain Text", action: #selector(copyPlainTextFromMenu), to: menu)
+      addMenuItem("Paste Plain Text", command: .pastePlainText, to: menu)
+      addMenuItem("Copy Plain Text", command: .copyPlainText, to: menu)
     }
     if selectedGroupCount > 1 {
-      addMenuItem("Paste Selection as Text", action: #selector(pasteSelectionTextFromMenu), to: menu)
-      addMenuItem("Copy Selection as Text", action: #selector(copySelectionTextFromMenu), to: menu)
-      addMenuItem("Add Selection to Stack", action: #selector(addSelectionToStackFromMenu), to: menu)
+      addMenuItem("Paste Selection as Text", command: .pasteSelectionText, to: menu)
+      addMenuItem("Copy Selection as Text", command: .copySelectionText, to: menu)
+      addMenuItem("Add Selection to Stack", command: .addSelectionToStack, to: menu)
     }
     if canShowInClipboard {
-      addMenuItem("Show in Clipboard", action: #selector(showInClipboardFromMenu), to: menu)
+      addMenuItem("Show in Clipboard", command: .showInClipboard, to: menu)
     }
-    addMenuItem("Rename...", action: #selector(renameFromMenu), to: menu)
-    addMenuItem(itemIsStacked ? "Remove from Stack" : "Add to Stack", action: #selector(toggleStackFromMenu), to: menu)
-    addMenuItem("Add Visible Clips to Stack", action: #selector(addVisibleToStackFromMenu), to: menu)
+    addMenuItem("Rename...", command: .rename, to: menu)
+    addMenuItem(itemIsStacked ? "Remove from Stack" : "Add to Stack", command: .toggleStack, to: menu)
+    addMenuItem("Add Visible Clips to Stack", command: .addVisibleToStack, to: menu)
     if stackCount > 0 {
-      addMenuItem("Paste Stack Next", action: #selector(pasteStackNextFromMenu), to: menu)
-      addMenuItem("Copy Stack Next", action: #selector(copyStackNextFromMenu), to: menu)
-      addMenuItem("Paste Stack as Text", action: #selector(pasteStackTextFromMenu), to: menu)
-      addMenuItem("Copy Stack as Text", action: #selector(copyStackTextFromMenu), to: menu)
-      addMenuItem("Clear Stack", action: #selector(clearStackFromMenu), to: menu)
+      addMenuItem("Paste Stack Next", command: .pasteStackNext, to: menu)
+      addMenuItem("Copy Stack Next", command: .copyStackNext, to: menu)
+      addMenuItem("Paste Stack as Text", command: .pasteStackText, to: menu)
+      addMenuItem("Copy Stack as Text", command: .copyStackText, to: menu)
+      addMenuItem("Clear Stack", command: .clearStack, to: menu)
     }
     if canEditText {
-      addMenuItem("Edit", action: #selector(editTextFromMenu), to: menu)
+      addMenuItem("Edit", command: .editText, to: menu)
     }
     if canRotateImage {
-      addMenuItem("Rotate Image", action: #selector(rotateImageFromMenu), to: menu)
+      addMenuItem("Rotate Image", command: .rotateImage, to: menu)
     }
     if canExtractImageText {
-      addMenuItem("Extract Text", action: #selector(extractImageTextFromMenu), to: menu)
+      addMenuItem("Extract Text", command: .extractImageText, to: menu)
     }
     if canPreview {
-      addMenuItem("Quick Look", action: #selector(previewFromMenu), to: menu)
+      addMenuItem("Quick Look", command: .preview, to: menu)
     }
-    addMenuItem(itemIsPinned ? "Unpin" : "Pin", action: #selector(togglePinFromMenu), to: menu)
+    addMenuItem(itemIsPinned ? "Unpin" : "Pin", command: .togglePin, to: menu)
     addCollectionMenu(to: menu)
     addCaptureRulesMenu(to: menu)
     menu.addItem(NSMenuItem.separator())
-    let open = addMenuItem("Open", action: #selector(openFromMenu), to: menu)
+    let open = addMenuItem("Open", command: .open, to: menu)
     open.isEnabled = canOpen
-    let reveal = addMenuItem("Reveal in Finder", action: #selector(revealFromMenu), to: menu)
+    let reveal = addMenuItem("Reveal in Finder", command: .reveal, to: menu)
     reveal.isEnabled = canReveal
     menu.addItem(NSMenuItem.separator())
-    addMenuItem("Delete", action: #selector(deleteFromMenu), to: menu)
+    addMenuItem("Delete", command: .delete, to: menu)
     return menu
   }
 
@@ -5971,25 +4425,19 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     submenu.autoenablesItems = false
 
     for name in availableCollectionNames() {
-      let item = NSMenuItem(title: name, action: #selector(assignToCollectionFromMenu(_:)), keyEquivalent: "")
-      item.target = self
+      let item = addMenuItem(name, command: .assignToCollection, to: submenu)
       item.representedObject = name
       if itemCollectionName == name {
         item.state = .on
       }
-      submenu.addItem(item)
     }
 
     submenu.addItem(NSMenuItem.separator())
-    let newCollection = NSMenuItem(title: "New Collection...", action: #selector(createCollectionFromMenu), keyEquivalent: "")
-    newCollection.target = self
-    submenu.addItem(newCollection)
+    addMenuItem("New Collection...", command: .createCollection, to: submenu)
 
     if itemCollectionName?.clipboardTrimmed.isEmpty == false {
       submenu.addItem(NSMenuItem.separator())
-      let remove = NSMenuItem(title: "Remove from Collection", action: #selector(removeFromCollectionFromMenu), keyEquivalent: "")
-      remove.target = self
-      submenu.addItem(remove)
+      addMenuItem("Remove from Collection", command: .removeFromCollection, to: submenu)
     }
 
     return submenu
@@ -6000,23 +4448,14 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     let submenu = NSMenu(title: "Capture Rules")
     submenu.autoenablesItems = false
 
-    let ignoreSource = NSMenuItem(
-      title: ignoreSourceTitle(),
-      action: #selector(ignoreSourceAppFromMenu),
-      keyEquivalent: ""
-    )
-    ignoreSource.target = self
+    let ignoreSource = addMenuItem(ignoreSourceTitle(), command: .ignoreSourceApp, to: submenu)
     ignoreSource.isEnabled = itemSourceAppName != nil || itemSourceAppBundleID != nil
-    submenu.addItem(ignoreSource)
 
-    let ignoreKind = NSMenuItem(
-      title: "Ignore \(kindLabel(for: itemKind)) Items",
-      action: #selector(ignoreKindFromMenu),
-      keyEquivalent: ""
+    addMenuItem(
+      "Ignore \(kindLabel(for: itemKind)) Items",
+      command: .ignoreKind,
+      to: submenu
     )
-    ignoreKind.target = self
-    ignoreKind.isEnabled = true
-    submenu.addItem(ignoreKind)
 
     menu.addItem(parent)
     menu.setSubmenu(submenu, for: parent)
@@ -6061,9 +4500,10 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   }
 
   @discardableResult
-  private func addMenuItem(_ title: String, action: Selector, to menu: NSMenu) -> NSMenuItem {
-    let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+  private func addMenuItem(_ title: String, command: MenuCommand, to menu: NSMenu) -> NSMenuItem {
+    let item = NSMenuItem(title: title, action: #selector(performMenuCommand(_:)), keyEquivalent: "")
     item.target = self
+    item.tag = command.rawValue
     item.isEnabled = true
     menu.addItem(item)
     return item
@@ -6160,107 +4600,51 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     footerDetailLabel.isHidden = false
   }
 
-  @objc private func pasteFromMenu() {
-    onPaste(index)
+  @objc private func performMenuCommand(_ sender: NSMenuItem) {
+    guard let command = MenuCommand(rawValue: sender.tag) else { return }
+    switch command {
+    case .paste: onPaste(index)
+    case .copy: onCopy(index)
+    case .pastePlainText: onPastePlainText(index)
+    case .copyPlainText: onCopyPlainText(index)
+    case .pasteSelectionText: onPasteSelectionText(index)
+    case .copySelectionText: onCopySelectionText(index)
+    case .addSelectionToStack: onAddSelectionToStack(index)
+    case .showInClipboard: onShowInClipboard(index)
+    case .rename: onRename(index)
+    case .toggleStack: onToggleStack(index)
+    case .addVisibleToStack: onAddVisibleToStack()
+    case .pasteStackNext: onPasteStackNext()
+    case .copyStackNext: onCopyStackNext()
+    case .pasteStackText: onPasteStackText()
+    case .copyStackText: onCopyStackText()
+    case .clearStack: onClearStack()
+    case .editText: onEditText(index)
+    case .rotateImage: onRotateImage(index)
+    case .extractImageText: onExtractImageText(index)
+    case .preview: onPreview(index)
+    case .togglePin: onTogglePin(index)
+    case .open: onOpen(index)
+    case .reveal: onReveal(index)
+    case .assignToCollection:
+      guard let name = sender.representedObject as? String else { return }
+      onAssignCollection(index, name)
+    case .createCollection:
+      createCollection()
+    case .removeFromCollection:
+      onAssignCollection(index, nil)
+    case .ignoreSourceApp:
+      onIgnoreSourceApp(index)
+    case .ignoreKind:
+      onIgnoreKind(index)
+    case .delete:
+      onDelete(index)
+    }
   }
 
-  @objc private func copyFromMenu() {
-    onCopy(index)
-  }
-
-  @objc private func pastePlainTextFromMenu() {
-    onPastePlainText(index)
-  }
-
-  @objc private func copyPlainTextFromMenu() {
-    onCopyPlainText(index)
-  }
-
-  @objc private func pasteSelectionTextFromMenu() {
-    onPasteSelectionText(index)
-  }
-
-  @objc private func copySelectionTextFromMenu() {
-    onCopySelectionText(index)
-  }
-
-  @objc private func addSelectionToStackFromMenu() {
-    onAddSelectionToStack(index)
-  }
-
-  @objc private func toggleStackFromMenu() {
-    onToggleStack(index)
-  }
-
-  @objc private func addVisibleToStackFromMenu() {
-    onAddVisibleToStack()
-  }
-
-  @objc private func pasteStackNextFromMenu() {
-    onPasteStackNext()
-  }
-
-  @objc private func copyStackNextFromMenu() {
-    onCopyStackNext()
-  }
-
-  @objc private func pasteStackTextFromMenu() {
-    onPasteStackText()
-  }
-
-  @objc private func copyStackTextFromMenu() {
-    onCopyStackText()
-  }
-
-  @objc private func clearStackFromMenu() {
-    onClearStack()
-  }
-
-  @objc private func showInClipboardFromMenu() {
-    onShowInClipboard(index)
-  }
-
-  @objc private func renameFromMenu() {
-    onRename(index)
-  }
-
-  @objc private func editTextFromMenu() {
-    onEditText(index)
-  }
-
-  @objc private func rotateImageFromMenu() {
-    onRotateImage(index)
-  }
-
-  @objc private func extractImageTextFromMenu() {
-    onExtractImageText(index)
-  }
-
-  @objc private func previewFromMenu() {
-    onPreview(index)
-  }
-
-  @objc private func openFromMenu() {
-    onOpen(index)
-  }
-
-  @objc private func revealFromMenu() {
-    onReveal(index)
-  }
-
-  @objc private func togglePinFromMenu() {
-    onTogglePin(index)
-  }
-
-  @objc private func assignToCollectionFromMenu(_ sender: NSMenuItem) {
-    guard let name = sender.representedObject as? String else { return }
-    onAssignCollection(index, name)
-  }
-
-  @objc private func createCollectionFromMenu() {
+  private func createCollection() {
     let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
     input.placeholderString = "Collection name"
-    input.stringValue = ""
 
     let alert = NSAlert()
     alert.messageText = "New Collection"
@@ -6277,31 +4661,9 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     onAssignCollection(index, name)
   }
 
-  @objc private func removeFromCollectionFromMenu() {
-    onAssignCollection(index, nil)
-  }
 
-  @objc private func ignoreSourceAppFromMenu() {
-    onIgnoreSourceApp(index)
-  }
-
-  @objc private func ignoreKindFromMenu() {
-    onIgnoreKind(index)
-  }
-
-  @objc private func deleteFromMenu() {
-    onDelete(index)
-  }
 
   private func configure(item: ClipboardItem, thumbnail: NSImage?) {
-    #if DEBUG
-    debugPreviewSummary = "\(titleText(for: item))|\(previewText(for: item))|\(detailMetricText(for: item))"
-    debugPreviewStyle = previewStyle(for: item, thumbnail: thumbnail)
-    debugHeaderBadgeSymbol = headerBadgeSymbol(for: item.kind)
-    debugHeaderTitle = headerTitle(for: item)
-    debugHeaderSubtitle = headerSubtitle(for: item)
-    debugHeaderColorHex = Self.debugHex(headerColor(for: item))
-    #endif
 
     wantsLayer = true
     layer?.cornerRadius = 8
@@ -6393,19 +4755,16 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     header.layer?.masksToBounds = true
     header.layer?.zPosition = 2
 
-    let title = NSTextField(labelWithString: headerTitle(for: item))
-    title.font = .systemFont(ofSize: layout.isCompact ? 15 : 16, weight: .semibold)
-    title.textColor = .white
-    title.lineBreakMode = .byTruncatingTail
-    title.maximumNumberOfLines = 1
-    title.toolTip = title.stringValue
-
-    let subtitle = NSTextField(labelWithString: headerSubtitle(for: item))
-    subtitle.font = .systemFont(ofSize: layout.isCompact ? 10 : 11, weight: .regular)
-    subtitle.textColor = NSColor.white.withAlphaComponent(0.78)
-    subtitle.lineBreakMode = .byTruncatingTail
-    subtitle.maximumNumberOfLines = 1
-    subtitle.toolTip = subtitle.stringValue
+    let title = makeLabel(
+      headerTitle(for: item),
+      font: .systemFont(ofSize: layout.isCompact ? 15 : 16, weight: .semibold),
+      color: .white
+    )
+    let subtitle = makeLabel(
+      headerSubtitle(for: item),
+      font: .systemFont(ofSize: layout.isCompact ? 10 : 11),
+      color: NSColor.white.withAlphaComponent(0.78)
+    )
 
     let titleAndSubtitle = NSStackView(views: [title, subtitle])
     titleAndSubtitle.orientation = .vertical
@@ -6486,12 +4845,13 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   }
 
   private func compactMetricLabel(for item: ClipboardItem) -> NSTextField {
-    let label = NSTextField(labelWithString: compactMetricText(for: item))
-    label.font = .monospacedDigitSystemFont(ofSize: layout.isCompact ? 10 : 11, weight: .semibold)
-    label.textColor = .tertiaryLabelColor
-    label.alignment = .right
-    label.lineBreakMode = .byClipping
-    label.maximumNumberOfLines = 1
+    let label = makeLabel(
+      compactMetricText(for: item),
+      font: .monospacedDigitSystemFont(ofSize: layout.isCompact ? 10 : 11, weight: .semibold),
+      color: .tertiaryLabelColor,
+      alignment: .right,
+      lineBreakMode: .byClipping
+    )
     label.toolTip = detailMetricText(for: item)
     label.isHidden = true
     return label
@@ -6602,13 +4962,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
 
     let titleString = titleText(for: item)
     let bodyString = previewBodyText(for: item, title: titleString)
-    #if DEBUG
-    debugTextPreviewTitle = titleString
-    debugTextPreviewBody = bodyString ?? ""
-    debugTextPreviewChrome = "paper-preview"
-    debugTextPreviewAccentHex = Self.debugHex(accent)
-    debugTextPreviewFadePlacement = bodyString == nil ? "none" : "bottom"
-    #endif
     let title = NSTextField(wrappingLabelWithString: titleString)
     title.font = bodyString == nil
       ? .systemFont(ofSize: item.kind == .richText ? 16 : 15, weight: .semibold)
@@ -6690,13 +5043,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     let siteColor = linkVisualColor(for: hostText)
     let monogramText = linkMonogram(from: hostText)
     let heroHeight = linkPreviewHeroHeight
-    #if DEBUG
-    debugLinkPreviewChrome = "browser-card"
-    debugLinkPreviewHostText = hostText
-    debugLinkPreviewMonogram = monogramText
-    debugLinkPreviewAccentHex = Self.debugHex(siteColor)
-    debugLinkPreviewHeroHeight = heroHeight
-    #endif
 
     let hero = NSView()
     hero.wantsLayer = true
@@ -6732,12 +5078,12 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     addressPill.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
     addressPill.translatesAutoresizingMaskIntoConstraints = false
 
-    let host = NSTextField(labelWithString: hostText)
-    host.font = .systemFont(ofSize: layout.isCompact ? 8 : 8.5, weight: .medium)
-    host.textColor = .secondaryLabelColor
-    host.maximumNumberOfLines = 1
-    host.lineBreakMode = .byTruncatingMiddle
-    host.toolTip = host.stringValue
+    let host = makeLabel(
+      hostText,
+      font: .systemFont(ofSize: layout.isCompact ? 8 : 8.5, weight: .medium),
+      color: .secondaryLabelColor,
+      lineBreakMode: .byTruncatingMiddle
+    )
     host.translatesAutoresizingMaskIntoConstraints = false
     addressPill.addSubview(host)
 
@@ -6751,12 +5097,13 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     favicon.layer?.shadowOffset = NSSize(width: 0, height: 2)
     favicon.translatesAutoresizingMaskIntoConstraints = false
 
-    let monogram = NSTextField(labelWithString: monogramText)
-    monogram.font = .systemFont(ofSize: layout.isCompact ? 13 : 15, weight: .heavy)
-    monogram.textColor = .white
-    monogram.alignment = .center
-    monogram.lineBreakMode = .byClipping
-    monogram.maximumNumberOfLines = 1
+    let monogram = makeLabel(
+      monogramText,
+      font: .systemFont(ofSize: layout.isCompact ? 13 : 15, weight: .heavy),
+      color: .white,
+      alignment: .center,
+      lineBreakMode: .byClipping
+    )
     monogram.translatesAutoresizingMaskIntoConstraints = false
     favicon.addSubview(monogram)
 
@@ -6779,19 +5126,19 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     browser.addSubview(lineStack)
     hero.addSubview(browser)
 
-    let title = NSTextField(wrappingLabelWithString: titleText(for: item))
-    title.font = .systemFont(ofSize: 14, weight: .semibold)
-    title.textColor = .labelColor
-    title.maximumNumberOfLines = 2
-    title.lineBreakMode = .byTruncatingTail
-    title.toolTip = title.stringValue
-
-    let address = NSTextField(labelWithString: previewText(for: item))
-    address.font = .systemFont(ofSize: 12)
-    address.textColor = .secondaryLabelColor
-    address.maximumNumberOfLines = 1
-    address.lineBreakMode = .byTruncatingMiddle
-    address.toolTip = address.stringValue
+    let title = makeLabel(
+      titleText(for: item),
+      font: .systemFont(ofSize: 14, weight: .semibold),
+      color: .labelColor,
+      lines: 2,
+      wraps: true
+    )
+    let address = makeLabel(
+      previewText(for: item),
+      font: .systemFont(ofSize: 12),
+      color: .secondaryLabelColor,
+      lineBreakMode: .byTruncatingMiddle
+    )
 
     let textStack = NSStackView(views: [title, address])
     textStack.orientation = .vertical
@@ -6889,31 +5236,24 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     container.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.22).cgColor
     container.translatesAutoresizingMaskIntoConstraints = false
 
-    let hostText = webHostText(from: item.payload) ?? "Link"
     let imageHeight = linkMediaPreviewImageHeight
-    #if DEBUG
-    debugLinkMediaPreviewChrome = "thumbnail-card"
-    debugLinkMediaPreviewImageHeight = imageHeight
-    debugLinkMediaPreviewHostText = hostText
-    #endif
 
     let imageView = AspectFillImageView(image: thumbnail)
     imageView.translatesAutoresizingMaskIntoConstraints = false
     imageView.heightAnchor.constraint(equalToConstant: imageHeight).isActive = true
 
-    let title = NSTextField(wrappingLabelWithString: titleText(for: item))
-    title.font = .systemFont(ofSize: 14, weight: .semibold)
-    title.textColor = .labelColor
-    title.maximumNumberOfLines = 1
-    title.lineBreakMode = .byTruncatingTail
-    title.toolTip = title.stringValue
-
-    let address = NSTextField(labelWithString: previewText(for: item))
-    address.font = .systemFont(ofSize: 12)
-    address.textColor = .secondaryLabelColor
-    address.maximumNumberOfLines = 1
-    address.lineBreakMode = .byTruncatingMiddle
-    address.toolTip = address.stringValue
+    let title = makeLabel(
+      titleText(for: item),
+      font: .systemFont(ofSize: 14, weight: .semibold),
+      color: .labelColor,
+      wraps: true
+    )
+    let address = makeLabel(
+      previewText(for: item),
+      font: .systemFont(ofSize: 12),
+      color: .secondaryLabelColor,
+      lineBreakMode: .byTruncatingMiddle
+    )
 
     let textStack = NSStackView(views: [title, address])
     textStack.orientation = .vertical
@@ -6949,31 +5289,24 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     let accent = accentColor(for: item.kind)
     let extensionText = detailMetricText(for: item)
     let coverSize = filePreviewCoverSize
-    #if DEBUG
-    debugFilePreviewChrome = "document-cover"
-    debugFilePreviewExtensionText = extensionText
-    debugFilePreviewLocationPlacement = "below-cover"
-    debugFilePreviewCoverSize = coverSize
-    #endif
     container.wantsLayer = true
     container.layer?.backgroundColor = accent.withAlphaComponent(0.045).cgColor
     container.translatesAutoresizingMaskIntoConstraints = false
 
     let cover = documentCoverPreviewView(for: item, extensionText: extensionText, accent: accent)
 
-    let title = NSTextField(wrappingLabelWithString: titleText(for: item))
-    title.font = .systemFont(ofSize: layout.isCompact ? 13 : 14, weight: .semibold)
-    title.textColor = .labelColor
-    title.maximumNumberOfLines = 1
-    title.lineBreakMode = .byTruncatingTail
-    title.toolTip = title.stringValue
-
-    let location = NSTextField(labelWithString: previewText(for: item))
-    location.font = .systemFont(ofSize: layout.isCompact ? 11 : 12)
-    location.textColor = .secondaryLabelColor
-    location.maximumNumberOfLines = 1
-    location.lineBreakMode = .byTruncatingMiddle
-    location.toolTip = location.stringValue
+    let title = makeLabel(
+      titleText(for: item),
+      font: .systemFont(ofSize: layout.isCompact ? 13 : 14, weight: .semibold),
+      color: .labelColor,
+      wraps: true
+    )
+    let location = makeLabel(
+      previewText(for: item),
+      font: .systemFont(ofSize: layout.isCompact ? 11 : 12),
+      color: .secondaryLabelColor,
+      lineBreakMode: .byTruncatingMiddle
+    )
 
     let textStack = NSStackView(views: [title, location])
     textStack.orientation = .vertical
@@ -7105,19 +5438,17 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     tileStack.spacing = layout.isCompact ? 6 : 8
     tileStack.translatesAutoresizingMaskIntoConstraints = false
 
-    let title = NSTextField(labelWithString: titleText(for: item))
-    title.font = .systemFont(ofSize: 14, weight: .semibold)
-    title.textColor = .labelColor
-    title.maximumNumberOfLines = 1
-    title.lineBreakMode = .byTruncatingTail
-    title.toolTip = title.stringValue
-
-    let location = NSTextField(labelWithString: previewText(for: item))
-    location.font = .systemFont(ofSize: 12)
-    location.textColor = .secondaryLabelColor
-    location.maximumNumberOfLines = 1
-    location.lineBreakMode = .byTruncatingMiddle
-    location.toolTip = location.stringValue
+    let title = makeLabel(
+      titleText(for: item),
+      font: .systemFont(ofSize: 14, weight: .semibold),
+      color: .labelColor
+    )
+    let location = makeLabel(
+      previewText(for: item),
+      font: .systemFont(ofSize: 12),
+      color: .secondaryLabelColor,
+      lineBreakMode: .byTruncatingMiddle
+    )
 
     let labels = NSStackView(views: [title, location])
     labels.orientation = .vertical
@@ -7199,11 +5530,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     container.translatesAutoresizingMaskIntoConstraints = false
 
     let artworkSize = audioArtworkSize
-    #if DEBUG
-    debugAudioPreviewChrome = "album-card"
-    debugAudioArtworkSize = artworkSize
-    debugAudioLabelPlacement = "below-artwork"
-    #endif
 
     let artwork = NSView()
     artwork.wantsLayer = true
@@ -7237,19 +5563,16 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     artwork.addSubview(centerDot)
     artwork.addSubview(note)
 
-    let title = NSTextField(labelWithString: titleText(for: item))
-    title.font = .systemFont(ofSize: 14, weight: .semibold)
-    title.textColor = .labelColor
-    title.maximumNumberOfLines = 1
-    title.lineBreakMode = .byTruncatingTail
-    title.toolTip = title.stringValue
-
-    let detail = NSTextField(labelWithString: previewText(for: item))
-    detail.font = .systemFont(ofSize: 12)
-    detail.textColor = .secondaryLabelColor
-    detail.maximumNumberOfLines = 1
-    detail.lineBreakMode = .byTruncatingTail
-    detail.toolTip = detail.stringValue
+    let title = makeLabel(
+      titleText(for: item),
+      font: .systemFont(ofSize: 14, weight: .semibold),
+      color: .labelColor
+    )
+    let detail = makeLabel(
+      previewText(for: item),
+      font: .systemFont(ofSize: 12),
+      color: .secondaryLabelColor
+    )
 
     let labels = NSStackView(views: [title, detail])
     labels.orientation = .vertical
@@ -7308,11 +5631,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     container.translatesAutoresizingMaskIntoConstraints = false
 
     let frameHeight = videoPreviewFrameHeight
-    #if DEBUG
-    debugVideoPreviewChrome = "player-card"
-    debugVideoFrameHeight = frameHeight
-    debugVideoFormatPlacement = "bottom-center"
-    #endif
 
     let frame = NSView()
     frame.wantsLayer = true
@@ -7348,19 +5666,16 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     extensionPill.translatesAutoresizingMaskIntoConstraints = false
     frame.addSubview(extensionPill)
 
-    let title = NSTextField(labelWithString: titleText(for: item))
-    title.font = .systemFont(ofSize: 14, weight: .semibold)
-    title.textColor = .labelColor
-    title.maximumNumberOfLines = 1
-    title.lineBreakMode = .byTruncatingTail
-    title.toolTip = title.stringValue
-
-    let detail = NSTextField(labelWithString: previewText(for: item))
-    detail.font = .systemFont(ofSize: 12)
-    detail.textColor = .secondaryLabelColor
-    detail.maximumNumberOfLines = 1
-    detail.lineBreakMode = .byTruncatingTail
-    detail.toolTip = detail.stringValue
+    let title = makeLabel(
+      titleText(for: item),
+      font: .systemFont(ofSize: 14, weight: .semibold),
+      color: .labelColor
+    )
+    let detail = makeLabel(
+      previewText(for: item),
+      font: .systemFont(ofSize: 12),
+      color: .secondaryLabelColor
+    )
 
     let labels = NSStackView(views: [title, detail])
     labels.orientation = .vertical
@@ -7411,12 +5726,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     let hexText = ColorPayload.displayHex(from: item.payload)
     let componentText = ColorPayload.componentSummary(from: item.payload)
     let chipSize = colorPreviewChipSize
-    #if DEBUG
-    debugColorPreviewChrome = "paint-chip"
-    debugColorPreviewHexText = hexText
-    debugColorPreviewSwatchPlacement = "top"
-    debugColorPreviewChipSize = chipSize
-    #endif
 
     let container = NSView()
     container.wantsLayer = true
@@ -7446,21 +5755,18 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     swatch.layer?.backgroundColor = swatchColor.cgColor
     swatch.translatesAutoresizingMaskIntoConstraints = false
 
-    let hex = NSTextField(labelWithString: hexText)
-    hex.font = .monospacedDigitSystemFont(ofSize: colorPreviewHexFontSize, weight: .bold)
-    hex.textColor = .labelColor
-    hex.alignment = .center
-    hex.maximumNumberOfLines = 1
-    hex.lineBreakMode = .byTruncatingTail
-    hex.toolTip = hex.stringValue
-
-    let components = NSTextField(labelWithString: componentText)
-    components.font = .monospacedDigitSystemFont(ofSize: layout.isCompact ? 10 : 11, weight: .semibold)
-    components.textColor = .secondaryLabelColor
-    components.alignment = .center
-    components.maximumNumberOfLines = 1
-    components.lineBreakMode = .byTruncatingTail
-    components.toolTip = components.stringValue
+    let hex = makeLabel(
+      hexText,
+      font: .monospacedDigitSystemFont(ofSize: colorPreviewHexFontSize, weight: .bold),
+      color: .labelColor,
+      alignment: .center
+    )
+    let components = makeLabel(
+      componentText,
+      font: .monospacedDigitSystemFont(ofSize: layout.isCompact ? 10 : 11, weight: .semibold),
+      color: .secondaryLabelColor,
+      alignment: .center
+    )
 
     let labelStack = NSStackView(views: [hex, components])
     labelStack.orientation = .vertical
@@ -7570,20 +5876,20 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
   }
 
   private func codeLineRow(number: Int, text: String) -> NSView {
-    let numberLabel = NSTextField(labelWithString: "\(number)")
-    numberLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-    numberLabel.textColor = .tertiaryLabelColor
-    numberLabel.alignment = .right
-    numberLabel.maximumNumberOfLines = 1
+    let numberLabel = makeLabel(
+      "\(number)",
+      font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+      color: .tertiaryLabelColor,
+      alignment: .right
+    )
     numberLabel.translatesAutoresizingMaskIntoConstraints = false
     numberLabel.widthAnchor.constraint(equalToConstant: 20).isActive = true
 
-    let codeLabel = NSTextField(labelWithString: text)
-    codeLabel.font = .monospacedSystemFont(ofSize: layout.isCompact ? 11 : 12, weight: .regular)
-    codeLabel.textColor = .labelColor
-    codeLabel.maximumNumberOfLines = 1
-    codeLabel.lineBreakMode = .byTruncatingTail
-    codeLabel.toolTip = text
+    let codeLabel = makeLabel(
+      text,
+      font: .monospacedSystemFont(ofSize: layout.isCompact ? 11 : 12, weight: .regular),
+      color: .labelColor
+    )
     codeLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
     let row = NSStackView(views: [numberLabel, codeLabel])
@@ -7603,10 +5909,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     imageView.translatesAutoresizingMaskIntoConstraints = false
 
     let metricText = mediaMetricText(for: thumbnail)
-    #if DEBUG
-    debugMediaMetricText = metricText
-    debugMediaMetricPlacement = "bottom-center"
-    #endif
     let overlay = capsuleLabel(metricText, color: NSColor.black.withAlphaComponent(0.56))
     overlay.translatesAutoresizingMaskIntoConstraints = false
 
@@ -7627,11 +5929,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     let container = NSView()
     container.translatesAutoresizingMaskIntoConstraints = false
 
-    #if DEBUG
-    debugVideoPreviewChrome = "thumbnail-player"
-    debugVideoFrameHeight = layout.bodyHeight
-    debugVideoFormatPlacement = "bottom-center"
-    #endif
 
     let imageView = AspectFillImageView(image: thumbnail)
     imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -7716,40 +6013,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     return "\(width) x \(height)"
   }
 
-  private func previewStyle(for item: ClipboardItem, thumbnail: NSImage?) -> String {
-    if item.kind == .image, thumbnail != nil {
-      return "media-preview"
-    }
-
-    switch item.kind {
-    case .url:
-      return thumbnail == nil ? "link-site-preview" : "link-media-preview"
-    case .file:
-      if thumbnail != nil {
-        return "file-media-preview"
-      }
-      return FilePayload.paths(from: item.payload).count > 1 ? "multi-file-preview" : "file-preview"
-    case .pdf:
-      return thumbnail == nil ? "file-preview" : "file-media-preview"
-    case .audio:
-      return "audio-preview"
-    case .video:
-      return thumbnail == nil ? "video-preview" : "video-media-preview"
-    case .color:
-      return "color-preview"
-    case .code:
-      return "code-preview"
-    case .richText:
-      return "rich-text-preview"
-    case .text:
-      return "text-preview"
-    case .image:
-      return "text-fallback-preview"
-    case .unknown:
-      return "unknown-preview"
-    }
-  }
-
   private func footerView(for item: ClipboardItem) -> NSView {
     let footer = NSView()
     footer.wantsLayer = true
@@ -7826,9 +6089,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     badge.translatesAutoresizingMaskIntoConstraints = false
     if let bundleId = item.sourceAppBundleId,
        let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
-      #if DEBUG
-      debugHeaderBadgeText = ""
-      #endif
       let icon = NSImageView(image: NSWorkspace.shared.icon(forFile: appURL.path))
       icon.imageScaling = .scaleProportionallyUpOrDown
       icon.translatesAutoresizingMaskIntoConstraints = false
@@ -7853,9 +6113,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
         icon.bottomAnchor.constraint(equalTo: iconClipView.bottomAnchor, constant: iconBleed)
       ])
     } else if let monogram = Self.sourceMonogram(from: itemSourceAppName) {
-      #if DEBUG
-      debugHeaderBadgeText = monogram
-      #endif
       let label = NSTextField(labelWithString: monogram)
       label.font = .systemFont(ofSize: layout.isCompact ? 15 : 17, weight: .heavy)
       label.textColor = accentColor(for: item.kind)
@@ -7872,9 +6129,6 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
         label.centerYAnchor.constraint(equalTo: badge.centerYAnchor)
       ])
     } else {
-      #if DEBUG
-      debugHeaderBadgeText = ""
-      #endif
       let image = NSImage(systemSymbolName: headerBadgeSymbol(for: item.kind), accessibilityDescription: kindLabel(for: item.kind))
         ?? NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: kindLabel(for: item.kind))
         ?? NSImage()
@@ -7896,12 +6150,25 @@ private final class ClipboardItemCardView: NSView, NSDraggingSource {
     return badge
   }
 
-  private func separatorLine() -> NSView {
-    let divider = NSView()
-    divider.wantsLayer = true
-    divider.translatesAutoresizingMaskIntoConstraints = false
-    divider.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.6).cgColor
-    return divider
+  private func makeLabel(
+    _ text: String,
+    font: NSFont,
+    color: NSColor,
+    lines: Int = 1,
+    alignment: NSTextAlignment = .natural,
+    lineBreakMode: NSLineBreakMode = .byTruncatingTail,
+    wraps: Bool = false
+  ) -> NSTextField {
+    let label = wraps
+      ? NSTextField(wrappingLabelWithString: text)
+      : NSTextField(labelWithString: text)
+    label.font = font
+    label.textColor = color
+    label.maximumNumberOfLines = lines
+    label.alignment = alignment
+    label.lineBreakMode = lineBreakMode
+    label.toolTip = text
+    return label
   }
 
   private func headerIcon(_ name: String, color: NSColor) -> NSView {

@@ -1,13 +1,6 @@
 import AppKit
 import QuickLookUI
 
-struct ClipboardPanelAnimationProfile {
-  let showDuration: TimeInterval
-  let hideDuration: TimeInterval
-  let reflowDuration: TimeInterval
-  let easing: CAMediaTimingFunctionName
-}
-
 struct ClipboardPanelReflowPlan {
   let frame: NSRect
   let bottomSafeInset: CGFloat
@@ -360,10 +353,6 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     currentPanel ?? lastKnown ?? preferred ?? pointer ?? fallback
   }
 
-  static func panelFrames(forScreenFrame screenFrame: CGRect) -> (shown: NSRect, hidden: NSRect) {
-    return panelFrames(forScreenFrame: screenFrame, visibleFrame: screenFrame)
-  }
-
   static func panelFrames(
     forScreenFrame screenFrame: CGRect,
     visibleFrame: CGRect,
@@ -422,25 +411,8 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     return inset > Metrics.hiddenDockRevealInsetLimit ? inset : 0
   }
 
-  static var animationProfile: ClipboardPanelAnimationProfile {
-    ClipboardPanelAnimationProfile(
-      showDuration: Animation.showDuration,
-      hideDuration: Animation.hideDuration,
-      reflowDuration: Animation.reflowDuration,
-      easing: Animation.easing
-    )
-  }
-
   static var panelCollectionBehavior: NSWindow.CollectionBehavior {
     [.moveToActiveSpace, .fullScreenAuxiliary, .transient]
-  }
-
-  static func reflowPlan(forScreenFrame screenFrame: CGRect, visibleFrame: CGRect) -> ClipboardPanelReflowPlan {
-    let frames = panelFrames(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
-    return ClipboardPanelReflowPlan(
-      frame: frames.shown,
-      bottomSafeInset: contentBottomInset(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
-    )
   }
 
   static func reflowPlan(
@@ -848,47 +820,6 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate, QLPreviewPanel
     quickLookURL as NSURL?
   }
 
-  #if DEBUG
-  var debugPanelFrame: NSRect {
-    panel.frame
-  }
-
-  var debugPanelAlpha: CGFloat {
-    panel.alphaValue
-  }
-
-  var debugIsAnimating: Bool {
-    isAnimating
-  }
-
-  func debugSetSearchFieldText(_ text: String) {
-    panelView.debugSetSearchFieldText(text)
-  }
-
-  var debugSearchFieldText: String {
-    panelView.debugSearchFieldText
-  }
-
-  var debugSearchFieldWidth: CGFloat {
-    panelView.debugSearchFieldWidth
-  }
-
-  var debugSearchFieldPlaceholderText: String {
-    panelView.debugSearchFieldPlaceholderText
-  }
-
-  var debugSearchFieldIsVisible: Bool {
-    panelView.debugSearchFieldIsVisible
-  }
-
-  var debugSearchIconButtonIsVisible: Bool {
-    panelView.debugSearchIconButtonIsVisible
-  }
-
-  var debugIsSearchFieldEditing: Bool {
-    panelView.isSearchFieldEditing
-  }
-  #endif
 
   private func installClickMonitor() {
     removeClickMonitor()

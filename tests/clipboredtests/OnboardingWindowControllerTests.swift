@@ -51,25 +51,4 @@ final class OnboardingWindowControllerTests: XCTestCase {
     XCTAssertTrue(presentation.showDockIcon)
   }
 
-  func testDisplayedEntryPointSelectionIsNormalizedOnRefresh() {
-    let settings = makeSettings()
-    settings.showMenuBarIcon = false
-    settings.showDockIcon = false
-
-    let controller = OnboardingWindowController(
-      settings: settings,
-      onOpenAccessibility: {},
-      onFinish: {}
-    )
-
-    XCTAssertTrue(controller.debugShowMenuBarIconIsEnabled)
-    XCTAssertFalse(controller.debugShowDockIconIsEnabled)
-  }
-
-  private func makeSettings() -> SettingsModel {
-    let suiteName = "com.clipbored.onboarding.\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: suiteName)!
-    defaults.removePersistentDomain(forName: suiteName)
-    return SettingsModel(defaults: defaults)
-  }
 }

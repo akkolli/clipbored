@@ -659,78 +659,22 @@ final class ClipboardStore {
   }
 
   private func legacyISO8601Date(_ string: String) -> Date? {
-    string.withCString { pointer -> Date? in
-      let byteCount = strlen(pointer)
-      guard byteCount >= 20,
-            byte(pointer, 4) == 45,
-            byte(pointer, 7) == 45,
-            byte(pointer, 10) == 84 || byte(pointer, 10) == 32,
-            byte(pointer, 13) == 58,
-            byte(pointer, 16) == 58,
-            let year = decimal(pointer, byteCount, 0, 4),
-            let month = decimal(pointer, byteCount, 5, 2),
-            let day = decimal(pointer, byteCount, 8, 2),
-            let hour = decimal(pointer, byteCount, 11, 2),
-            let minute = decimal(pointer, byteCount, 14, 2),
-            let second = decimal(pointer, byteCount, 17, 2)
-      else {
-        return nil
-      }
+    let value = string.replacingOccurrences(of: " ", with: "T")
+    return Self.legacyDateFormatters.lazy.compactMap { $0.date(from: value) }.first
+  }
 
-      var cursor = 19
-      var fraction = 0.0
-      if cursor < byteCount, byte(pointer, cursor) == 46 {
-        cursor += 1
-        var scale = 0.1
-        while cursor < byteCount {
-          let digit = byte(pointer, cursor)
-          guard digit >= 48, digit <= 57 else { break }
-          fraction += Double(digit - 48) * scale
-          scale /= 10
-          cursor += 1
-        }
-      }
-
-      var offset = 0
-      if cursor < byteCount, byte(pointer, cursor) == 90 {
-        offset = 0
-      } else if cursor + 5 < byteCount, byte(pointer, cursor) == 43 || byte(pointer, cursor) == 45 {
-        let sign = byte(pointer, cursor) == 43 ? 1 : -1
-        guard let offsetHour = decimal(pointer, byteCount, cursor + 1, 2),
-              let offsetMinute = decimal(pointer, byteCount, cursor + 4, 2)
-        else { return nil }
-        offset = sign * ((offsetHour * 3600) + (offsetMinute * 60))
-      }
-
-      var components = tm()
-      components.tm_year = Int32(year - 1900)
-      components.tm_mon = Int32(month - 1)
-      components.tm_mday = Int32(day)
-      components.tm_hour = Int32(hour)
-      components.tm_min = Int32(minute)
-      components.tm_sec = Int32(second)
-      components.tm_isdst = 0
-
-      let epoch = timegm(&components)
-      guard epoch >= 0 else { return nil }
-      return Date(timeIntervalSince1970: TimeInterval(epoch - time_t(offset)) + fraction)
+  private static let legacyDateFormatters: [ISO8601DateFormatter] = {
+    let formats: [ISO8601DateFormatter.Options] = [
+      [.withInternetDateTime, .withFractionalSeconds],
+      [.withInternetDateTime]
+    ]
+    return formats.map { options in
+      let formatter = ISO8601DateFormatter()
+      formatter.formatOptions = options
+      return formatter
     }
-  }
+  }()
 
-  private func decimal(_ pointer: UnsafePointer<CChar>, _ byteCount: Int, _ start: Int, _ length: Int) -> Int? {
-    guard start + length <= byteCount else { return nil }
-    var result = 0
-    for index in start..<(start + length) {
-      let digit = byte(pointer, index)
-      guard digit >= 48, digit <= 57 else { return nil }
-      result = (result * 10) + Int(digit - 48)
-    }
-    return result
-  }
-
-  private func byte(_ pointer: UnsafePointer<CChar>, _ index: Int) -> UInt8 {
-    UInt8(bitPattern: pointer[index])
-  }
 
   private func isDatabaseEmpty() -> Bool {
     guard let db else { return true }
@@ -901,7 +845,6 @@ final class ClipboardStore {
 
   private func applyPersistence(_ mutation: PersistenceMutation) {
     guard let db else { return }
-    DiagnosticsService.shared.incrementDatabaseMutation()
     let insertSQL = """
       INSERT OR REPLACE INTO clipboard_items (
         id, kind, display_text, payload, payload_hash,

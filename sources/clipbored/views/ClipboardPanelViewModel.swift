@@ -136,6 +136,18 @@ final class ClipboardPanelViewModel {
     case original
   }
 
+  private enum TransferIntent {
+    case copy
+    case paste
+  }
+
+  private enum TransferContext {
+    case single
+    case selected
+    case stackItem
+    case stackText
+  }
+
   private(set) var visibleItems: [ClipboardItem] = [] {
     didSet {
       var nextItemByID: [UUID: ClipboardItem] = [:]
@@ -324,18 +336,6 @@ final class ClipboardPanelViewModel {
   var onStackChanged: (() -> Void)?
   var onCaptureStatusChanged: (() -> Void)?
 
-  #if DEBUG
-  private(set) var debugVisibleItemsFullScanCount = 0
-  private(set) var debugVisibleItemsIndexedLookupCount = 0
-  private(set) var debugCollectionCountFullScanCount = 0
-  private(set) var debugCollectionCountIndexedLookupCount = 0
-  private(set) var debugSearchItemEvaluationCount = 0
-  private(set) var debugSearchMatchCacheHitCount = 0
-  private(set) var debugSearchDocumentBuildCount = 0
-  private(set) var debugSearchDocumentCacheHitCount = 0
-  private(set) var debugCategoryFilterSelectionBuildCount = 0
-  private(set) var debugStackPruneScanCount = 0
-  #endif
 
   init(
     store: ClipboardStore,
@@ -392,20 +392,6 @@ final class ClipboardPanelViewModel {
     }
   }
 
-  #if DEBUG
-  func debugResetVisibleItemsPerformanceCounters() {
-    debugVisibleItemsFullScanCount = 0
-    debugVisibleItemsIndexedLookupCount = 0
-    debugCollectionCountFullScanCount = 0
-    debugCollectionCountIndexedLookupCount = 0
-    debugSearchItemEvaluationCount = 0
-    debugSearchMatchCacheHitCount = 0
-    debugSearchDocumentBuildCount = 0
-    debugSearchDocumentCacheHitCount = 0
-    debugCategoryFilterSelectionBuildCount = 0
-    debugStackPruneScanCount = 0
-  }
-  #endif
 
   var selectedItem: ClipboardItem? {
     guard selectedIndex >= 0, selectedIndex < visibleItems.count else { return nil }
@@ -445,10 +431,6 @@ final class ClipboardPanelViewModel {
     stackItemIDs.count
   }
 
-  var stackTitle: String {
-    "Stack"
-  }
-
   var collectionNames: [String] {
     if let collectionNamesCache {
       return collectionNamesCache
@@ -471,14 +453,6 @@ final class ClipboardPanelViewModel {
     let names = defaultNames + configuredCustomNames + assignedCustomNames
     collectionNamesCache = names
     return names
-  }
-
-  var searchFilterSourceAppNames: [String] {
-    uniqueSearchFacetValues(items.compactMap(\.sourceApp))
-  }
-
-  var searchFilterDeviceNames: [String] {
-    uniqueSearchFacetValues(items.map { Optional(effectiveSourceDeviceName(for: $0)) })
   }
 
   func collectionCount(for sortMode: ClipboardSortMode) -> Int {
@@ -505,9 +479,6 @@ final class ClipboardPanelViewModel {
       for (collectionKey, indexedItems) in indexedItemsByCollectionKey {
         collectionCounts[collectionKey] = indexedItems.count
       }
-      #if DEBUG
-      debugCollectionCountIndexedLookupCount += 1
-      #endif
     } else {
       for indexedItem in indexedItemsMatchingSearch(query) {
         let item = indexedItem.item
@@ -516,9 +487,6 @@ final class ClipboardPanelViewModel {
           collectionCounts[collectionName.lowercased(), default: 0] += 1
         }
       }
-      #if DEBUG
-      debugCollectionCountFullScanCount += 1
-      #endif
     }
 
     let summary = ClipboardCollectionCountSummary(
@@ -673,82 +641,34 @@ final class ClipboardPanelViewModel {
   }
 
   func pasteSelected() {
-    if selectedItemCount > 1 {
-      pasteSelectedItems()
-      return
-    }
-    guard let item = selectedItem else { return }
-    let result = pasteService.paste(item, targetApp: targetApplicationProvider())
-    if case .pasted = result {
-      willPasteToTarget()
-    }
-    if case .failed = result {} else {
-      store.markUsed(item.id)
-      selectedItemID = item.id
-    }
-    statusMessage = result.message
-    settings.setPasteStatus(message: result.message)
+    performSelectedTransfer(.paste)
   }
 
   func pasteSelectedPlainText() {
-    if selectedItemCount > 1 {
-      pasteSelectedItemsAsText()
-      return
-    }
-    guard let item = selectedItem else { return }
-    let result = pasteService.pastePlainText(item, targetApp: targetApplicationProvider())
-    if case .pastedPlainText = result {
-      willPasteToTarget()
-    }
-    if case .failed = result {} else {
-      store.markUsed(item.id)
-      selectedItemID = item.id
-    }
-    statusMessage = result.message
-    settings.setPasteStatus(message: result.message)
+    performSelectedTransfer(.paste, asPlainText: true)
   }
 
   func pasteItem(at index: Int) {
-    guard index >= 0 && index < visibleItems.count else { return }
+    guard visibleItems.indices.contains(index) else { return }
     selectItem(at: index)
     pasteSelected()
   }
 
   func pasteItemPlainText(at index: Int) {
-    guard index >= 0 && index < visibleItems.count else { return }
+    guard visibleItems.indices.contains(index) else { return }
     selectItem(at: index)
     pasteSelectedPlainText()
   }
 
   func copySelected() {
-    if selectedItemCount > 1 {
-      copySelectedItems()
-      return
-    }
-    guard let item = selectedItem else { return }
-    let result = pasteService.copy(item)
-    if case .failed = result {} else {
-      store.markUsed(item.id)
-      selectedItemID = item.id
-    }
-    statusMessage = result.message
-    settings.setPasteStatus(message: result.message)
+    performSelectedTransfer(.copy)
   }
 
   func copySelectedPlainText() {
-    if selectedItemCount > 1 {
-      copySelectedItemsAsText()
-      return
-    }
-    guard let item = selectedItem else { return }
-    let result = pasteService.copyPlainText(item)
-    if case .failed = result {} else {
-      store.markUsed(item.id)
-      selectedItemID = item.id
-    }
-    statusMessage = result.message
-    settings.setPasteStatus(message: result.message)
+    performSelectedTransfer(.copy, asPlainText: true)
   }
+
+
 
   func isItemStacked(at index: Int) -> Bool {
     guard index >= 0 && index < visibleItems.count else { return false }
@@ -830,11 +750,6 @@ final class ClipboardPanelViewModel {
     }
   }
 
-  func clearStackSelection() {
-    guard isStackFilterSelected else { return }
-    isStackFilterSelected = false
-  }
-
   func clearStack() {
     guard !stackItemIDs.isEmpty else {
       statusMessage = "Stack is empty"
@@ -846,50 +761,22 @@ final class ClipboardPanelViewModel {
   }
 
   func copyNextStackItem() {
-    guard let item = nextStackItem() else {
-      statusMessage = "Stack is empty"
-      return
-    }
-
-    let result = pasteService.copy(item)
-    handleStackActionResult(result, item: item)
+    performNextStackTransfer(.copy)
   }
 
   func pasteNextStackItem() {
-    guard let item = nextStackItem() else {
-      statusMessage = "Stack is empty"
-      return
-    }
-
-    let result = pasteService.paste(item, targetApp: targetApplicationProvider())
-    if case .pasted = result {
-      willPasteToTarget()
-    }
-    handleStackActionResult(result, item: item)
+    performNextStackTransfer(.paste)
   }
 
   func copyStackAsText() {
-    guard let package = stackPlainTextPackage() else {
-      statusMessage = "Stack has no text to copy"
-      return
-    }
-
-    let result = pasteService.copyPlainText(package.text)
-    handleStackPlainTextActionResult(result, items: package.items)
+    performStackTextTransfer(.copy)
   }
 
   func pasteStackAsText() {
-    guard let package = stackPlainTextPackage() else {
-      statusMessage = "Stack has no text to paste"
-      return
-    }
-
-    let result = pasteService.pastePlainText(package.text, targetApp: targetApplicationProvider())
-    if case .pastedPlainText = result {
-      willPasteToTarget()
-    }
-    handleStackPlainTextActionResult(result, items: package.items)
+    performStackTextTransfer(.paste)
   }
+
+
 
   func addSelectedItemsToStack() {
     pruneStackItems()
@@ -912,53 +799,15 @@ final class ClipboardPanelViewModel {
     statusMessage = "Added \(newIDs.count) selected \(noun) to Stack"
   }
 
-  func copySelectedItems() {
-    let selectedItems = selectedItemsInSelectionOrder()
-    guard selectedItems.count > 1 else {
-      copySelected()
-      return
-    }
-
-    let result = pasteService.copy(selectedItems)
-    handleSelectedActionResult(result, items: selectedItems)
-  }
-
-  func pasteSelectedItems() {
-    let selectedItems = selectedItemsInSelectionOrder()
-    guard selectedItems.count > 1 else {
-      pasteSelected()
-      return
-    }
-
-    let result = pasteService.paste(selectedItems, targetApp: targetApplicationProvider())
-    if case .pasted = result {
-      willPasteToTarget()
-    }
-    handleSelectedActionResult(result, items: selectedItems)
-  }
-
   func copySelectedItemsAsText() {
-    guard let package = selectedPlainTextPackage() else {
-      statusMessage = "Selection has no text to copy"
-      return
-    }
-
-    let result = pasteService.copyPlainText(package.text)
-    handleSelectedPlainTextActionResult(result, items: package.items)
+    performSelectedTransfer(.copy, asPlainText: true, forceGroup: true)
   }
 
   func pasteSelectedItemsAsText() {
-    guard let package = selectedPlainTextPackage() else {
-      statusMessage = "Selection has no text to paste"
-      return
-    }
-
-    let result = pasteService.pastePlainText(package.text, targetApp: targetApplicationProvider())
-    if case .pastedPlainText = result {
-      willPasteToTarget()
-    }
-    handleSelectedPlainTextActionResult(result, items: package.items)
+    performSelectedTransfer(.paste, asPlainText: true, forceGroup: true)
   }
+
+
 
   func pasteboardWriters(forItemAt index: Int) -> [NSPasteboardWriting] {
     guard index >= 0 && index < visibleItems.count else { return [] }
@@ -967,13 +816,6 @@ final class ClipboardPanelViewModel {
 
   func editableTextForSelected() -> String? {
     guard let item = selectedItem, item.kind == .text || item.kind == .code else { return nil }
-    return item.payload
-  }
-
-  func editableTextForItem(at index: Int) -> String? {
-    guard index >= 0 && index < visibleItems.count else { return nil }
-    let item = visibleItems[index]
-    guard item.kind == .text || item.kind == .code else { return nil }
     return item.payload
   }
 
@@ -1540,10 +1382,6 @@ final class ClipboardPanelViewModel {
     statusMessage = "Deleted \(normalizedName)"
   }
 
-  func clearSearch() {
-    searchText = ""
-  }
-
   func showSelectedInClipboard() {
     guard canShowSelectedInClipboard, let item = selectedItem else { return }
     selectedItemID = item.id
@@ -1762,156 +1600,198 @@ final class ClipboardPanelViewModel {
     }
   }
 
-  private func uniqueSearchFacetValues(_ values: [String?]) -> [String] {
-    var seen = Set<String>()
-    var result: [String] = []
-    for value in values {
-      guard let normalized = value?.clipboardTrimmed, !normalized.isEmpty else { continue }
-      let key = Self.normalizedSearchValue(normalized)
-      guard seen.insert(key).inserted else { continue }
-      result.append(normalized)
-    }
-    return result.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-  }
-
   private func selectedItemsInSelectionOrder() -> [ClipboardItem] {
-    let selectedItems = selectedItemIDs.compactMap { visibleItemByID[$0] }
-    if !selectedItems.isEmpty {
-      return selectedItems
-    }
-    return selectedItem.map { [$0] } ?? []
+    let items = selectedItemIDs.compactMap { visibleItemByID[$0] }
+    return items.isEmpty ? selectedItem.map { [$0] } ?? [] : items
   }
 
   private func nextStackItem() -> ClipboardItem? {
     pruneStackItems()
-    guard let id = stackItemIDs.first else { return nil }
-    return itemByID[id]
+    return stackItemIDs.first.flatMap { itemByID[$0] }
   }
 
-  private func stackPlainTextPackage() -> (text: String, items: [ClipboardItem])? {
-    pruneStackItems()
-    let pairs: [(item: ClipboardItem, text: String)] = stackItemIDs.compactMap { id in
-      guard let item = itemByID[id],
-            let text = pasteService.plainText(for: item)?.clipboardTrimmed,
+  private func plainTextPackage(for items: [ClipboardItem]) -> (text: String, items: [ClipboardItem])? {
+    let pairs = items.compactMap { item -> (ClipboardItem, String)? in
+      guard let text = pasteService.plainText(for: item)?.clipboardTrimmed,
             !text.isEmpty else {
         return nil
       }
       return (item, text)
     }
     guard !pairs.isEmpty else { return nil }
-    return (pairs.map(\.text).joined(separator: "\n\n"), pairs.map(\.item))
+    return (pairs.map(\.1).joined(separator: "\n\n"), pairs.map(\.0))
   }
 
-  private func selectedPlainTextPackage() -> (text: String, items: [ClipboardItem])? {
-    let pairs: [(item: ClipboardItem, text: String)] = selectedItemsInSelectionOrder().compactMap { item in
-      guard let text = pasteService.plainText(for: item)?.clipboardTrimmed, !text.isEmpty else {
-        return nil
+  private func stackPlainTextPackage() -> (text: String, items: [ClipboardItem])? {
+    pruneStackItems()
+    return plainTextPackage(for: stackItemIDs.compactMap { itemByID[$0] })
+  }
+
+  private func performSelectedTransfer(
+    _ intent: TransferIntent,
+    asPlainText: Bool = false,
+    forceGroup: Bool = false
+  ) {
+    let items = selectedItemsInSelectionOrder()
+    let isGroup = forceGroup || items.count > 1
+
+    if asPlainText && isGroup {
+      guard let package = plainTextPackage(for: items) else {
+        statusMessage = "Selection has no text to \(intent == .copy ? "copy" : "paste")"
+        return
       }
-      return (item, text)
-    }
-    guard !pairs.isEmpty else { return nil }
-    return (pairs.map(\.text).joined(separator: "\n\n"), pairs.map(\.item))
-  }
-
-  private func handleStackActionResult(_ result: PasteActionService.PasteActionResult, item: ClipboardItem) {
-    if case .failed(let message) = result {
-      statusMessage = message
+      completeTransfer(
+        plainTextTransfer(intent, value: package.text),
+        items: package.items,
+        context: .selected
+      )
       return
     }
 
-    consumeStackItem(item.id)
-    store.markUsed(item.id)
-    selectedItemID = item.id
-    switch result {
-    case .copiedNeedsPermission:
-      statusMessage = "Copied from Stack. Grant Accessibility access to paste automatically."
-    case .pasted:
-      statusMessage = "Pasted from Stack"
-    case .copied:
-      statusMessage = "Copied from Stack"
-    default:
-      statusMessage = result.message
-    }
-    settings.setPasteStatus(message: statusMessage)
+    guard let item = items.first else { return }
+    let result = asPlainText
+      ? plainTextTransfer(intent, item: item)
+      : originalTransfer(intent, items: items)
+    completeTransfer(result, items: items, context: isGroup ? .selected : .single)
   }
 
-  private func handleStackPlainTextActionResult(_ result: PasteActionService.PasteActionResult, items: [ClipboardItem]) {
+  private func performNextStackTransfer(_ intent: TransferIntent) {
+    guard let item = nextStackItem() else {
+      statusMessage = "Stack is empty"
+      return
+    }
+    completeTransfer(originalTransfer(intent, items: [item]), items: [item], context: .stackItem)
+  }
+
+  private func performStackTextTransfer(_ intent: TransferIntent) {
+    guard let package = stackPlainTextPackage() else {
+      statusMessage = "Stack has no text to \(intent == .copy ? "copy" : "paste")"
+      return
+    }
+    completeTransfer(
+      plainTextTransfer(intent, value: package.text),
+      items: package.items,
+      context: .stackText
+    )
+  }
+
+  private func originalTransfer(
+    _ intent: TransferIntent,
+    items: [ClipboardItem]
+  ) -> PasteActionService.PasteActionResult {
+    if let item = items.first, items.count == 1 {
+      return intent == .copy
+        ? pasteService.copy(item)
+        : pasteService.paste(item, targetApp: targetApplicationProvider())
+    }
+    return intent == .copy
+      ? pasteService.copy(items)
+      : pasteService.paste(items, targetApp: targetApplicationProvider())
+  }
+
+  private func plainTextTransfer(
+    _ intent: TransferIntent,
+    item: ClipboardItem
+  ) -> PasteActionService.PasteActionResult {
+    intent == .copy
+      ? pasteService.copyPlainText(item)
+      : pasteService.pastePlainText(item, targetApp: targetApplicationProvider())
+  }
+
+  private func plainTextTransfer(
+    _ intent: TransferIntent,
+    value: String
+  ) -> PasteActionService.PasteActionResult {
+    intent == .copy
+      ? pasteService.copyPlainText(value)
+      : pasteService.pastePlainText(value, targetApp: targetApplicationProvider())
+  }
+
+  private func completeTransfer(
+    _ result: PasteActionService.PasteActionResult,
+    items: [ClipboardItem],
+    context: TransferContext
+  ) {
     if case .failed(let message) = result {
       statusMessage = message
+      if case .single = context {
+        settings.setPasteStatus(message: message)
+      }
       return
     }
 
-    for item in items {
-      store.markUsed(item.id)
-      consumeStackItem(item.id, refreshActiveStackFilter: false)
+    if case .pasted = result {
+      willPasteToTarget()
+    } else if case .pastedPlainText = result {
+      willPasteToTarget()
     }
-    if stackItemIDs.isEmpty {
-      isStackFilterSelected = false
-    } else if isStackFilterSelected {
-      recomputeVisibleItems()
+
+    switch context {
+    case .stackItem:
+      if let item = items.first {
+        consumeStackItem(item.id)
+        store.markUsed(item.id)
+      }
+    case .stackText:
+      for item in items {
+        store.markUsed(item.id)
+        consumeStackItem(item.id, refreshActiveStackFilter: false)
+      }
+      if stackItemIDs.isEmpty {
+        isStackFilterSelected = false
+      } else if isStackFilterSelected {
+        recomputeVisibleItems()
+      }
+    case .single, .selected:
+      for item in items {
+        store.markUsed(item.id)
+      }
     }
+
     selectedItemID = items.first?.id
-    let noun = items.count == 1 ? "clip" : "clips"
-    switch result {
-    case .pastedPlainText:
-      statusMessage = "Pasted \(items.count) Stack \(noun) as Text"
-    case .copiedPlainTextNeedsPermission:
-      statusMessage = "Copied \(items.count) Stack \(noun) as Text. Grant Accessibility access to paste automatically."
-    case .copiedPlainText:
-      statusMessage = "Copied \(items.count) Stack \(noun) as Text"
-    default:
-      statusMessage = result.message
-    }
+    statusMessage = transferStatus(result, count: items.count, context: context)
     settings.setPasteStatus(message: statusMessage)
   }
 
-  private func handleSelectedActionResult(_ result: PasteActionService.PasteActionResult, items: [ClipboardItem]) {
-    if case .failed(let message) = result {
-      statusMessage = message
-      return
-    }
-
-    for item in items {
-      store.markUsed(item.id)
-    }
-    selectedItemID = items.first?.id
-    let noun = items.count == 1 ? "clip" : "clips"
-    switch result {
-    case .pasted:
-      statusMessage = "Pasted \(items.count) selected \(noun)"
-    case .copiedNeedsPermission:
-      statusMessage = "Copied \(items.count) selected \(noun). Grant Accessibility access to paste automatically."
-    case .copied:
-      statusMessage = "Copied \(items.count) selected \(noun)"
+  private func transferStatus(
+    _ result: PasteActionService.PasteActionResult,
+    count: Int,
+    context: TransferContext
+  ) -> String {
+    let noun = count == 1 ? "clip" : "clips"
+    switch (context, result) {
+    case (.single, _):
+      return result.message
+    case (.stackItem, .pasted):
+      return "Pasted from Stack"
+    case (.stackItem, .copied):
+      return "Copied from Stack"
+    case (.stackItem, .copiedNeedsPermission):
+      return "Copied from Stack. Grant Accessibility access to paste automatically."
+    case (.selected, .pasted):
+      return "Pasted \(count) selected \(noun)"
+    case (.selected, .copied):
+      return "Copied \(count) selected \(noun)"
+    case (.selected, .copiedNeedsPermission):
+      return "Copied \(count) selected \(noun). Grant Accessibility access to paste automatically."
+    case (.selected, .pastedPlainText):
+      return "Pasted \(count) selected \(noun) as Text"
+    case (.selected, .copiedPlainText):
+      return "Copied \(count) selected \(noun) as Text"
+    case (.selected, .copiedPlainTextNeedsPermission):
+      return "Copied \(count) selected \(noun) as Text. Grant Accessibility access to paste automatically."
+    case (.stackText, .pastedPlainText):
+      return "Pasted \(count) Stack \(noun) as Text"
+    case (.stackText, .copiedPlainText):
+      return "Copied \(count) Stack \(noun) as Text"
+    case (.stackText, .copiedPlainTextNeedsPermission):
+      return "Copied \(count) Stack \(noun) as Text. Grant Accessibility access to paste automatically."
     default:
-      statusMessage = result.message
+      return result.message
     }
-    settings.setPasteStatus(message: statusMessage)
   }
 
-  private func handleSelectedPlainTextActionResult(_ result: PasteActionService.PasteActionResult, items: [ClipboardItem]) {
-    if case .failed(let message) = result {
-      statusMessage = message
-      return
-    }
 
-    for item in items {
-      store.markUsed(item.id)
-    }
-    selectedItemID = items.first?.id
-    let noun = items.count == 1 ? "clip" : "clips"
-    switch result {
-    case .pastedPlainText:
-      statusMessage = "Pasted \(items.count) selected \(noun) as Text"
-    case .copiedPlainTextNeedsPermission:
-      statusMessage = "Copied \(items.count) selected \(noun) as Text. Grant Accessibility access to paste automatically."
-    case .copiedPlainText:
-      statusMessage = "Copied \(items.count) selected \(noun) as Text"
-    default:
-      statusMessage = result.message
-    }
-    settings.setPasteStatus(message: statusMessage)
-  }
 
   private func consumeStackItem(_ id: UUID, refreshActiveStackFilter: Bool = true) {
     guard let index = stackItemIDs.firstIndex(of: id) else { return }
@@ -1925,9 +1805,6 @@ final class ClipboardPanelViewModel {
     guard stackItemsNeedPruning else { return }
     stackItemsNeedPruning = false
     guard !stackItemIDs.isEmpty else { return }
-    #if DEBUG
-    debugStackPruneScanCount += 1
-    #endif
     let pruned = stackItemIDs.filter { itemIDSet.contains($0) }
     if pruned != stackItemIDs {
       stackItemIDs = pruned
@@ -1960,9 +1837,6 @@ final class ClipboardPanelViewModel {
 
   private func indexedItemsMatchingSearch(_ query: String) -> [IndexedClipboardItem] {
     if let searchMatchCache, searchMatchCache.query == query {
-      #if DEBUG
-      debugSearchMatchCacheHitCount += 1
-      #endif
       return searchMatchCache.indexedItems
     }
 
@@ -1975,9 +1849,6 @@ final class ClipboardPanelViewModel {
       var matches: [IndexedClipboardItem] = []
       matches.reserveCapacity(allIndexedItems.count)
       for indexedItem in allIndexedItems {
-        #if DEBUG
-        debugSearchItemEvaluationCount += 1
-        #endif
         if matchesSearchQuery(indexedItem.item, query: parsedQuery) {
           matches.append(indexedItem)
         }
@@ -2019,9 +1890,6 @@ final class ClipboardPanelViewModel {
         ordering: sortOrdering(sortMode: sortMode, collectionName: collectionName, categoryFilters: categoryFilters)
       )
       computed = indexedItems.map(\.item)
-      #if DEBUG
-      debugVisibleItemsIndexedLookupCount += 1
-      #endif
     } else {
       computed = filterAndSortVisibleItems(
         indexedItemsMatchingSearch(query),
@@ -2029,9 +1897,6 @@ final class ClipboardPanelViewModel {
         collectionName: collectionName,
         categoryFilters: categoryFilters
       )
-      #if DEBUG
-      debugVisibleItemsFullScanCount += 1
-      #endif
     }
     if visibleItemsCache.count > 24 {
       visibleItemsCache.removeAll(keepingCapacity: true)
@@ -2201,9 +2066,6 @@ final class ClipboardPanelViewModel {
       )
     }
     categoryFilterSelectionCache = selection
-    #if DEBUG
-    debugCategoryFilterSelectionBuildCount += 1
-    #endif
     return selection
   }
 
@@ -2344,9 +2206,6 @@ final class ClipboardPanelViewModel {
       ocrText: item.ocrText
     )
     if let cached = searchDocumentsByItemID[item.id], cached.fingerprint == fingerprint {
-      #if DEBUG
-      debugSearchDocumentCacheHitCount += 1
-      #endif
       return cached
     }
 
@@ -2368,9 +2227,6 @@ final class ClipboardPanelViewModel {
       collection: item.collectionName.map(normalizedStructuredValue) ?? ""
     )
     searchDocumentsByItemID[item.id] = document
-    #if DEBUG
-    debugSearchDocumentBuildCount += 1
-    #endif
     return document
   }
 

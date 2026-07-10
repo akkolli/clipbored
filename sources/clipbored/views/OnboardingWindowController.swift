@@ -355,13 +355,4 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     settings.iCloudSyncEnabled = iCloudSyncButton.state == .on
   }
 
-  #if DEBUG
-  var debugShowMenuBarIconIsEnabled: Bool {
-    showMenuBarIconButton.state == .on
-  }
-
-  var debugShowDockIconIsEnabled: Bool {
-    showDockIconButton.state == .on
-  }
-  #endif
 }

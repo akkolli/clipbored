@@ -61,14 +61,6 @@ enum ColorPayload {
     "\(displayHex(from: payload))\n\(componentSummary(from: payload))"
   }
 
-  static func contrastingTextColor(for color: NSColor) -> NSColor {
-    guard let rgb = color.usingColorSpace(.sRGB) ?? color.usingColorSpace(.deviceRGB) else {
-      return .labelColor
-    }
-    let luminance = (0.299 * rgb.redComponent) + (0.587 * rgb.greenComponent) + (0.114 * rgb.blueComponent)
-    return luminance > 0.62 ? NSColor.black.withAlphaComponent(0.82) : .white
-  }
-
   private static func clampedByte(_ value: CGFloat) -> Int {
     Int((min(1, max(0, value)) * 255).rounded())
   }

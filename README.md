@@ -90,7 +90,7 @@ Project layout:
 - `sources/clipbored/resources` - app bundle metadata and icon assets
 - `sources/clipbored/services` - capture, persistence, cache, shortcuts, paste, diagnostics, and privacy filters
 - `sources/clipbored/views` - panel, onboarding, preview, and settings UI
-- `tests/clipboredtests` - unit and UI-structure regression tests
+- `tests/clipboredtests` - focused behavior tests for capture, persistence, search, paste, and settings decisions
 - `docs` - architecture, security, release, smoke-test, and roadmap notes
 
 ## Privacy And Security

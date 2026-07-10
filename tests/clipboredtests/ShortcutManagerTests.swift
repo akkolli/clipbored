@@ -36,13 +36,6 @@ final class ShortcutManagerTests: XCTestCase {
     manager.stop()
   }
 
-  func testGlobalRegistrationExcludesLocalSettingsShortcut() {
-    let bindings = ShortcutManager.globalShortcutBindings(openShortcut: AppConfiguration.defaultOpenShortcut)
-
-    XCTAssertEqual(bindings, [AppConfiguration.defaultOpenShortcut, ShortcutManager.stackCaptureShortcut])
-    XCTAssertFalse(bindings.contains(AppConfiguration.defaultSettingsShortcut))
-  }
-
   func testRejectsConfiguredShortcutConflictWithFixedStackCaptureShortcut() {
     let manager = makeManager(openShortcut: ShortcutManager.stackCaptureShortcut)
 

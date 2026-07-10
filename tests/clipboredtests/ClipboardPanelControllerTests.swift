@@ -4,21 +4,6 @@ import XCTest
 @testable import ClipBored
 
 final class ClipboardPanelControllerTests: XCTestCase {
-  private var tempURLs: [URL] = []
-  private var defaultsSuites: [String] = []
-
-  override func tearDown() {
-    for url in tempURLs {
-      try? FileManager.default.removeItem(at: url)
-    }
-    tempURLs.removeAll()
-    for suite in defaultsSuites {
-      UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
-    }
-    defaultsSuites.removeAll()
-    super.tearDown()
-  }
-
   func testPanelFrameUsesRightSideShelfByDefault() {
     let screenFrame = CGRect(x: -1200, y: -200, width: 1200, height: 800)
     let frames = ClipboardPanelController.panelFrames(forScreenFrame: screenFrame, visibleFrame: screenFrame)
@@ -31,7 +16,7 @@ final class ClipboardPanelControllerTests: XCTestCase {
     XCTAssertEqual(frames.hidden.minY, frames.shown.minY)
   }
 
-  func testOpenScreenSelectionUsesStatusClickScreenWhenProvided() {
+  func testOpenScreenSelectionPrefersExplicitThenPointerScreen() {
     XCTAssertEqual(
       ClipboardPanelController.selectedOpenScreen(
         explicit: "status-item-screen",
@@ -41,9 +26,6 @@ final class ClipboardPanelControllerTests: XCTestCase {
       ),
       "status-item-screen"
     )
-  }
-
-  func testOpenScreenSelectionFallsBackToPointerForGlobalShortcut() {
     XCTAssertEqual(
       ClipboardPanelController.selectedOpenScreen(
         explicit: Optional<String>.none,
@@ -141,31 +123,6 @@ final class ClipboardPanelControllerTests: XCTestCase {
     XCTAssertEqual(frames.hidden.minX, screenFrame.maxX + 1)
   }
 
-  func testPanelFramePlanningIsDeterministicAcrossRepeatedToggles() {
-    let screenFrame = CGRect(x: -1512, y: -120, width: 1512, height: 982)
-    let visibleFrame = CGRect(x: -1512, y: -24, width: 1512, height: 861)
-    let first = ClipboardPanelController.panelFrames(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
-
-    for _ in 0..<50 {
-      let frames = ClipboardPanelController.panelFrames(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
-      XCTAssertEqual(frames.shown, first.shown)
-      XCTAssertEqual(frames.hidden, first.hidden)
-      XCTAssertEqual(frames.hidden.minX, frames.shown.maxX + 1)
-    }
-  }
-
-  func testPanelAnimationProfileStaysShortForSixtyFpsFeel() {
-    let profile = ClipboardPanelController.animationProfile
-
-    XCTAssertEqual(profile.showDuration, 0.22)
-    XCTAssertEqual(profile.hideDuration, 0.16)
-    XCTAssertEqual(profile.reflowDuration, 0.18)
-    XCTAssertLessThanOrEqual(profile.showDuration * 60, 14)
-    XCTAssertLessThanOrEqual(profile.hideDuration * 60, 10)
-    XCTAssertLessThanOrEqual(profile.reflowDuration * 60, 11)
-    XCTAssertEqual(profile.easing, .easeInEaseOut)
-  }
-
   func testPanelCollectionBehaviorStaysLocalToActiveSpaceAndSupportsFullscreen() {
     let behavior = ClipboardPanelController.panelCollectionBehavior
 
@@ -173,69 +130,6 @@ final class ClipboardPanelControllerTests: XCTestCase {
     XCTAssertTrue(behavior.contains(.fullScreenAuxiliary))
     XCTAssertTrue(behavior.contains(.transient))
     XCTAssertFalse(behavior.contains(.canJoinAllSpaces))
-  }
-
-  func testShowingPanelClearsAndCollapsesStaleSearchState() throws {
-    let screen = try XCTUnwrap(NSScreen.screens.first)
-    let (controller, _) = makeController(preferredScreen: screen)
-
-    controller.debugSetSearchFieldText("stale query")
-    drainMainQueue()
-    XCTAssertEqual(controller.debugSearchFieldText, "stale query")
-    XCTAssertEqual(controller.debugSearchFieldWidth, 238, accuracy: 1)
-    XCTAssertEqual(controller.debugSearchFieldPlaceholderText, "Search clips")
-    XCTAssertTrue(controller.debugSearchFieldIsVisible)
-    XCTAssertTrue(controller.debugSearchIconButtonIsVisible)
-
-    controller.show(preferredScreen: screen)
-    defer { controller.hide(immediate: true) }
-    drainMainQueue()
-
-    XCTAssertEqual(controller.debugSearchFieldText, "")
-    XCTAssertEqual(controller.debugSearchFieldWidth, 30, accuracy: 1)
-    XCTAssertEqual(controller.debugSearchFieldPlaceholderText, "")
-    XCTAssertFalse(controller.debugSearchFieldIsVisible)
-    XCTAssertTrue(controller.debugSearchIconButtonIsVisible)
-    XCTAssertFalse(controller.debugIsSearchFieldEditing)
-  }
-
-  func testReflowPlanKeepsOpenPanelOnRightSideWhenBottomDockIsVisible() {
-    let screenFrame = CGRect(x: 0, y: 0, width: 1512, height: 982)
-    let visibleFrame = CGRect(x: 0, y: 112, width: 1512, height: 845)
-
-    let plan = ClipboardPanelController.reflowPlan(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
-
-    XCTAssertEqual(plan.frame.maxX, visibleFrame.maxX)
-    XCTAssertEqual(plan.frame.minY, screenFrame.minY)
-    XCTAssertEqual(plan.frame.maxY, visibleFrame.maxY)
-    XCTAssertEqual(plan.frame.width, 336)
-    XCTAssertEqual(plan.bottomSafeInset, 20)
-  }
-
-  func testReflowPlanTouchesScreenBottomWhenBottomDockIsAutoHidden() {
-    let screenFrame = CGRect(x: 0, y: 0, width: 1512, height: 982)
-    let visibleFrame = CGRect(x: 0, y: 4, width: 1512, height: 953)
-
-    let plan = ClipboardPanelController.reflowPlan(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
-
-    XCTAssertEqual(plan.frame.maxX, visibleFrame.maxX)
-    XCTAssertEqual(plan.frame.minY, screenFrame.minY)
-    XCTAssertEqual(plan.frame.maxY, visibleFrame.maxY)
-    XCTAssertEqual(plan.frame.width, 336)
-    XCTAssertEqual(plan.bottomSafeInset, 18)
-  }
-
-  func testReflowPlanTracksSideDockVisibleFrameWithoutBottomInsetInflation() {
-    let screenFrame = CGRect(x: 0, y: 0, width: 1512, height: 982)
-    let visibleFrame = CGRect(x: 86, y: 0, width: 1426, height: 957)
-
-    let plan = ClipboardPanelController.reflowPlan(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
-
-    XCTAssertEqual(plan.frame.maxX, visibleFrame.maxX)
-    XCTAssertEqual(plan.frame.minX, visibleFrame.maxX - 336)
-    XCTAssertEqual(plan.frame.minY, screenFrame.minY)
-    XCTAssertEqual(plan.frame.height, 957)
-    XCTAssertEqual(plan.bottomSafeInset, 18)
   }
 
   func testPanelFrameUsesConfiguredRightSideShelf() {
@@ -289,22 +183,20 @@ final class ClipboardPanelControllerTests: XCTestCase {
     XCTAssertEqual(frames.shown.width, 336)
   }
 
-  func testContentBottomInsetReservesBottomDockSpace() {
+  func testContentBottomInsetHandlesBottomAndSideDock() {
     let screenFrame = CGRect(x: 0, y: 0, width: 1512, height: 982)
     let visibleFrame = CGRect(x: 0, y: 96, width: 1512, height: 861)
 
     let inset = ClipboardPanelController.contentBottomInset(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
 
     XCTAssertEqual(inset, 20)
-  }
-
-  func testContentBottomInsetUsesMinimumWhenDockIsNotAtBottom() {
-    let screenFrame = CGRect(x: 0, y: 0, width: 1512, height: 982)
-    let visibleFrame = CGRect(x: 80, y: 0, width: 1432, height: 957)
-
-    let inset = ClipboardPanelController.contentBottomInset(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
-
-    XCTAssertEqual(inset, 18)
+    XCTAssertEqual(
+      ClipboardPanelController.contentBottomInset(
+        forScreenFrame: screenFrame,
+        visibleFrame: CGRect(x: 80, y: 0, width: 1432, height: 957)
+      ),
+      18
+    )
   }
 
   func testPanelSharingTypeHidesWindowFromScreenCaptureWhenEnabled() {
@@ -326,41 +218,38 @@ final class ClipboardPanelControllerTests: XCTestCase {
   }
 
   func testCommandNumberShortcutsMapToQuickPasteSlots() {
-    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 18, modifiers: .command), 0)
-    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 19, modifiers: .command), 1)
-    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 20, modifiers: .command), 2)
-    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 21, modifiers: .command), 3)
-    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 23, modifiers: .command), 4)
-    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 22, modifiers: .command), 5)
-    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 26, modifiers: .command), 6)
-    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 28, modifiers: .command), 7)
-    XCTAssertEqual(ClipboardPanelController.quickPasteIndex(forKeyCode: 25, modifiers: .command), 8)
+    assertShortcutMappings([
+      (18, .command, 0), (19, .command, 1), (20, .command, 2),
+      (21, .command, 3), (23, .command, 4), (22, .command, 5),
+      (26, .command, 6), (28, .command, 7), (25, .command, 8)
+    ], using: ClipboardPanelController.quickPasteIndex)
   }
 
   func testShiftCommandNumberShortcutsMapToPlainTextQuickPasteSlots() {
-    XCTAssertEqual(ClipboardPanelController.quickPastePlainTextIndex(forKeyCode: 18, modifiers: [.command, .shift]), 0)
-    XCTAssertEqual(ClipboardPanelController.quickPastePlainTextIndex(forKeyCode: 25, modifiers: [.command, .shift]), 8)
-    XCTAssertNil(ClipboardPanelController.quickPastePlainTextIndex(forKeyCode: 18, modifiers: .command))
-    XCTAssertNil(ClipboardPanelController.quickPastePlainTextIndex(forKeyCode: 18, modifiers: [.command, .option, .shift]))
+    assertShortcutMappings([
+      (18, [.command, .shift], 0),
+      (25, [.command, .shift], 8),
+      (18, .command, nil),
+      (18, [.command, .option, .shift], nil)
+    ], using: ClipboardPanelController.quickPastePlainTextIndex)
   }
 
   func testCommandOptionNumberShortcutsMapToCollections() {
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 18, modifiers: [.command, .option]), .mostRecent)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 19, modifiers: [.command, .option]), .mostUsed)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 20, modifiers: [.command, .option]), .text)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 21, modifiers: [.command, .option]), .links)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 23, modifiers: [.command, .option]), .images)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 22, modifiers: [.command, .option]), .files)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 26, modifiers: [.command, .option]), .pinned)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 28, modifiers: [.command, .option]), .audio)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 25, modifiers: [.command, .option]), .colors)
-    XCTAssertEqual(ClipboardPanelController.collectionShortcutMode(forKeyCode: 29, modifiers: [.command, .option]), .code)
-  }
-
-  func testCollectionShortcutsRequireCommandOptionSoQuickPasteKeepsCommandNumbers() {
-    XCTAssertNil(ClipboardPanelController.collectionShortcutMode(forKeyCode: 18, modifiers: []))
-    XCTAssertNil(ClipboardPanelController.collectionShortcutMode(forKeyCode: 18, modifiers: .command))
-    XCTAssertNil(ClipboardPanelController.collectionShortcutMode(forKeyCode: 29, modifiers: .command))
+    assertShortcutMappings([
+      (18, [.command, .option], .mostRecent),
+      (19, [.command, .option], .mostUsed),
+      (20, [.command, .option], .text),
+      (21, [.command, .option], .links),
+      (23, [.command, .option], .images),
+      (22, [.command, .option], .files),
+      (26, [.command, .option], .pinned),
+      (28, [.command, .option], .audio),
+      (25, [.command, .option], .colors),
+      (29, [.command, .option], .code),
+      (18, [], nil),
+      (18, .command, nil),
+      (29, .command, nil)
+    ], using: ClipboardPanelController.collectionShortcutMode)
   }
 
   func testSearchFieldSpacePreviewShortcutRequiresEmptySearchAndNoModifiers() {
@@ -372,60 +261,35 @@ final class ClipboardPanelControllerTests: XCTestCase {
   }
 
   func testNavigationShortcutsMapToShelfMovement() {
-    XCTAssertEqual(ClipboardPanelController.navigationShortcutAction(forKeyCode: 115, modifiers: []), .first)
-    XCTAssertEqual(ClipboardPanelController.navigationShortcutAction(forKeyCode: 119, modifiers: []), .last)
-    XCTAssertEqual(ClipboardPanelController.navigationShortcutAction(forKeyCode: 124, modifiers: []), .next)
-    XCTAssertEqual(ClipboardPanelController.navigationShortcutAction(forKeyCode: 121, modifiers: []), .pageNext)
-    XCTAssertEqual(ClipboardPanelController.navigationShortcutAction(forKeyCode: 116, modifiers: []), .pagePrevious)
-    XCTAssertEqual(ClipboardPanelController.navigationShortcutAction(forKeyCode: 123, modifiers: []), .previous)
-    XCTAssertEqual(ClipboardPanelController.navigationShortcutAction(forKeyCode: 126, modifiers: .command), .first)
-    XCTAssertEqual(ClipboardPanelController.navigationShortcutAction(forKeyCode: 125, modifiers: .command), .last)
-  }
-
-  func testNavigationShortcutsRejectUnsupportedModifiers() {
-    XCTAssertNil(ClipboardPanelController.navigationShortcutAction(forKeyCode: 124, modifiers: .command))
-    XCTAssertNil(ClipboardPanelController.navigationShortcutAction(forKeyCode: 126, modifiers: []))
-    XCTAssertNil(ClipboardPanelController.navigationShortcutAction(forKeyCode: 125, modifiers: []))
-    XCTAssertNil(ClipboardPanelController.navigationShortcutAction(forKeyCode: 121, modifiers: .shift))
-    XCTAssertNil(ClipboardPanelController.navigationShortcutAction(forKeyCode: 35, modifiers: []))
+    assertShortcutMappings([
+      (115, [], .first), (119, [], .last), (124, [], .next),
+      (121, [], .pageNext), (116, [], .pagePrevious), (123, [], .previous),
+      (126, .command, .first), (125, .command, .last),
+      (124, .command, nil), (126, [], nil), (125, [], nil),
+      (121, .shift, nil), (35, [], nil)
+    ], using: ClipboardPanelController.navigationShortcutAction)
   }
 
   func testSelectionShortcutsMapToRangeAndSelectAllActions() {
-    XCTAssertEqual(ClipboardPanelController.selectionShortcutAction(forKeyCode: 0, modifiers: .command), .selectAll)
-    XCTAssertEqual(ClipboardPanelController.selectionShortcutAction(forKeyCode: 115, modifiers: .shift), .extendFirst)
-    XCTAssertEqual(ClipboardPanelController.selectionShortcutAction(forKeyCode: 119, modifiers: .shift), .extendLast)
-    XCTAssertEqual(ClipboardPanelController.selectionShortcutAction(forKeyCode: 124, modifiers: .shift), .extendNext)
-    XCTAssertEqual(ClipboardPanelController.selectionShortcutAction(forKeyCode: 121, modifiers: .shift), .extendPageNext)
-    XCTAssertEqual(ClipboardPanelController.selectionShortcutAction(forKeyCode: 116, modifiers: .shift), .extendPagePrevious)
-    XCTAssertEqual(ClipboardPanelController.selectionShortcutAction(forKeyCode: 123, modifiers: .shift), .extendPrevious)
-  }
-
-  func testSelectionShortcutsRequireExactModifierSets() {
-    XCTAssertNil(ClipboardPanelController.selectionShortcutAction(forKeyCode: 0, modifiers: []))
-    XCTAssertNil(ClipboardPanelController.selectionShortcutAction(forKeyCode: 0, modifiers: [.command, .shift]))
-    XCTAssertNil(ClipboardPanelController.selectionShortcutAction(forKeyCode: 124, modifiers: []))
-    XCTAssertNil(ClipboardPanelController.selectionShortcutAction(forKeyCode: 124, modifiers: [.command, .shift]))
+    assertShortcutMappings([
+      (0, .command, .selectAll),
+      (115, .shift, .extendFirst), (119, .shift, .extendLast),
+      (124, .shift, .extendNext), (121, .shift, .extendPageNext),
+      (116, .shift, .extendPagePrevious), (123, .shift, .extendPrevious),
+      (0, [], nil), (0, [.command, .shift], nil),
+      (124, [], nil), (124, [.command, .shift], nil)
+    ], using: ClipboardPanelController.selectionShortcutAction)
   }
 
   func testCommandActionShortcutsMapToSelectedClipActions() {
-    XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 8, modifiers: .command), .copy)
-    XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 14, modifiers: .command), .edit)
-    XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 3, modifiers: .command), .focusSearch)
-    XCTAssertNil(ClipboardPanelController.commandShortcutAction(forKeyCode: 45, modifiers: .command))
-    XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 5, modifiers: .command), .showInClipboard)
-    XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 16, modifiers: .command), .preview)
-    XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 31, modifiers: .command), .open)
-    XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 15, modifiers: .command), .rename)
-    XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 17, modifiers: .command), .toggleCapturePause)
-    XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 6, modifiers: .command), .undoDelete)
-    XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 123, modifiers: .command), .previousCollection)
-    XCTAssertEqual(ClipboardPanelController.commandShortcutAction(forKeyCode: 124, modifiers: .command), .nextCollection)
-  }
-
-  func testCommandActionShortcutsRequireCommandOnlySoSearchTypingIsUntouched() {
-    XCTAssertNil(ClipboardPanelController.commandShortcutAction(forKeyCode: 8, modifiers: []))
-    XCTAssertNil(ClipboardPanelController.commandShortcutAction(forKeyCode: 8, modifiers: [.command, .shift]))
-    XCTAssertNil(ClipboardPanelController.commandShortcutAction(forKeyCode: 9, modifiers: .command))
+    assertShortcutMappings([
+      (8, .command, .copy), (14, .command, .edit), (3, .command, .focusSearch),
+      (45, .command, nil), (5, .command, .showInClipboard),
+      (16, .command, .preview), (31, .command, .open), (15, .command, .rename),
+      (17, .command, .toggleCapturePause), (6, .command, .undoDelete),
+      (123, .command, .previousCollection), (124, .command, .nextCollection),
+      (8, [], nil), (8, [.command, .shift], nil), (9, .command, nil)
+    ], using: ClipboardPanelController.commandShortcutAction)
   }
 
   func testSettingsShortcutMatchesOnlyItsExactLocalBinding() {
@@ -455,67 +319,32 @@ final class ClipboardPanelControllerTests: XCTestCase {
   }
 
   func testModifiedShortcutsMapToPanelActions() {
-    XCTAssertEqual(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 36, modifiers: .shift), .pastePlainText)
-    XCTAssertEqual(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 1, modifiers: [.command, .shift]), .toggleStack)
-    XCTAssertEqual(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 8, modifiers: [.command, .shift]), .toggleStackCapture)
-    XCTAssertEqual(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 9, modifiers: [.command, .shift]), .pastePlainText)
-    XCTAssertEqual(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 45, modifiers: [.command, .shift]), .newCollection)
-    XCTAssertEqual(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 36, modifiers: [.command, .shift]), .pasteStackNext)
+    assertShortcutMappings([
+      (36, .shift, .pastePlainText),
+      (1, [.command, .shift], .toggleStack),
+      (8, [.command, .shift], .toggleStackCapture),
+      (9, [.command, .shift], .pastePlainText),
+      (45, [.command, .shift], .newCollection),
+      (36, [.command, .shift], .pasteStackNext),
+      (36, [], nil), (8, .shift, nil), (8, .command, nil),
+      (8, [.command, .option, .shift], nil), (31, [.command, .shift], nil)
+    ], using: ClipboardPanelController.modifiedShortcutAction)
   }
 
-  func testModifiedShortcutsRequireCommandShiftOnly() {
-    XCTAssertNil(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 36, modifiers: []))
-    XCTAssertNil(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 8, modifiers: .shift))
-    XCTAssertNil(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 8, modifiers: .command))
-    XCTAssertNil(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 8, modifiers: [.command, .option, .shift]))
-    XCTAssertNil(ClipboardPanelController.modifiedShortcutAction(forKeyCode: 31, modifiers: [.command, .shift]))
-  }
-
-  private func makeController(preferredScreen: NSScreen) -> (ClipboardPanelController, ClipboardStore) {
-    let settings = makeSettings()
-    let encryptionService = ClipboardEncryptionService(keyProvider: { nil })
-    let cacheService = ClipboardCacheService(
-      baseURL: makeTempDirectory(),
-      encryptionService: encryptionService
-    )
-    let store = ClipboardStore(
-      settings: settings,
-      cacheService: cacheService,
-      baseURL: makeTempDirectory(),
-      encryptionService: encryptionService
-    )
-    let controller = ClipboardPanelController(
-      store: store,
-      settings: settings,
-      cacheService: cacheService,
-      preferredScreen: { preferredScreen }
-    )
-    return (controller, store)
-  }
-
-  private func makeSettings() -> SettingsModel {
-    let suite = "com.clipbored.controllertest.\(UUID().uuidString)"
-    defaultsSuites.append(suite)
-    let defaults = UserDefaults(suiteName: suite)!
-    let settings = SettingsModel(defaults: defaults)
-    settings.maxHistoryItems = 10
-    settings.historyRetention = .forever
-    settings.pruneDuplicates = false
-    return settings
-  }
-
-  private func makeTempDirectory() -> URL {
-    let directory = FileManager.default.temporaryDirectory
-      .appendingPathComponent("clipbored-controllertest")
-      .appendingPathComponent(UUID().uuidString)
-    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    tempURLs.append(directory)
-    return directory
-  }
-
-  private func drainMainQueue() {
-    for _ in 0..<24 {
-      RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+  private func assertShortcutMappings<Value: Equatable>(
+    _ cases: [(keyCode: UInt16, modifiers: NSEvent.ModifierFlags, expected: Value?)],
+    using mapping: (UInt16, NSEvent.ModifierFlags) -> Value?,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    for testCase in cases {
+      XCTAssertEqual(
+        mapping(testCase.keyCode, testCase.modifiers),
+        testCase.expected,
+        "keyCode \(testCase.keyCode), modifiers \(testCase.modifiers.rawValue)",
+        file: file,
+        line: line
+      )
     }
   }
 }

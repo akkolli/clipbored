@@ -108,7 +108,6 @@ final class ClipboardMonitorService {
   }
 
   private func tick() {
-    DiagnosticsService.shared.incrementMonitorTick()
     pollPasteboard(rescheduleAfterCapture: true)
   }
 
@@ -138,7 +137,6 @@ final class ClipboardMonitorService {
       return
     }
 
-    DiagnosticsService.shared.incrementPasteboardChange()
 
     didReportReadFailure = false
     if let item = readCurrentItem(from: pasteboard) {
@@ -162,7 +160,6 @@ final class ClipboardMonitorService {
   }
 
   private func readCurrentItem(from pasteboard: NSPasteboard) -> ClipboardItem? {
-    DiagnosticsService.shared.incrementExtractionAttempt()
     let source = frontmostApp()
 
     func isIgnored(_ kind: ClipboardItemKind) -> Bool {

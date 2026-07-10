@@ -62,9 +62,3 @@ extension NSImage {
     )
   }
 }
-
-extension NSView {
-  var isInAnyViewHierarchy: Bool {
-    return window != nil
-  }
-}

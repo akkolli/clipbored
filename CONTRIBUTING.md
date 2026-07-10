@@ -24,6 +24,7 @@ Run the full local check before opening a pull request:
 - Avoid storing new classes of sensitive data. If capture behavior expands, add tests and update `docs/SECURITY.md`.
 - Keep idle work bounded. Polling, timers, file scans, and cache purges should have clear caps or backoff behavior.
 - Add tests for persistence, pruning, sensitive filtering, shortcut parsing, pasteboard behavior, and search/sort changes.
+- Prefer behavior-level tests. Use the smoke checklist for visual layout instead of adding production debug accessors for private UI details.
 - Keep UI native and compact. This is a utility, not a marketing surface.
 
 ## Pull Request Checklist

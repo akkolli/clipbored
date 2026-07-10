@@ -261,10 +261,6 @@ final class ShortcutManager {
     modifierFlags: NSEvent.ModifierFlags([.command, .shift]).rawValue
   )
 
-  static func globalShortcutBindings(openShortcut: ShortcutBinding) -> [ShortcutBinding] {
-    [openShortcut, stackCaptureShortcut]
-  }
-
   private func osStatusMessage(_ status: OSStatus) -> String {
     "OSStatus \(status)"
   }
