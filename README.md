@@ -56,7 +56,7 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
 ## Requirements
 
 - macOS 13 or newer
-- Xcode command line tools with Swift 5.9 or newer
+- Xcode 16 or newer command line tools with the macOS 15 SDK or newer
 - Python 3.9 or newer for build provenance and verification
 
 ## Build
