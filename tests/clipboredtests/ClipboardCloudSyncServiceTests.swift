@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import ClipBored
+@testable import Goldfish
 
 final class ClipboardCloudSyncServiceTests: XCTestCase {
   private var tempRoot: URL!
@@ -33,7 +33,7 @@ final class ClipboardCloudSyncServiceTests: XCTestCase {
 
     XCTAssertFalse(status.isAvailable)
     XCTAssertNil(status.archiveURL)
-    XCTAssertTrue(status.message.contains("iCloud Sync is unavailable"))
+    XCTAssertTrue(status.message.contains("iCloud Backup is unavailable"))
     XCTAssertThrowsError(try service.syncArchiveURL()) { error in
       XCTAssertEqual(error as? ClipboardCloudSyncError, .unavailable)
     }
@@ -56,8 +56,8 @@ final class ClipboardCloudSyncServiceTests: XCTestCase {
       archiveURL,
       cloudRoot
         .appendingPathComponent("Documents", isDirectory: true)
-        .appendingPathComponent(AppConfiguration.appName, isDirectory: true)
-        .appendingPathComponent(ClipboardCloudSyncService.archiveFileName)
+        .appendingPathComponent("ClipBored", isDirectory: true)
+        .appendingPathComponent("ClipBored.clipboredarchive")
     )
     XCTAssertTrue(FileManager.default.fileExists(atPath: archiveURL.path))
     XCTAssertEqual(try posixPermissions(archiveURL), 0o600)

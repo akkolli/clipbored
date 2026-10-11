@@ -18,7 +18,7 @@ Report privately by contacting the maintainer listed in the repository profile. 
 
 ## Current Security Model
 
-ClipBored is local-only:
+Goldfish is local-only:
 
 - no network APIs
 - no telemetry

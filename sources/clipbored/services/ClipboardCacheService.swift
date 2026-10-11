@@ -1,5 +1,5 @@
-import AppKit
 import AVFoundation
+import AppKit
 import Foundation
 
 final class ClipboardCacheService {
@@ -9,37 +9,41 @@ final class ClipboardCacheService {
   private let fileManager = FileManager.default
   private let queue = DispatchQueue(label: "clipboard.cache.service", qos: .utility)
   private let imageDirectory: URL
+  private let thumbnailDirectory: URL
   private let attachmentDirectory: URL
   private let temporaryPreviewDirectory: URL
   private let encryptionService: ClipboardEncryptionService
   private let videoThumbnailProvider: VideoThumbnailProvider
 
   init(
-    baseURL: URL? = nil,
-    encryptionService: ClipboardEncryptionService = ClipboardEncryptionService(),
+    baseURL: URL? = nil, encryptionService: ClipboardEncryptionService = ClipboardEncryptionService(),
     videoThumbnailProvider: VideoThumbnailProvider? = nil
   ) {
     let base = baseURL ?? ClipboardStore.storageDirectory()
     imageDirectory = base.appendingPathComponent("images", isDirectory: true)
+    thumbnailDirectory = base.appendingPathComponent("thumbnails", isDirectory: true)
     attachmentDirectory = base.appendingPathComponent("attachments", isDirectory: true)
-    temporaryPreviewDirectory = FileManager.default.temporaryDirectory
-      .appendingPathComponent(AppConfiguration.appName, isDirectory: true)
-      .appendingPathComponent("Previews", isDirectory: true)
+    temporaryPreviewDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      AppConfiguration.storageDirectoryName, isDirectory: true
+    ).appendingPathComponent("Previews", isDirectory: true)
     self.encryptionService = encryptionService
     self.videoThumbnailProvider = videoThumbnailProvider ?? Self.makeVideoThumbnail
     thumbnailCache.countLimit = 128
     try? fileManager.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
+    try? fileManager.createDirectory(at: thumbnailDirectory, withIntermediateDirectories: true)
     try? fileManager.createDirectory(at: attachmentDirectory, withIntermediateDirectories: true)
     hardenDirectory(imageDirectory)
+    hardenDirectory(thumbnailDirectory)
     hardenDirectory(attachmentDirectory)
     clearTemporaryPreviews(wait: true)
   }
 
   func cacheImage(_ image: NSImage, id: UUID) -> (full: String, thumb: String)? {
     let fullURL = imageDirectory.appendingPathComponent("\(id.uuidString).png")
-    let thumbURL = imageDirectory.appendingPathComponent("thumb-\(id.uuidString).png")
+    let thumbURL = thumbnailDirectory.appendingPathComponent("\(id.uuidString).png")
 
-    let boundedFullImage = image.resized(to: .init(width: AppConfiguration.maxFullImagePixelSize, height: AppConfiguration.maxFullImagePixelSize))
+    let boundedFullImage = image.resized(
+      to: .init(width: AppConfiguration.maxFullImagePixelSize, height: AppConfiguration.maxFullImagePixelSize))
     guard let fullData = boundedFullImage.pngData() else { return nil }
     let thumbnail = image.resized(to: .init(width: 320, height: 320))
     guard let thumbData = thumbnail.pngData() else { return nil }
@@ -51,52 +55,37 @@ final class ClipboardCacheService {
       hardenFile(thumbURL)
       thumbnailCache.setObject(thumbImage(thumbData) ?? image, forKey: thumbURL.path as NSString)
       return (full: fullURL.path, thumb: thumbURL.path)
-    } catch {
-      return nil
-    }
+    } catch { return nil }
   }
 
-  func cachePDF(_ data: Data, id: UUID) -> String? {
-    cacheAttachmentData(data, id: id, fileExtension: "pdf")
-  }
+  func cachePDF(_ data: Data, id: UUID) -> String? { cacheAttachmentData(data, id: id, fileExtension: "pdf") }
 
-  func cacheAudio(_ data: Data, id: UUID) -> String? {
-    cacheAttachmentData(data, id: id, fileExtension: "sound")
-  }
+  func cacheAudio(_ data: Data, id: UUID) -> String? { cacheAttachmentData(data, id: id, fileExtension: "sound") }
 
   func cacheVideo(_ data: Data, id: UUID, fileExtension: String) -> String? {
     cacheAttachmentData(data, id: id, fileExtension: fileExtension)
   }
 
-  func cacheRichText(_ data: Data, id: UUID) -> String? {
-    cacheAttachmentData(data, id: id, fileExtension: "rtf")
-  }
+  func cacheRichText(_ data: Data, id: UUID) -> String? { cacheAttachmentData(data, id: id, fileExtension: "rtf") }
 
   func cacheAttachmentData(_ data: Data, id: UUID, fileExtension: String) -> String? {
-    let sanitizedExtension = fileExtension
-      .split { $0 == "." || $0 == "/" || $0 == "\\" }
-      .last
-      .map(String.init) ?? "dat"
+    let sanitizedExtension = fileExtension.split { $0 == "." || $0 == "/" || $0 == "\\" }.last.map(String.init) ?? "dat"
     let normalizedExtension = sanitizedExtension.clipboardTrimmed.isEmpty ? "dat" : sanitizedExtension
     return cacheAttachment(data, id: id, fileExtension: normalizedExtension)
   }
 
   func cacheImageSidecarData(_ data: Data, id: UUID, fileNamePrefix: String? = nil) -> String? {
     let prefix = fileNamePrefix?.clipboardTrimmed ?? ""
-    let fileName = prefix.isEmpty
-      ? "\(id.uuidString).png"
-      : "\(prefix)-\(id.uuidString).png"
-    let url = imageDirectory.appendingPathComponent(fileName)
+    let fileName: String
+    if prefix.isEmpty || prefix == "thumb" { fileName = "\(id.uuidString).png" } else { fileName = "\(prefix)-\(id.uuidString).png" }
+    let directory = prefix == "thumb" ? thumbnailDirectory : imageDirectory
+    let url = directory.appendingPathComponent(fileName)
     do {
       try encrypted(data).write(to: url, options: .atomic)
       hardenFile(url)
-      if let image = thumbImage(data) {
-        thumbnailCache.setObject(image, forKey: url.path as NSString)
-      }
+      if let image = thumbImage(data) { thumbnailCache.setObject(image, forKey: url.path as NSString) }
       return url.path
-    } catch {
-      return nil
-    }
+    } catch { return nil }
   }
 
   private func cacheAttachment(_ data: Data, id: UUID, fileExtension: String) -> String? {
@@ -105,16 +94,12 @@ final class ClipboardCacheService {
       try encrypted(data).write(to: url, options: .atomic)
       hardenFile(url)
       return url.path
-    } catch {
-      return nil
-    }
+    } catch { return nil }
   }
 
   func image(for path: String) -> NSImage? {
     let key = NSString(string: path)
-    if let cached = thumbnailCache.object(forKey: key) {
-      return cached
-    }
+    if let cached = thumbnailCache.object(forKey: key) { return cached }
 
     guard let data = data(for: path), let image = NSImage(data: data) else { return nil }
     thumbnailCache.setObject(image, forKey: key)
@@ -124,44 +109,34 @@ final class ClipboardCacheService {
   func previewThumbnail(for item: ClipboardItem) -> NSImage? {
     switch item.kind {
     case .url, .image:
-      guard let path = item.thumbnailPath else { return nil }
-      return image(for: path)
+      if let path = item.thumbnailPath, let thumbnail = image(for: path) { return thumbnail }
+      guard let path = item.imagePath, let fullImage = image(for: path) else { return nil }
+      return fullImage.resized(to: CGSize(width: 320, height: 320))
 
     case .pdf:
       let key = NSString(string: "pdf-preview:\(item.id.uuidString):\(item.payload)")
-      if let cached = thumbnailCache.object(forKey: key) {
-        return cached
-      }
+      if let cached = thumbnailCache.object(forKey: key) { return cached }
 
-      if let data = data(for: item.payload),
-         let image = NSImage(data: data),
-         hasDrawableSize(image) {
+      if let data = data(for: item.payload), let image = NSImage(data: data), hasDrawableSize(image) {
         let thumbnail = image.resized(to: CGSize(width: 260, height: 132))
         thumbnailCache.setObject(thumbnail, forKey: key)
         return thumbnail
       }
       return filePreviewThumbnail(for: item.payload)
 
-    case .file:
-      return filePreviewThumbnail(for: item.payload)
+    case .file: return filePreviewThumbnail(for: item.payload)
 
-    case .video:
-      return videoPreviewThumbnail(for: item)
+    case .video: return videoPreviewThumbnail(for: item)
 
-    case .text, .unknown, .audio, .richText, .color, .code:
-      return nil
+    case .text, .unknown, .audio, .richText, .color, .code: return nil
     }
   }
 
   func data(for path: String) -> Data? {
     let url = URL(fileURLWithPath: path)
-    guard let stored = try? Data(contentsOf: url) else {
-      return nil
-    }
+    guard let stored = try? Data(contentsOf: url) else { return nil }
 
-    if ClipboardEncryptionService.isProtected(stored) {
-      return encryptionService.unprotectData(stored)
-    }
+    if ClipboardEncryptionService.isProtected(stored) { return encryptionService.unprotectData(stored) }
 
     if isManagedSidecar(path: path), encryptionService.isAvailable {
       try? encrypted(stored).write(to: url, options: .atomic)
@@ -171,14 +146,10 @@ final class ClipboardCacheService {
   }
 
   private func filePreviewThumbnail(for path: String) -> NSImage? {
-    guard let url = fileURL(from: path), fileManager.fileExists(atPath: url.path) else {
-      return nil
-    }
+    guard let url = fileURL(from: path), fileManager.fileExists(atPath: url.path) else { return nil }
 
     let key = NSString(string: "file-preview:\(url.standardizedFileURL.path)")
-    if let cached = thumbnailCache.object(forKey: key) {
-      return cached
-    }
+    if let cached = thumbnailCache.object(forKey: key) { return cached }
 
     let image: NSImage
     if let decoded = NSImage(contentsOf: url), decoded.isValid, hasDrawableSize(decoded) {
@@ -195,25 +166,14 @@ final class ClipboardCacheService {
 
   private func videoPreviewThumbnail(for item: ClipboardItem) -> NSImage? {
     let key = NSString(string: "video-preview:\(item.id.uuidString):\(item.payload)")
-    if let cached = thumbnailCache.object(forKey: key) {
-      return cached
-    }
+    if let cached = thumbnailCache.object(forKey: key) { return cached }
 
-    guard
-      let data = data(for: item.payload),
-      let temporaryURL = writeTemporaryCopy(
-        data: data,
-        id: item.id,
-        fileExtension: VideoPayload.fileExtension(from: item.payload)
-      )
-    else {
-      return nil
-    }
+    guard let data = data(for: item.payload),
+      let temporaryURL = writeTemporaryCopy(data: data, id: item.id, fileExtension: VideoPayload.fileExtension(from: item.payload))
+    else { return nil }
     defer { removeTemporaryCopyIfPossible(temporaryURL) }
 
-    guard let image = videoThumbnailProvider(temporaryURL), hasDrawableSize(image) else {
-      return nil
-    }
+    guard let image = videoThumbnailProvider(temporaryURL), hasDrawableSize(image) else { return nil }
     let thumbnail = image.resized(to: CGSize(width: 260, height: 132))
     thumbnailCache.setObject(thumbnail, forKey: key)
     return thumbnail
@@ -229,48 +189,45 @@ final class ClipboardCacheService {
 
     for time in [CMTime(seconds: 0.08, preferredTimescale: 600), .zero] {
       if let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) {
-        return NSImage(
-          cgImage: cgImage,
-          size: NSSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height))
-        )
+        return NSImage(cgImage: cgImage, size: NSSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height)))
       }
     }
     return nil
   }
 
-  private func hasDrawableSize(_ image: NSImage) -> Bool {
-    image.size.width > 0 && image.size.height > 0
-  }
+  private func hasDrawableSize(_ image: NSImage) -> Bool { image.size.width > 0 && image.size.height > 0 }
 
   private func fileURL(from path: String) -> URL? {
     let trimmed = path.clipboardTrimmed
     guard !trimmed.isEmpty else { return nil }
-    if trimmed.lowercased().hasPrefix("file://"), let url = URL(string: trimmed) {
-      return url
-    }
+    if trimmed.lowercased().hasPrefix("file://"), let url = URL(string: trimmed) { return url }
     return URL(fileURLWithPath: trimmed)
   }
 
   func temporaryReadableURL(for item: ClipboardItem) -> URL? {
+    let source: String
+    let fileExtension: String
     switch item.kind {
     case .image:
-      guard let path = item.imagePath, let data = data(for: path) else { return nil }
-      return writeTemporaryCopy(data: data, id: item.id, fileExtension: "png")
+      guard let imagePath = item.imagePath else { return nil }
+      source = imagePath
+      fileExtension = "png"
     case .pdf:
-      guard let data = data(for: item.payload) else { return nil }
-      return writeTemporaryCopy(data: data, id: item.id, fileExtension: "pdf")
+      source = item.payload
+      fileExtension = "pdf"
     case .audio:
-      guard let data = data(for: item.payload) else { return nil }
-      return writeTemporaryCopy(data: data, id: item.id, fileExtension: "sound")
+      source = item.payload
+      fileExtension = "sound"
     case .video:
-      guard let data = data(for: item.payload) else { return nil }
-      return writeTemporaryCopy(data: data, id: item.id, fileExtension: VideoPayload.fileExtension(from: item.payload))
+      source = item.payload
+      fileExtension = VideoPayload.fileExtension(from: item.payload)
     case .richText:
-      guard let data = data(for: item.payload) else { return nil }
-      return writeTemporaryCopy(data: data, id: item.id, fileExtension: "rtf")
-    default:
-      return nil
+      source = item.payload
+      fileExtension = "rtf"
+    default: return nil
     }
+    guard let contents = data(for: source) else { return nil }
+    return writeTemporaryCopy(data: contents, id: item.id, fileExtension: fileExtension)
   }
 
   func temporaryPreviewURL(for item: ClipboardItem) -> URL? {
@@ -288,55 +245,41 @@ final class ClipboardCacheService {
     case .url:
       guard let data = webLocationData(for: item.payload) else { return nil }
       return writeTemporaryCopy(data: data, id: item.id, fileExtension: "webloc")
-    case .image, .pdf, .audio, .richText, .video:
-      return temporaryReadableURL(for: item)
+    case .image, .pdf, .audio, .richText, .video: return temporaryReadableURL(for: item)
     }
   }
 
   func encryptCachedReferencesIfNeeded(for items: [ClipboardItem]) {
     queue.async { [weak self] in
       guard let self else { return }
-      for item in items {
-        if let imagePath = item.imagePath {
-          _ = self.data(for: imagePath)
-        }
-        if let thumbnailPath = item.thumbnailPath {
-          _ = self.data(for: thumbnailPath)
-        }
-        if (item.kind == .pdf || item.kind == .audio || item.kind == .richText || item.kind == .video), self.isManagedAttachment(path: item.payload) {
-          _ = self.data(for: item.payload)
-        }
-      }
+      for item in items { for path in self.cachedReferences(for: item) { _ = self.data(for: path) } }
     }
   }
 
   func removeCachedReferences(_ item: ClipboardItem) {
     queue.async { [weak self] in
       guard let self else { return }
-      if let path = item.imagePath {
+      for path in self.cachedReferences(for: item) {
         try? self.fileManager.removeItem(atPath: path)
         self.thumbnailCache.removeObject(forKey: NSString(string: path))
-      }
-      if let path = item.thumbnailPath {
-        try? self.fileManager.removeItem(atPath: path)
-        self.thumbnailCache.removeObject(forKey: NSString(string: path))
-      }
-      if (item.kind == .pdf || item.kind == .audio || item.kind == .richText || item.kind == .video), self.isManagedAttachment(path: item.payload) {
-        try? self.fileManager.removeItem(atPath: item.payload)
       }
     }
   }
 
+  private func cachedReferences(for item: ClipboardItem) -> [String] {
+    var paths = [item.imagePath, item.thumbnailPath].compactMap { $0 }
+    if [.pdf, .audio, .richText, .video].contains(item.kind), isManagedAttachment(path: item.payload) { paths.append(item.payload) }
+    return paths
+  }
+
   func purgeIfNeeded(maxBytes: Int64) {
     queue.async {
-      let urls = (try? self.fileManager.contentsOfDirectory(at: self.imageDirectory, includingPropertiesForKeys: nil, options: [])) ?? []
+      let urls = self.thumbnailFileURLs()
       var items: [(url: URL, size: Int64, date: Date)] = []
       var totalSize: Int64 = 0
 
       for url in urls {
-        guard
-          let attrs = try? self.fileManager.attributesOfItem(atPath: url.path),
-          let size = attrs[.size] as? NSNumber,
+        guard let attrs = try? self.fileManager.attributesOfItem(atPath: url.path), let size = attrs[.size] as? NSNumber,
           let mod = attrs[.modificationDate] as? Date
         else { continue }
 
@@ -345,9 +288,7 @@ final class ClipboardCacheService {
         items.append((url, bytes, mod))
       }
 
-      if totalSize <= maxBytes && items.count <= AppConfiguration.maxImageCacheFiles {
-        return
-      }
+      if totalSize <= maxBytes && items.count <= AppConfiguration.maxImageCacheFiles { return }
 
       let ordered = items.sorted { $0.date < $1.date }
       var remaining = totalSize
@@ -367,10 +308,8 @@ final class ClipboardCacheService {
     queue.async { [weak self] in
       guard let self else { return }
       thumbnailCache.removeAllObjects()
-      let contents = (try? self.fileManager.contentsOfDirectory(at: self.imageDirectory, includingPropertiesForKeys: nil, options: [])) ?? []
-      for url in contents {
-        try? self.fileManager.removeItem(at: url)
-      }
+      let contents = self.thumbnailFileURLs()
+      for url in contents { try? self.fileManager.removeItem(at: url) }
       self.removeTemporaryPreviewFiles()
     }
   }
@@ -380,32 +319,18 @@ final class ClipboardCacheService {
       guard let self else { return }
       self.removeTemporaryPreviewFiles()
     }
-    if wait {
-      queue.sync(execute: work)
-    } else {
-      queue.async(execute: work)
-    }
+    if wait { queue.sync(execute: work) } else { queue.async(execute: work) }
   }
 
-  func flushForTesting() {
-    queue.sync {}
-  }
+  func flushForTesting() { queue.sync {} }
 
-  private func thumbImage(_ data: Data) -> NSImage? {
-    NSImage(data: data)
-  }
+  private func thumbImage(_ data: Data) -> NSImage? { NSImage(data: data) }
 
-  private func encrypted(_ data: Data) -> Data {
-    encryptionService.protectData(data)
-  }
+  private func encrypted(_ data: Data) throws -> Data { try encryptionService.protectDataForStorage(data) }
 
-  private func hardenDirectory(_ url: URL) {
-    try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
-  }
+  private func hardenDirectory(_ url: URL) { try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path) }
 
-  private func hardenFile(_ url: URL) {
-    try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-  }
+  private func hardenFile(_ url: URL) { try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path) }
 
   private func isManagedAttachment(path: String) -> Bool {
     URL(fileURLWithPath: path).deletingLastPathComponent().standardizedFileURL == attachmentDirectory.standardizedFileURL
@@ -413,7 +338,16 @@ final class ClipboardCacheService {
 
   private func isManagedSidecar(path: String) -> Bool {
     let directory = URL(fileURLWithPath: path).deletingLastPathComponent().standardizedFileURL
-    return directory == imageDirectory.standardizedFileURL || directory == attachmentDirectory.standardizedFileURL
+    return directory == imageDirectory.standardizedFileURL || directory == thumbnailDirectory.standardizedFileURL
+      || directory == attachmentDirectory.standardizedFileURL
+  }
+
+  private func thumbnailFileURLs() -> [URL] {
+    let current = (try? fileManager.contentsOfDirectory(at: thumbnailDirectory, includingPropertiesForKeys: nil, options: [])) ?? []
+    let legacy = ((try? fileManager.contentsOfDirectory(at: imageDirectory, includingPropertiesForKeys: nil, options: [])) ?? []).filter {
+      $0.lastPathComponent.hasPrefix("thumb-")
+    }
+    return current + legacy
   }
 
   private func writeTemporaryCopy(data: Data, id: UUID, fileExtension: String) -> URL? {
@@ -425,43 +359,31 @@ final class ClipboardCacheService {
       try data.write(to: url, options: .atomic)
       hardenFile(url)
       return url
-    } catch {
-      return nil
-    }
+    } catch { return nil }
   }
 
   private func removeTemporaryCopyIfPossible(_ url: URL) {
     try? fileManager.removeItem(at: url)
-    if ((try? fileManager.contentsOfDirectory(at: temporaryPreviewDirectory, includingPropertiesForKeys: nil)) ?? []).isEmpty {
-      try? fileManager.removeItem(at: temporaryPreviewDirectory)
-    }
+    removeEmptyTemporaryPreviewDirectory()
   }
 
   private func webLocationData(for value: String) -> Data? {
     let trimmed = value.clipboardTrimmed
     guard !trimmed.isEmpty else { return nil }
-    return try? PropertyListSerialization.data(
-      fromPropertyList: ["URL": trimmed],
-      format: .xml,
-      options: 0
-    )
+    return try? PropertyListSerialization.data(fromPropertyList: ["URL": trimmed], format: .xml, options: 0)
   }
 
   private func removeTemporaryPreviewFiles() {
-    guard fileManager.fileExists(atPath: temporaryPreviewDirectory.path) else {
-      return
-    }
+    guard fileManager.fileExists(atPath: temporaryPreviewDirectory.path) else { return }
 
-    let contents = (try? fileManager.contentsOfDirectory(
-      at: temporaryPreviewDirectory,
-      includingPropertiesForKeys: nil,
-      options: []
-    )) ?? []
+    let contents = (try? fileManager.contentsOfDirectory(at: temporaryPreviewDirectory, includingPropertiesForKeys: nil, options: [])) ?? []
 
-    for url in contents {
-      try? fileManager.removeItem(at: url)
-    }
+    for url in contents { try? fileManager.removeItem(at: url) }
 
+    removeEmptyTemporaryPreviewDirectory()
+  }
+
+  private func removeEmptyTemporaryPreviewDirectory() {
     if ((try? fileManager.contentsOfDirectory(at: temporaryPreviewDirectory, includingPropertiesForKeys: nil)) ?? []).isEmpty {
       try? fileManager.removeItem(at: temporaryPreviewDirectory)
     }

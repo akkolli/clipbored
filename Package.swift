@@ -2,16 +2,16 @@
 import PackageDescription
 
 let package = Package(
-  name: "ClipBored",
+  name: "Goldfish",
   platforms: [
     .macOS(.v13)
   ],
   products: [
-    .executable(name: "ClipBored", targets: ["ClipBored"])
+    .executable(name: "Goldfish", targets: ["Goldfish"])
   ],
   targets: [
     .executableTarget(
-      name: "ClipBored",
+      name: "Goldfish",
       path: "sources/clipbored",
       exclude: ["resources"],
       linkerSettings: [
@@ -27,8 +27,8 @@ let package = Package(
       ]
     ),
     .testTarget(
-      name: "ClipBoredTests",
-      dependencies: ["ClipBored"],
+      name: "GoldfishTests",
+      dependencies: ["Goldfish"],
       path: "tests/clipboredtests"
     )
   ]

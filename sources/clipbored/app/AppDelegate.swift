@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
   enum PresentationSurface: Equatable {
@@ -15,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   struct StatusMenuPresentation: Equatable {
     let summary: String
     let detail: String?
+    let symbolName: String
   }
 
   struct CapturePauseDuration: Equatable {
@@ -25,14 +27,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private static let statusMenuTextLimit = 68
   static let temporaryPauseDurations = [
-    CapturePauseDuration(title: "Pause for 5 Minutes", seconds: 5 * 60, symbolName: "timer"),
-    CapturePauseDuration(title: "Pause for 30 Minutes", seconds: 30 * 60, symbolName: "timer"),
-    CapturePauseDuration(title: "Pause for 1 Hour", seconds: 60 * 60, symbolName: "clock")
+    CapturePauseDuration(title: "5 minutes", seconds: 5 * 60, symbolName: "timer"),
+    CapturePauseDuration(title: "30 minutes", seconds: 30 * 60, symbolName: "timer"),
+    CapturePauseDuration(title: "1 hour", seconds: 60 * 60, symbolName: "clock"),
   ]
 
   private var cacheService: ClipboardCacheService!
   private var cloudSyncService: ClipboardCloudSyncService!
   private var settings: SettingsModel!
+  private var soundService: ClipboardSoundService!
   private var store: ClipboardStore!
   private var monitor: ClipboardMonitorService!
   private var panelController: ClipboardPanelController!
@@ -54,64 +57,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let cloudSyncStateLock = NSLock()
   private var suppressCloudSyncPush = false
   private var cloudSyncOperationGeneration = 0
+  private var didPresentHistoryLoadWarning = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     settings = SettingsModel()
+    soundService = ClipboardSoundService(settings: settings)
     cacheService = ClipboardCacheService()
     cloudSyncService = ClipboardCloudSyncService()
     store = ClipboardStore(settings: settings, cacheService: cacheService)
+    removeLegacyPinboardsIfNeeded()
     monitor = ClipboardMonitorService(store: store, cacheService: cacheService, settings: settings)
     panelController = ClipboardPanelController(
-      store: store,
-      settings: settings,
-      cacheService: cacheService,
-      pollClipboardNow: { [weak monitor] in
-        monitor?.pollNow()
-      },
-      openSettings: { [weak self] in
-        self?.openSettings()
-      }
-    )
+      store: store, settings: settings, cacheService: cacheService,
+      pollClipboardNow: { [weak self] in
+        guard let self, self.settings.onboardingCompleted else { return }
+        self.monitor.pollNow()
+      }, openSettings: { [weak self] in self?.openSettings() }, transferFeedback: { [weak self] in self?.soundService.play($0) })
+    panelController.statusItemFrameProvider = { [weak self] in
+      guard let button = self?.statusItem?.button, let window = button.window else { return nil }
+      return window.convertToScreen(button.convert(button.bounds, to: nil))
+    }
     monitor.onCapturedItem = { [weak self] item in
-      self?.panelController.addCapturedItemToStack(item)
+      self?.panelController.didCaptureItem(item)
+      self?.soundService.play(.copy)
     }
     settingsController = SettingsWindowController(
-      settings: settings,
-      store: store,
-      cacheService: cacheService,
-      cloudSyncService: cloudSyncService
-    )
+      settings: settings, store: store, cacheService: cacheService, cloudSyncService: cloudSyncService,
+      previewSound: { [weak self] in self?.soundService.play($0, preview: true) })
     lifecycleService = AppLifecycleService()
     shortcutManager = ShortcutManager(
-      onOpenClipboardPanel: { [weak self] in
-        DispatchQueue.main.async {
-          self?.panelController.toggle()
-        }
-      },
-      onToggleStackCapture: { [weak self] in
-        DispatchQueue.main.async {
-          self?.panelController.toggleStackCaptureMode()
-        }
-      },
-      onStatusChange: { [weak self] status in
-        DispatchQueue.main.async {
-          self?.settings.setShortcutStatus(message: status.message)
-        }
-      },
-      openShortcut: settings.openShortcut
-    )
+      onOpenClipboardPanel: { [weak self] in DispatchQueue.main.async { self?.showClipboardPanel() } },
+      onStatusChange: { [weak self] status in DispatchQueue.main.async { self?.settings.setShortcutStatus(message: status.message) } },
+      openShortcut: settings.openShortcut)
     bindSettings()
     bindCloudSync()
     applyPresentation(changedSurface: nil)
     applyCapturePauseSetting()
-    monitor.start()
     shortcutManager.start()
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(shortcutRecordingChanged(_:)), name: .clipBoredShortcutRecordingChanged, object: nil)
 
     applyLaunchAtLoginSetting(settings.launchAtLogin)
 
     refreshStatusItem()
     configureMainMenu()
     presentInitialSetupIfNeeded()
+    let event = NSAppleEventManager.shared().currentAppleEvent
+    if settings.onboardingCompleted,
+      Self.shouldShowShelfOnLaunch(eventID: event?.eventID, launchReason: event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue)
+    {
+      panelController.show()
+    }
+  }
+
+  static func shouldShowShelfOnLaunch(eventID: AEEventID?, launchReason: OSType?) -> Bool {
+    guard eventID == kAEOpenApplication else { return true }
+    return launchReason != keyAELaunchedAsLogInItem && launchReason != keyAELaunchedAsServiceItem
+  }
+
+  @objc private func shortcutRecordingChanged(_ notification: Notification) {
+    if notification.userInfo?["recording"] as? Bool == true { shortcutManager.stop() } else { shortcutManager.start() }
   }
 
   func applicationDidBecomeActive(_ notification: Notification) {
@@ -128,26 +133,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     cacheService.clearTemporaryPreviews(wait: true)
     if settings.clearHistoryOnQuit {
       store.removeAll()
-      store.flushPersistenceForTesting()
+      store.flushPersistence()
       cacheService.clearCache()
       cacheService.flushForTesting()
     }
   }
 
-  func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-    false
+  func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+    if let onboardingController { onboardingController.show() } else if !flag { panelController?.show() }
+    return true
   }
 
   @objc private func showClipboardPanel() {
+    guard ensureSetupCompleted() else { return }
     panelController.toggle()
   }
 
+  @objc private func openClipboardPanel() {
+    guard ensureSetupCompleted() else { return }
+    panelController.show()
+  }
+
   @objc private func createCollection() {
+    guard ensureSetupCompleted() else { return }
     panelController.createCollection()
   }
 
-  @objc private func toggleStackCaptureMode() {
-    panelController.toggleStackCaptureMode()
+  @objc private func createTextClip() {
+    guard ensureSetupCompleted() else { return }
+    panelController.createTextClip()
+  }
+
+  private func removeLegacyPinboardsIfNeeded() { Self.removeLegacyPinboardsIfNeeded(settings: settings, store: store, defaults: .standard) }
+
+  @discardableResult static func removeLegacyPinboardsIfNeeded(settings: SettingsModel, store: ClipboardStore, defaults: UserDefaults)
+    -> Bool
+  {
+    let migrationKey = "removedLegacyDefaultPinboardsV1"
+    guard !defaults.bool(forKey: migrationKey), store.canPersistHistory, store.loadWarningMessage == nil else { return false }
+    let legacyNames = ClipboardCollectionDefaults.legacyNames
+    let legacyKeys = Set(legacyNames.map { $0.lowercased() })
+    let assignedIDs = store.items.compactMap { item -> UUID? in
+      guard let name = ClipboardCollectionDefaults.normalizedName(item.collectionName), legacyKeys.contains(name.lowercased()) else {
+        return nil
+      }
+      return item.id
+    }
+    if !assignedIDs.isEmpty {
+      store.setCollection(assignedIDs, name: nil)
+      store.flushPersistenceForTesting()
+    }
+    for name in legacyNames { settings.deleteCollection(named: name) }
+    defaults.set(true, forKey: migrationKey)
+    return true
   }
 
   @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -161,7 +201,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func showClipboardPanelFromStatusButton(_ button: NSStatusBarButton) {
-    panelController.toggle(preferredScreen: button.window?.screen)
+    guard ensureSetupCompleted() else { return }
+    panelController.toggleFromStatusItem(NSApp.currentEvent, preferredScreen: button.window?.screen)
+  }
+
+  private func ensureSetupCompleted() -> Bool {
+    guard !settings.onboardingCompleted else { return true }
+    if let onboardingController { onboardingController.show() } else { presentInitialSetupIfNeeded() }
+    return false
   }
 
   private func shouldOpenStatusMenu(for event: NSEvent?) -> Bool {
@@ -171,165 +218,98 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   static func shouldOpenStatusMenu(eventType: NSEvent.EventType, modifierFlags: NSEvent.ModifierFlags) -> Bool {
     switch eventType {
-    case .rightMouseDown, .rightMouseUp:
-      return true
-    case .leftMouseDown, .leftMouseUp:
-      return modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.control)
-    case .otherMouseDown, .otherMouseUp:
-      return true
-    case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-      return false
-    default:
-      return false
+    case .rightMouseDown, .rightMouseUp: return true
+    case .leftMouseDown, .leftMouseUp: return modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.control)
+    case .otherMouseDown, .otherMouseUp: return true
+    case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged: return false
+    default: return false
     }
   }
 
   private func statusMenuTemplate() -> NSMenu {
     Self.makeStatusMenu(
       presentation: Self.statusMenuPresentation(
-        historyCount: store.items.count,
-        isCapturePaused: settings.pauseCapture,
-        pauseCaptureUntil: settings.pauseCaptureUntil,
-        captureStatus: settings.captureStatusMessage,
-        pasteStatus: settings.pasteStatusMessage,
-        shortcutStatus: settings.shortcutStatusMessage,
-        accessibilityStatus: settings.accessibilityPermissionStatusMessage,
-        launchAtLoginStatus: settings.launchAtLoginErrorMessage
-      ),
-      isCapturePaused: settings.pauseCapture,
-      openShortcut: settings.openShortcut,
-      settingsShortcut: settings.settingsShortcut,
-      target: self
+        historyCount: store.items.count, isCapturePaused: settings.pauseCapture, pauseCaptureUntil: settings.pauseCaptureUntil,
+        captureStatus: settings.captureStatusMessage, pasteStatus: settings.pasteStatusMessage,
+        shortcutStatus: settings.shortcutStatusMessage, accessibilityStatus: settings.accessibilityPermissionStatusMessage,
+        launchAtLoginStatus: settings.launchAtLoginErrorMessage, onboardingCompleted: settings.onboardingCompleted),
+      isCapturePaused: settings.pauseCapture, openShortcut: settings.openShortcut, settingsShortcut: settings.settingsShortcut, target: self
     )
   }
 
-  private func refreshStatusMenu() {
-    statusMenu = statusMenuTemplate()
-  }
+  private func refreshStatusMenu() { statusMenu = statusMenuTemplate() }
 
   static func statusMenuPresentation(
-    historyCount: Int,
-    isCapturePaused: Bool,
-    pauseCaptureUntil: Date? = nil,
-    now: Date = Date(),
-    captureStatus: String,
-    pasteStatus: String,
-    shortcutStatus: String,
-    accessibilityStatus: String,
-    launchAtLoginStatus: String
+    historyCount: Int, isCapturePaused: Bool, pauseCaptureUntil: Date? = nil, now: Date = Date(), captureStatus: String,
+    pasteStatus: String, shortcutStatus: String, accessibilityStatus: String, launchAtLoginStatus: String, onboardingCompleted: Bool = true
   ) -> StatusMenuPresentation {
-    let captureState = isCapturePaused ? "Capture Paused" : "Capture Running"
-    let summary = "\(captureState) - \(clipCountText(historyCount))"
+    guard onboardingCompleted else {
+      return StatusMenuPresentation(summary: "Setup needed", detail: "Open Goldfish to finish setup.", symbolName: "exclamationmark.circle")
+    }
+    let count = clipCountText(historyCount)
+    let summary = isCapturePaused ? "Paused · \(count)" : count
     let status = firstPresentStatus([
-      capturePauseStatusText(isCapturePaused: isCapturePaused, pauseCaptureUntil: pauseCaptureUntil, now: now),
-      captureStatus,
-      pasteStatus,
-      shortcutStatus,
-      launchAtLoginStatus,
-      accessibilityStatus
+      capturePauseStatusText(isCapturePaused: isCapturePaused, pauseCaptureUntil: pauseCaptureUntil, now: now), captureStatus, pasteStatus,
+      shortcutStatus, launchAtLoginStatus, accessibilityStatus,
     ])
     return StatusMenuPresentation(
-      summary: boundedStatusText(summary),
-      detail: status.map { boundedStatusText($0) }
-    )
+      summary: boundedStatusText(summary), detail: status.map { boundedStatusText($0) },
+      symbolName: isCapturePaused ? "pause.circle" : "checkmark.circle")
   }
 
   static func makeStatusMenu(
-    presentation: StatusMenuPresentation,
-    isCapturePaused: Bool,
-    openShortcut: ShortcutBinding,
-    settingsShortcut: ShortcutBinding,
+    presentation: StatusMenuPresentation, isCapturePaused: Bool, openShortcut: ShortcutBinding, settingsShortcut: ShortcutBinding,
     target: AnyObject?
   ) -> NSMenu {
-    let menu = NSMenu(title: "ClipBored")
+    let menu = NSMenu(title: "Goldfish")
     menu.autoenablesItems = false
-    addDisabledMenuItem("ClipBored", to: menu, symbolName: "doc.on.clipboard")
-    addDisabledMenuItem(presentation.summary, to: menu, symbolName: isCapturePaused ? "pause.circle" : "checkmark.circle")
-    if let detail = presentation.detail {
-      addDisabledMenuItem(detail, to: menu, symbolName: "info.circle")
-    }
+    let status = addDisabledMenuItem(presentation.summary, to: menu, symbolName: presentation.symbolName)
+    status.toolTip = presentation.detail
     menu.addItem(NSMenuItem.separator())
 
     addActionMenuItem(
-      "Show Clipboard",
-      action: #selector(showClipboardPanel),
-      target: target,
-      keyEquivalent: openShortcut.key,
-      keyEquivalentModifierMask: modifierFlags(for: openShortcut),
-      symbolName: "rectangle.bottomthird.inset.filled",
-      to: menu
-    )
-    addActionMenuItem(
-      "New Collection",
-      action: #selector(createCollection),
-      target: target,
-      keyEquivalent: "n",
-      keyEquivalentModifierMask: [.command, .shift],
-      symbolName: "folder.badge.plus",
-      to: menu
-    )
-    addActionMenuItem(
-      "Stack Capture",
-      action: #selector(toggleStackCaptureMode),
-      target: target,
-      keyEquivalent: "c",
-      keyEquivalentModifierMask: [.command, .shift],
-      symbolName: "square.stack.3d.up.fill",
-      to: menu
-    )
-    addActionMenuItem(
-      "Settings\u{2026}",
-      action: #selector(openSettings),
-      target: target,
-      keyEquivalent: settingsShortcut.key,
-      keyEquivalentModifierMask: modifierFlags(for: settingsShortcut),
-      symbolName: "gearshape",
-      to: menu
-    )
-    menu.addItem(NSMenuItem.separator())
-
-    let pause = addActionMenuItem(
-      isCapturePaused ? "Resume Capture" : "Pause Capture",
-      action: #selector(togglePauseCapture),
-      target: target,
-      keyEquivalent: "t",
-      keyEquivalentModifierMask: .command,
-      symbolName: isCapturePaused ? "play.fill" : "pause.fill",
-      to: menu
-    )
-    pause.state = isCapturePaused ? .on : .off
-    if !isCapturePaused {
+      "Open Goldfish", action: #selector(openClipboardPanel), target: target, keyEquivalent: openShortcut.key,
+      keyEquivalentModifierMask: modifierFlags(for: openShortcut), symbolName: "rectangle.bottomthird.inset.filled", to: menu)
+    if isCapturePaused {
+      addActionMenuItem(
+        "Resume Capture", action: #selector(togglePauseCapture), target: target, keyEquivalent: "t", keyEquivalentModifierMask: .command,
+        symbolName: "play.fill", to: menu)
+    } else {
+      let pauseMenu = NSMenu(title: "Pause Capture")
+      pauseMenu.autoenablesItems = false
       for duration in temporaryPauseDurations {
         let item = addActionMenuItem(
-          duration.title,
-          action: #selector(pauseCaptureForDuration(_:)),
-          target: target,
-          symbolName: duration.symbolName,
-          to: menu
-        )
+          duration.title, action: #selector(pauseCaptureForDuration(_:)), target: target, symbolName: duration.symbolName, to: pauseMenu)
         item.representedObject = duration.seconds
       }
+      pauseMenu.addItem(NSMenuItem.separator())
+      addActionMenuItem(
+        "Until resumed", action: #selector(togglePauseCapture), target: target, keyEquivalent: "t", keyEquivalentModifierMask: .command,
+        symbolName: "pause.fill", to: pauseMenu)
+      let pause = NSMenuItem(title: "Pause Capture", action: nil, keyEquivalent: "")
+      pause.image = menuImage("pause.circle")
+      pause.submenu = pauseMenu
+      menu.addItem(pause)
     }
 
     menu.addItem(NSMenuItem.separator())
     addActionMenuItem(
-      "Quit ClipBored",
-      action: #selector(quitApp),
-      target: target,
-      keyEquivalent: "q",
-      keyEquivalentModifierMask: .command,
-      symbolName: "power",
-      to: menu
-    )
+      "Settings\u{2026}", action: #selector(openSettings), target: target, keyEquivalent: settingsShortcut.key,
+      keyEquivalentModifierMask: modifierFlags(for: settingsShortcut), symbolName: "gearshape", to: menu)
+    addActionMenuItem(
+      "Quit Goldfish", action: #selector(quitApp), target: target, keyEquivalent: "q", keyEquivalentModifierMask: .command,
+      symbolName: "power", to: menu)
     return menu
   }
 
   @objc private func openSettings() {
+    guard panelController?.dismissForSettings() != false else { return }
     refreshAccessibilityPermissionMessage()
     settingsController.show()
   }
 
   @objc private func togglePauseCapture() {
+    guard ensureSetupCompleted() else { return }
     if settings.pauseCapture {
       settings.pauseCapture = false
       settings.pauseCaptureUntil = nil
@@ -340,15 +320,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @objc private func pauseCaptureForDuration(_ sender: NSMenuItem) {
+    guard ensureSetupCompleted() else { return }
     let seconds = sender.representedObject as? TimeInterval ?? 0
     guard seconds > 0 else { return }
     settings.pauseCapture = true
     settings.pauseCaptureUntil = Date().addingTimeInterval(seconds)
   }
 
-  @objc private func quitApp() {
-    NSApp.terminate(nil)
-  }
+  @objc private func quitApp() { NSApp.terminate(nil) }
 
   private func refreshStatusItem() {
     guard settings.showMenuBarIcon else {
@@ -359,23 +338,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       return
     }
 
-    if statusItem == nil {
-      statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-    }
+    if statusItem == nil { statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength) }
 
     if let button = statusItem?.button {
-      if let icon = appIconImage() {
-        button.image = icon
-      } else if let icon = NSImage(systemSymbolName: "doc.on.clipboard.fill", accessibilityDescription: "ClipBored") {
-        icon.isTemplate = true
-        button.image = icon
-      }
-      button.toolTip = "ClipBored"
-      button.sendAction(on: [
-        .leftMouseUp,
-        .rightMouseUp,
-        .otherMouseUp
-      ])
+      button.image = Self.menuBarIcon(gold: settings.goldMenuBarIcon)
+      button.contentTintColor = nil
+      button.toolTip = "Goldfish"
+      button.sendAction(on: [.leftMouseDown, .rightMouseUp, .otherMouseUp])
       button.target = self
       button.action = #selector(statusItemClicked(_:))
     }
@@ -383,13 +352,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     statusItem?.menu = nil
   }
 
+  static func menuBarIcon(gold: Bool) -> NSImage? {
+    guard let symbol = NSImage(systemSymbolName: "fish.fill", accessibilityDescription: "Goldfish") else { return nil }
+    guard gold else {
+      symbol.isTemplate = true
+      return symbol
+    }
+
+    let image = NSImage(size: symbol.size, flipped: false) { rect in
+      symbol.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+      guard let context = NSGraphicsContext.current else { return false }
+      context.saveGraphicsState()
+      context.compositingOperation = .sourceAtop
+      NSColor.systemOrange.setFill()
+      NSBezierPath(rect: rect).fill()
+      context.restoreGraphicsState()
+      return true
+    }
+    image.isTemplate = false
+    image.accessibilityDescription = "Goldfish"
+    return image
+  }
+
   private func popStatusMenu(from button: NSStatusBarButton) {
     refreshStatusMenu()
     statusMenu?.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY), in: button)
   }
 
-  @discardableResult
-  private func addMenuItem(_ title: String, _ action: Selector, to menu: NSMenu) -> NSMenuItem {
+  @discardableResult private func addMenuItem(_ title: String, _ action: Selector, to menu: NSMenu) -> NSMenuItem {
     let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
     item.target = self
     item.isEnabled = true
@@ -418,39 +408,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   static func capturePauseStatusText(isCapturePaused: Bool, pauseCaptureUntil: Date?, now: Date) -> String? {
     guard isCapturePaused else { return nil }
-    guard let pauseCaptureUntil, pauseCaptureUntil > now else {
-      return "Capture is paused."
-    }
+    guard let pauseCaptureUntil, pauseCaptureUntil > now else { return "Capture is paused." }
 
     let seconds = max(0, pauseCaptureUntil.timeIntervalSince(now))
-    if seconds < 60 {
-      return "Capture is paused for less than a minute."
-    }
+    if seconds < 60 { return "Capture is paused for less than a minute." }
 
     let minutes = Int(ceil(seconds / 60))
-    if minutes < 60 {
-      return "Capture is paused for \(minutes) more \(pluralized("minute", minutes))."
-    }
+    if minutes < 60 { return "Capture is paused for \(minutes) more \(pluralized("minute", minutes))." }
 
     let hours = Int(ceil(Double(minutes) / 60))
     return "Capture is paused for \(hours) more \(pluralized("hour", hours))."
   }
 
-  private static func pluralized(_ singular: String, _ count: Int) -> String {
-    count == 1 ? singular : "\(singular)s"
-  }
+  private static func pluralized(_ singular: String, _ count: Int) -> String { count == 1 ? singular : "\(singular)s" }
 
   private static func boundedStatusText(_ value: String) -> String {
-    let collapsed = value
-      .split { $0.isWhitespace || $0.isNewline }
-      .joined(separator: " ")
-      .clipboardTrimmed
+    let collapsed = value.split { $0.isWhitespace || $0.isNewline }.joined(separator: " ").clipboardTrimmed
     guard collapsed.count > statusMenuTextLimit else { return collapsed }
     return String(collapsed.prefix(statusMenuTextLimit - 3)).clipboardTrimmed + "..."
   }
 
-  @discardableResult
-  private static func addDisabledMenuItem(_ title: String, to menu: NSMenu, symbolName: String) -> NSMenuItem {
+  @discardableResult private static func addDisabledMenuItem(_ title: String, to menu: NSMenu, symbolName: String) -> NSMenuItem {
     let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
     item.isEnabled = false
     item.image = menuImage(symbolName)
@@ -458,15 +436,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     return item
   }
 
-  @discardableResult
-  private static func addActionMenuItem(
-    _ title: String,
-    action: Selector,
-    target: AnyObject?,
-    keyEquivalent: String = "",
-    keyEquivalentModifierMask: NSEvent.ModifierFlags = [],
-    symbolName: String,
-    to menu: NSMenu
+  @discardableResult private static func addActionMenuItem(
+    _ title: String, action: Selector, target: AnyObject?, keyEquivalent: String = "",
+    keyEquivalentModifierMask: NSEvent.ModifierFlags = [], symbolName: String, to menu: NSMenu
   ) -> NSMenuItem {
     let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
     item.keyEquivalentModifierMask = keyEquivalentModifierMask
@@ -478,9 +450,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private static func menuImage(_ symbolName: String) -> NSImage? {
-    guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else {
-      return nil
-    }
+    guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else { return nil }
     image.size = NSSize(width: 15, height: 15)
     image.isTemplate = true
     return image
@@ -492,62 +462,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func configureMainMenu() {
     let appMenu = NSMenuItem()
-    let appSubMenu = NSMenu(title: "ClipBored")
+    let appSubMenu = NSMenu(title: "Goldfish")
     let settingsShortcut = self.settings.settingsShortcut
-    let settings = NSMenuItem(
-      title: "Settings…",
-      action: #selector(openSettings),
-      keyEquivalent: settingsShortcut.key
-    )
+    let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: settingsShortcut.key)
     settings.keyEquivalentModifierMask = menuModifierFlags(settingsShortcut)
     settings.target = self
     appSubMenu.addItem(settings)
     appSubMenu.addItem(NSMenuItem.separator())
-    let quit = NSMenuItem(title: "Quit ClipBored", action: #selector(quitApp), keyEquivalent: "q")
+    let quit = NSMenuItem(title: "Quit Goldfish", action: #selector(quitApp), keyEquivalent: "q")
     quit.target = self
     appSubMenu.addItem(quit)
     appMenu.submenu = appSubMenu
 
     let fileMenu = NSMenuItem()
     let fileSubMenu = NSMenu(title: "File")
-    let newCollection = NSMenuItem(
-      title: "New Collection",
-      action: #selector(createCollection),
-      keyEquivalent: "n"
-    )
+    let newText = NSMenuItem(title: "New Text Clip…", action: #selector(createTextClip), keyEquivalent: "n")
+    newText.target = self
+    fileSubMenu.addItem(newText)
+    let newCollection = NSMenuItem(title: "New Pinboard…", action: #selector(createCollection), keyEquivalent: "n")
     newCollection.keyEquivalentModifierMask = [.command, .shift]
     newCollection.target = self
     fileSubMenu.addItem(newCollection)
     fileSubMenu.addItem(NSMenuItem.separator())
-    let pauseCapture = NSMenuItem(
-      title: "Pause/Resume Capture",
-      action: #selector(togglePauseCapture),
-      keyEquivalent: "t"
-    )
+    let pauseCapture = NSMenuItem(title: "Pause/Resume Capture", action: #selector(togglePauseCapture), keyEquivalent: "t")
     pauseCapture.keyEquivalentModifierMask = .command
     pauseCapture.target = self
     fileSubMenu.addItem(pauseCapture)
+    fileSubMenu.addItem(NSMenuItem.separator())
+    fileSubMenu.addItem(NSMenuItem(title: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
     fileMenu.submenu = fileSubMenu
 
     let editMenu = NSMenuItem()
     let editSubMenu = NSMenu(title: "Edit")
+    // A nil target lets the focused text editor or window handle these commands.
+    editSubMenu.addItem(NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
+    let redo = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+    redo.keyEquivalentModifierMask = [.command, .shift]
+    editSubMenu.addItem(redo)
+    editSubMenu.addItem(NSMenuItem.separator())
+    editSubMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+    editSubMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+    editSubMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+    editSubMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+    editSubMenu.addItem(NSMenuItem.separator())
     let openShortcut = self.settings.openShortcut
-    let showClipboard = NSMenuItem(
-      title: "Show Clipboard",
-      action: #selector(showClipboardPanel),
-      keyEquivalent: openShortcut.key
-    )
+    let showClipboard = NSMenuItem(title: "Show Clipboard", action: #selector(showClipboardPanel), keyEquivalent: openShortcut.key)
     showClipboard.keyEquivalentModifierMask = menuModifierFlags(openShortcut)
     showClipboard.target = self
     editSubMenu.addItem(showClipboard)
-    let stackCapture = NSMenuItem(
-      title: "Stack Capture",
-      action: #selector(toggleStackCaptureMode),
-      keyEquivalent: "c"
-    )
-    stackCapture.keyEquivalentModifierMask = [.command, .shift]
-    stackCapture.target = self
-    editSubMenu.addItem(stackCapture)
     editMenu.submenu = editSubMenu
 
     let mainMenu = NSMenu()
@@ -560,9 +522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func bindSettings() {
     settings.observe { [weak self] change in
       guard let self else { return }
-      DispatchQueue.main.async {
-        self.handleSettingsChange(change)
-      }
+      DispatchQueue.main.async { self.handleSettingsChange(change) }
     }
   }
 
@@ -578,21 +538,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       self.scheduleCloudSyncPush()
     }
 
-    if settings.iCloudSyncEnabled {
-      applyCloudSyncSetting()
-    } else {
-      settings.setCloudSyncStatus(message: "iCloud Sync is off.")
-    }
+    if settings.iCloudSyncEnabled { applyCloudSyncSetting() } else { settings.setCloudSyncStatus(message: "iCloud Backup is off.") }
   }
 
   private func handleSettingsChange(_ change: SettingsModel.Change) {
     switch change {
-    case .maxHistoryItems:
-      store.updateHistoryLimit(settings.maxHistoryItems)
-    case .historyRetention:
-      store.normalizeHistoryLength()
-    case .imageCacheMaxBytes:
-      cacheService.purgeIfNeeded(maxBytes: settings.imageCacheMaxBytes)
+    case .maxHistoryItems: store.updateHistoryLimit(settings.maxHistoryItems)
+    case .historyRetention: store.normalizeHistoryLength()
+    case .imageCacheMaxBytes: cacheService.purgeIfNeeded(maxBytes: settings.imageCacheMaxBytes)
     case .openShortcut:
       let status = shortcutManager.reconfigure(openShortcut: settings.openShortcut)
       settings.setShortcutStatus(message: status.message)
@@ -601,28 +554,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     case .settingsShortcut:
       refreshStatusItem()
       configureMainMenu()
-    case .launchAtLogin:
-      applyLaunchAtLoginSetting(settings.launchAtLogin)
-    case .showMenuBarIcon:
-      applyPresentation(changedSurface: .menuBar)
-    case .showDockIcon:
-      applyPresentation(changedSurface: .dock)
-    case .panelSide:
-      break
-    case .cloudSync:
-      applyCloudSyncSetting()
-    case .pauseCapture:
-      applyCapturePauseSetting()
-    case .pollProfile:
-      monitor.setPaused(settings.pauseCapture)
-    case .hideFromScreenCapture:
-      break
-    case .defaultSortMode, .includeImageTextInSearch, .pruneDuplicates, .ignoredItemKinds, .keepFirstImage, .excludeSensitive, .clearHistoryOnQuit:
-      break
-    case .status, .collections, .ignoredApps, .other:
-      break
-    case .captureStatus:
-      break
+    case .launchAtLogin: applyLaunchAtLoginSetting(settings.launchAtLogin)
+    case .showMenuBarIcon: applyPresentation(changedSurface: .menuBar)
+    case .goldMenuBarIcon: refreshStatusItem()
+    case .showDockIcon: applyPresentation(changedSurface: .dock)
+    case .panelSide, .soundEffects: break
+    case .cloudSync: applyCloudSyncSetting()
+    case .pauseCapture: applyCapturePauseSetting()
+    case .pollProfile: if settings.onboardingCompleted { monitor.setPaused(settings.pauseCapture) }
+    case .includeImageTextInSearch, .ignoredItemKinds, .excludeSensitive, .ignoredApps: monitor.refreshCaptureConfiguration()
+    case .hideFromScreenCapture: break
+    case .defaultSortMode, .pruneDuplicates, .keepFirstImage, .clearHistoryOnQuit: break
+    case .status, .collections, .other: break
+    case .captureStatus: break
     }
   }
 
@@ -634,11 +578,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     guard settings.iCloudSyncEnabled else {
       setCloudSyncPushSuppressed(false)
-      settings.setCloudSyncStatus(message: "iCloud Sync is off.")
+      settings.setCloudSyncStatus(message: "iCloud Backup is off.")
       return
     }
 
-    settings.setCloudSyncStatus(message: "Checking iCloud Sync…")
+    settings.setCloudSyncStatus(message: "Checking iCloud Backup…")
     setCloudSyncPushSuppressed(true)
     cloudSyncOperationQueue.addOperation { [weak self] in
       guard let self else { return }
@@ -646,34 +590,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       let result: (message: String, schedulesInitialPush: Bool)
       if !status.isAvailable {
         result = (status.message, false)
+      } else if status.lastModifiedAt == nil {
+        result = ("iCloud Backup is ready. Creating the first backup…", true)
       } else {
-        do {
-          let summary = try self.cloudSyncService.pull(store: self.store)
-          result = ("Restored \(summary.itemCount) clips from iCloud.", false)
-        } catch ClipboardCloudSyncError.noRemoteArchive(_) {
-          result = ("iCloud Sync is ready. No remote archive yet.", true)
-        } catch {
-          result = ("iCloud Sync failed: \(error.localizedDescription)", false)
-        }
+        result = ("iCloud Backup is ready. Local changes will update the existing backup.", false)
       }
       DispatchQueue.main.async { [weak self] in
         guard let self else { return }
         self.setCloudSyncPushSuppressed(false)
-        guard generation == self.cloudSyncOperationGeneration,
-              self.settings.iCloudSyncEnabled else { return }
+        guard generation == self.cloudSyncOperationGeneration, self.settings.iCloudSyncEnabled else { return }
         self.settings.setCloudSyncStatus(message: result.message)
-        if result.schedulesInitialPush {
-          self.scheduleCloudSyncPush(after: 1.0)
-        }
+        if result.schedulesInitialPush { self.scheduleCloudSyncPush(after: 1.0) }
       }
     }
   }
 
   private func scheduleCloudSyncPush(after delay: TimeInterval = 2.0) {
     cloudSyncPushWorkItem?.cancel()
-    let workItem = DispatchWorkItem { [weak self] in
-      self?.pushCloudSyncArchive()
-    }
+    let workItem = DispatchWorkItem { [weak self] in self?.pushCloudSyncArchive() }
     cloudSyncPushWorkItem = workItem
     DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
   }
@@ -686,14 +620,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       let message: String
       do {
         let summary = try self.cloudSyncService.push(store: self.store)
-        message = "Synced \(summary.itemCount) clips to iCloud."
-      } catch {
-        message = "iCloud Sync failed: \(error.localizedDescription)"
-      }
+        message = "Backed up \(summary.itemCount) clips to iCloud."
+      } catch { message = "iCloud Backup failed: \(error.localizedDescription)" }
       DispatchQueue.main.async { [weak self] in
-        guard let self,
-              generation == self.cloudSyncOperationGeneration,
-              self.settings.iCloudSyncEnabled else { return }
+        guard let self, generation == self.cloudSyncOperationGeneration, self.settings.iCloudSyncEnabled else { return }
         self.settings.setCloudSyncStatus(message: message)
       }
     }
@@ -712,11 +642,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func applyCapturePauseSetting(now: Date = Date()) {
-    if Self.shouldResumeExpiredCapturePause(
-      isCapturePaused: settings.pauseCapture,
-      pauseCaptureUntil: settings.pauseCaptureUntil,
-      now: now
-    ) {
+    guard settings.onboardingCompleted else {
+      settings.setCaptureStatus(message: "Capture is off until you finish setup.")
+      return
+    }
+    if Self.shouldResumeExpiredCapturePause(isCapturePaused: settings.pauseCapture, pauseCaptureUntil: settings.pauseCaptureUntil, now: now)
+    {
       settings.pauseCapture = false
       settings.pauseCaptureUntil = nil
       return
@@ -724,9 +655,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     monitor.setPaused(settings.pauseCapture)
     scheduleCapturePauseTimer(now: now)
-    if settings.showMenuBarIcon {
-      refreshStatusMenu()
-    }
+    if settings.showMenuBarIcon { refreshStatusMenu() }
   }
 
   private func scheduleCapturePauseTimer(now: Date = Date()) {
@@ -742,18 +671,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     pauseResumeTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
-      DispatchQueue.main.async {
-        self?.resumeExpiredCapturePause()
-      }
+      DispatchQueue.main.async { self?.resumeExpiredCapturePause() }
     }
   }
 
   private func resumeExpiredCapturePause() {
-    guard Self.shouldResumeExpiredCapturePause(
-      isCapturePaused: settings.pauseCapture,
-      pauseCaptureUntil: settings.pauseCaptureUntil,
-      now: Date()
-    ) else {
+    guard
+      Self.shouldResumeExpiredCapturePause(
+        isCapturePaused: settings.pauseCapture, pauseCaptureUntil: settings.pauseCaptureUntil, now: Date())
+    else {
       applyCapturePauseSetting()
       return
     }
@@ -762,42 +688,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     settings.pauseCaptureUntil = nil
   }
 
-  static func presentationPlan(
-    showMenuBarIcon: Bool,
-    showDockIcon: Bool,
-    changedSurface: PresentationSurface?
-  ) -> PresentationPlan {
+  static func presentationPlan(showMenuBarIcon: Bool, showDockIcon: Bool, changedSurface: PresentationSurface?) -> PresentationPlan {
     var plannedMenuBarIcon = showMenuBarIcon
     var plannedDockIcon = showDockIcon
 
     if !plannedMenuBarIcon && !plannedDockIcon {
-      if changedSurface == .menuBar {
-        plannedDockIcon = true
-      } else {
-        plannedMenuBarIcon = true
-      }
+      if changedSurface == .menuBar { plannedDockIcon = true } else { plannedMenuBarIcon = true }
     }
 
     return PresentationPlan(
-      showMenuBarIcon: plannedMenuBarIcon,
-      showDockIcon: plannedDockIcon,
-      activationPolicy: plannedDockIcon ? .regular : .accessory
-    )
+      showMenuBarIcon: plannedMenuBarIcon, showDockIcon: plannedDockIcon, activationPolicy: plannedDockIcon ? .regular : .accessory)
   }
 
   private func applyPresentation(changedSurface: PresentationSurface?) {
     let plan = Self.presentationPlan(
-      showMenuBarIcon: settings.showMenuBarIcon,
-      showDockIcon: settings.showDockIcon,
-      changedSurface: changedSurface
-    )
+      showMenuBarIcon: settings.showMenuBarIcon, showDockIcon: settings.showDockIcon, changedSurface: changedSurface)
 
-    if settings.showMenuBarIcon != plan.showMenuBarIcon {
-      settings.showMenuBarIcon = plan.showMenuBarIcon
-    }
-    if settings.showDockIcon != plan.showDockIcon {
-      settings.showDockIcon = plan.showDockIcon
-    }
+    if settings.showMenuBarIcon != plan.showMenuBarIcon { settings.showMenuBarIcon = plan.showMenuBarIcon }
+    if settings.showDockIcon != plan.showDockIcon { settings.showDockIcon = plan.showDockIcon }
 
     NSApp.setActivationPolicy(plan.activationPolicy)
     configureMainMenu()
@@ -809,17 +717,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     switch result {
     case .success:
       settings.setLaunchAtLoginStatus(message: "")
-      if settings.launchAtLogin != shouldLaunch {
-        settings.launchAtLogin = shouldLaunch
-      }
-    case .noChange:
-      settings.setLaunchAtLoginStatus(message: "")
+      if settings.launchAtLogin != shouldLaunch { settings.launchAtLogin = shouldLaunch }
+    case .noChange: settings.setLaunchAtLoginStatus(message: "")
     case .failure(let message):
       settings.setLaunchAtLoginStatus(message: "Launch-at-login failed: \(message)")
       let actualState = lifecycleService.isEnabled()
-      if settings.launchAtLogin != actualState {
-        settings.launchAtLogin = actualState
-      }
+      if settings.launchAtLogin != actualState { settings.launchAtLogin = actualState }
     }
   }
 
@@ -827,22 +730,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if AccessibilityPermissionService.isTrusted {
       settings.setAccessibilityPermissionStatus(message: "")
     } else {
-      settings.setAccessibilityPermissionStatus(message: "Accessibility permission not granted. Capture still works; paste falls back to copy.")
+      settings.setAccessibilityPermissionStatus(
+        message: "Accessibility permission not granted. Capture still works; paste falls back to copy.")
     }
     refreshStatusItem()
   }
 
   private func requestInitialAccessibilityPermissionIfNeeded() {
     refreshAccessibilityPermissionMessage()
-    if AccessibilityPermissionService.isTrusted {
-      return
-    }
+    if AccessibilityPermissionService.isTrusted { return }
 
     if !settings.accessibilityNoticeShown {
       settings.markAccessibilityNoticeShown()
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-        self?.showAccessibilityPermissionNoticeIfNeeded()
-      }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.showAccessibilityPermissionNoticeIfNeeded() }
     }
   }
 
@@ -854,35 +754,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let alert = NSAlert()
     alert.messageText = "Allow automatic paste?"
-    alert.informativeText = "ClipBored captures history without extra permission. Grant Accessibility only for direct paste; otherwise paste actions copy the clip."
+    alert.informativeText =
+      "Goldfish captures history without extra permission. Grant Accessibility only for direct paste; otherwise paste actions copy the clip."
     alert.addButton(withTitle: "Open Accessibility Settings")
     alert.addButton(withTitle: "Later")
     alert.alertStyle = .warning
 
     if alert.runModal() == .alertFirstButtonReturn {
       _ = AccessibilityPermissionService.requestPromptIfNeeded()
-      if !AccessibilityPermissionService.isTrusted {
-        AccessibilityPermissionService.openSystemSettings()
-      }
+      if !AccessibilityPermissionService.isTrusted { AccessibilityPermissionService.openSystemSettings() }
     }
     refreshAccessibilityPermissionMessage()
   }
 
   private func presentInitialSetupIfNeeded() {
     guard !settings.onboardingCompleted else {
+      monitor.start()
       requestInitialAccessibilityPermissionIfNeeded()
+      presentHistoryLoadWarningIfNeeded()
       return
     }
 
     let controller = OnboardingWindowController(
-      settings: settings,
-      onOpenAccessibility: { [weak self] in
-        self?.openAccessibilitySettingsFromOnboarding()
-      },
-      onFinish: { [weak self] in
-        self?.completeInitialSetup()
-      }
-    )
+      settings: settings, onOpenAccessibility: { [weak self] in self?.openAccessibilitySettingsFromOnboarding() },
+      onFinish: { [weak self] in self?.completeInitialSetup() })
     onboardingController = controller
     controller.show()
   }
@@ -890,30 +785,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func openAccessibilitySettingsFromOnboarding() {
     settings.markAccessibilityNoticeShown()
     _ = AccessibilityPermissionService.requestPromptIfNeeded()
-    if !AccessibilityPermissionService.isTrusted {
-      AccessibilityPermissionService.openSystemSettings()
-    }
+    if !AccessibilityPermissionService.isTrusted { AccessibilityPermissionService.openSystemSettings() }
     refreshAccessibilityPermissionMessage()
   }
 
   private func completeInitialSetup() {
+    guard settings.onboardingCompleted else { return }
     onboardingController = nil
+    refreshStatusItem()
+    applyCapturePauseSetting()
+    monitor.start()
     requestInitialAccessibilityPermissionIfNeeded()
+    presentHistoryLoadWarningIfNeeded()
+    panelController.show()
+  }
+
+  private func presentHistoryLoadWarningIfNeeded() {
+    guard !didPresentHistoryLoadWarning, let warning = store.loadWarningMessage else { return }
+    didPresentHistoryLoadWarning = true
+    settings.setCaptureStatus(message: "Error: Some saved history could not be decrypted.")
+
+    // Let applicationDidFinishLaunching return before entering a modal loop.
+    // LaunchServices and UI automation otherwise see an app that never
+    // completed launch while this warning is onscreen.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
+      let alert = NSAlert()
+      alert.messageText = "Some History Could Not Be Decrypted"
+      alert.informativeText = warning
+      alert.alertStyle = .critical
+      alert.addButton(withTitle: "OK")
+      alert.runModal()
+    }
   }
 
   private func menuModifierFlags(_ binding: ShortcutBinding) -> NSEvent.ModifierFlags {
     NSEvent.ModifierFlags(rawValue: binding.modifierFlags)
-  }
-
-  private func appIconImage() -> NSImage? {
-    guard let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
-          let icon = NSImage(contentsOf: url)
-    else {
-      return nil
-    }
-    icon.size = NSSize(width: 18, height: 18)
-    icon.isTemplate = false
-    return icon
   }
 
 }

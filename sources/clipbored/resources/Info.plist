@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleDisplayName</key>
-  <string>ClipBored</string>
+  <string>Goldfish</string>
   <key>CFBundleName</key>
-  <string>ClipBored</string>
+  <string>Goldfish</string>
   <key>CFBundleIdentifier</key>
   <string>com.local.clipbored</string>
   <key>CFBundleVersion</key>
@@ -15,7 +15,7 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleExecutable</key>
-  <string>ClipBored</string>
+  <string>Goldfish</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon.icns</string>
   <key>LSUIElement</key>
@@ -23,6 +23,6 @@
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
   <key>NSHumanReadableCopyright</key>
-  <string>ClipBored</string>
+  <string>Goldfish</string>
 </dict>
 </plist>

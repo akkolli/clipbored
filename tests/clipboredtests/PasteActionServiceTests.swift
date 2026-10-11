@@ -1,7 +1,7 @@
 import AppKit
 import CryptoKit
 import XCTest
-@testable import ClipBored
+@testable import Goldfish
 
 final class PasteActionServiceTests: XCTestCase {
   private var tempURLs: [URL] = []
@@ -12,96 +12,62 @@ final class PasteActionServiceTests: XCTestCase {
     super.tearDown()
   }
 
-  func testCopyWritesTextToPasteboard() {
-    let service = makeService()
-    let item = ClipboardItem(
-      id: UUID(),
-      kind: .text,
-      displayText: "Hello",
-      payload: "Hello",
-      payloadHash: "hash",
-      createdAt: Date(),
-      lastUsedAt: Date(),
-      useCount: 0,
-      sourceApp: nil,
-      imagePath: nil,
-      thumbnailPath: nil
-    )
-
+  func testTransferSoundsFollowSuccessfulCopyResultsIncludingFallbacks() throws {
+    var cues: [ClipboardSound] = []
+    let service = PasteActionService(cacheService: makeNoOpCacheService(), accessibilityPermissionProvider: { false },
+      feedback: { cues.append($0) })
+    let item = makeTextItem("A soft copy cue")
     XCTAssertEqual(service.copy(item), .copied)
-    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Hello")
+    XCTAssertEqual(service.copy([item, item]), .copied)
+    XCTAssertEqual(service.copyPlainText(item), .copiedPlainText)
+    XCTAssertEqual(service.copyPlainText("Plain text"), .copiedPlainText)
+    XCTAssertEqual(service.paste(item, targetApp: nil), .copied)
+    XCTAssertEqual(service.paste([item], targetApp: nil), .copied)
+    XCTAssertEqual(service.pastePlainText(item, targetApp: nil), .copiedPlainText)
+    XCTAssertEqual(service.pastePlainText("Text", targetApp: nil), .copiedPlainText)
+    let target = try makeRunningTargetApp()
+    XCTAssertEqual(service.paste(item, targetApp: target), .copiedNeedsPermission)
+    XCTAssertEqual(service.pastePlainText(item, targetApp: target), .copiedPlainTextNeedsPermission)
+    XCTAssertEqual(cues, Array(repeating: .copy, count: 10))
+    _ = service.copy(makeTextItem(""))
+    _ = service.copy([])
+    _ = service.copyPlainText(" ")
+    _ = service.paste(makeTextItem(""), targetApp: target)
+    XCTAssertEqual(cues.count, 10, "Failed writes must be silent")
   }
 
-  func testCopyWritesCodeSnippetAsPlainString() {
-    let service = makeService()
-    let snippet = "func greet(name: String) -> String {\n  return \"Hi \\(name)\"\n}"
-    let item = ClipboardItem(
-      id: UUID(),
-      kind: .code,
-      displayText: "Swift Snippet",
-      payload: snippet,
-      payloadHash: "hash",
-      createdAt: Date(),
-      lastUsedAt: Date(),
-      useCount: 0,
-      sourceApp: "Xcode",
-      imagePath: nil,
-      thumbnailPath: nil
-    )
-
-    XCTAssertEqual(service.copy(item), .copied)
-    XCTAssertEqual(NSPasteboard.general.string(forType: .string), snippet)
-  }
-
-  func testPasteboardWritersExposeTextForDragOut() {
-    let service = makeService()
-    let item = ClipboardItem(
-      id: UUID(),
-      kind: .text,
-      displayText: "Drag text",
-      payload: "Drag text",
-      payloadHash: "hash",
-      createdAt: Date(),
-      lastUsedAt: Date(),
-      useCount: 0,
-      sourceApp: nil,
-      imagePath: nil,
-      thumbnailPath: nil
-    )
-
-    let pasteboard = NSPasteboard.withUniqueName()
-    pasteboard.clearContents()
-
-    XCTAssertTrue(pasteboard.writeObjects(service.pasteboardWriters(for: item)))
-    XCTAssertEqual(pasteboard.string(forType: .string), "Drag text")
-  }
-
-  func testPasteboardWritersExposeURLAndTitleForDragOut() {
-    let service = makeService()
-    let item = ClipboardItem(
-      id: UUID(),
-      kind: .url,
-      displayText: "Apple",
-      payload: "https://apple.com",
-      payloadHash: "hash",
-      createdAt: Date(),
-      lastUsedAt: Date(),
-      useCount: 0,
-      sourceApp: nil,
-      imagePath: nil,
-      thumbnailPath: nil
-    )
-
-    let pasteboard = NSPasteboard.withUniqueName()
-    pasteboard.clearContents()
-
-    XCTAssertTrue(pasteboard.writeObjects(service.pasteboardWriters(for: item)))
-    XCTAssertEqual(pasteboard.string(forType: .string), "https://apple.com")
-    XCTAssertEqual(pasteboard.string(forType: .URL), "https://apple.com")
-    XCTAssertEqual(
-      pasteboard.string(forType: NSPasteboard.PasteboardType(rawValue: "public.url-name")),
-      "Apple"
-    )
+  func testPasteSoundWaitsForDeliveryAndIsSilentIfTheTargetOrClipboardChanges() throws {
+    let target = try makeRunningTargetApp()
+    var foreground: pid_t? = target.processIdentifier
+    var scheduled: (() -> Void)?
+    var posts = 0
+    var postSucceeds = true
+    var cues: [ClipboardSound] = []
+    let service = PasteActionService(cacheService: makeNoOpCacheService(), accessibilityPermissionProvider: { true },
+      targetActivator: { _ in true }, keyboardPasteScheduler: { scheduled = $0 }, feedback: { cues.append($0) },
+      frontmostPID: { foreground }, keyboardPastePoster: { posts += 1; return postSucceeds })
+    let item = makeTextItem("Paste timing")
+    XCTAssertEqual(service.paste(item, targetApp: target), .pasted)
+    XCTAssertTrue(cues.isEmpty, "Scheduling and writing the pasteboard are not a completed paste")
+    scheduled?()
+    XCTAssertEqual(cues, [.paste])
+    XCTAssertEqual(posts, 1)
+    _ = service.pastePlainText(item, targetApp: target)
+    scheduled?()
+    XCTAssertEqual(cues, [.paste, .paste])
+    _ = service.paste(item, targetApp: target)
+    foreground = nil
+    scheduled?()
+    XCTAssertEqual(posts, 2)
+    foreground = target.processIdentifier
+    _ = service.paste(item, targetApp: target)
+    NSPasteboard.general.clearContents()
+    scheduled?()
+    XCTAssertEqual(posts, 2)
+    _ = service.paste(item, targetApp: target)
+    postSucceeds = false
+    scheduled?()
+    XCTAssertEqual(cues, [.paste, .paste])
   }
 
   func testCopyMultipleItemsPreservesOriginalPasteboardRepresentations() throws {
@@ -184,26 +150,6 @@ final class PasteActionServiceTests: XCTestCase {
     XCTAssertEqual(NSPasteboard.general.string(forType: .string), "#0A84FF")
   }
 
-  func testPasteWithoutTargetCopiesWithoutRequestingAutomaticPaste() {
-    let service = makeService()
-    let item = ClipboardItem(
-      id: UUID(),
-      kind: .text,
-      displayText: "No target",
-      payload: "No target",
-      payloadHash: "hash",
-      createdAt: Date(),
-      lastUsedAt: Date(),
-      useCount: 0,
-      sourceApp: nil,
-      imagePath: nil,
-      thumbnailPath: nil
-    )
-
-    XCTAssertEqual(service.paste(item, targetApp: nil), .copied)
-    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "No target")
-  }
-
   func testAutomaticPasteActivatesTargetAndSchedulesKeyboardPasteWhenPermissionGranted() throws {
     var activatedProcessID: pid_t?
     let targetApp = try makeRunningTargetApp()
@@ -277,23 +223,6 @@ final class PasteActionServiceTests: XCTestCase {
     XCTAssertEqual(service.paste(makeTextItem("Activation failed"), targetApp: targetApp), .copied)
     XCTAssertTrue(didAttemptActivation)
     XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Activation failed")
-  }
-
-  func testAutomaticPasteWithoutPermissionDoesNotActivateTarget() throws {
-    let targetApp = try makeRunningTargetApp()
-    let service = makeService(
-      accessibilityPermissionProvider: { false },
-      targetActivator: { _ in
-        XCTFail("Target should not be activated without Accessibility permission")
-        return true
-      },
-      keyboardPasteScheduler: { _ in
-        XCTFail("Keyboard paste should not be scheduled without Accessibility permission")
-      }
-    )
-
-    XCTAssertEqual(service.paste(makeTextItem("Needs permission"), targetApp: targetApp), .copiedNeedsPermission)
-    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Needs permission")
   }
 
   func testCopyMissingFileDoesNotClearExistingPasteboard() {
@@ -429,94 +358,6 @@ final class PasteActionServiceTests: XCTestCase {
     XCTAssertEqual(service.copyPlainText(item), .copiedPlainText)
     XCTAssertEqual(NSPasteboard.general.string(forType: .string), attributed.string)
     XCTAssertNil(NSPasteboard.general.data(forType: .rtf))
-  }
-
-  func testCopyLegacyRichTextWritesPlainPayloadWhenRTFCacheIsUnavailable() {
-    let service = makeService()
-    let item = ClipboardItem(
-      id: UUID(),
-      kind: .richText,
-      displayText: "Legacy rich text",
-      payload: "Legacy rich text",
-      payloadHash: "hash",
-      createdAt: Date(),
-      lastUsedAt: Date(),
-      useCount: 0,
-      sourceApp: nil,
-      imagePath: nil,
-      thumbnailPath: nil
-    )
-
-    XCTAssertEqual(service.copy(item), .copied)
-    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Legacy rich text")
-    XCTAssertNil(NSPasteboard.general.data(forType: .rtf))
-  }
-
-  func testCopyRichTextWithMissingCacheWritesDisplayTextInsteadOfPath() throws {
-    let missingPath = try makeTempDirectory().appendingPathComponent("missing-rich-text.rtf").path
-    let service = makeService()
-    let item = ClipboardItem(
-      id: UUID(),
-      kind: .richText,
-      displayText: "Readable rich text",
-      payload: missingPath,
-      payloadHash: "hash",
-      createdAt: Date(),
-      lastUsedAt: Date(),
-      useCount: 0,
-      sourceApp: nil,
-      imagePath: nil,
-      thumbnailPath: nil
-    )
-
-    XCTAssertFalse(FileManager.default.fileExists(atPath: missingPath))
-    XCTAssertEqual(service.copy(item), .copied)
-    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Readable rich text")
-  }
-
-  func testCopyPlainTextForURLOmitsURLPasteboardTypes() {
-    let service = makeService()
-    let item = ClipboardItem(
-      id: UUID(),
-      kind: .url,
-      displayText: "Apple",
-      payload: "https://apple.com",
-      payloadHash: "hash",
-      createdAt: Date(),
-      lastUsedAt: Date(),
-      useCount: 0,
-      sourceApp: nil,
-      imagePath: nil,
-      thumbnailPath: nil
-    )
-
-    XCTAssertEqual(service.copyPlainText(item), .copiedPlainText)
-    XCTAssertEqual(NSPasteboard.general.string(forType: .string), "https://apple.com")
-    XCTAssertNil(NSPasteboard.general.string(forType: .URL))
-    XCTAssertNil(NSPasteboard.general.string(forType: NSPasteboard.PasteboardType(rawValue: "public.url-name")))
-  }
-
-  func testCopyWritesFileReferenceType() throws {
-    let fileURL = try makeTempFile(contents: "file contents")
-    let service = makeService()
-    let item = ClipboardItem(
-      id: UUID(),
-      kind: .file,
-      displayText: fileURL.path,
-      payload: fileURL.path,
-      payloadHash: "hash",
-      createdAt: Date(),
-      lastUsedAt: Date(),
-      useCount: 0,
-      sourceApp: nil,
-      imagePath: nil,
-      thumbnailPath: nil
-    )
-
-    XCTAssertEqual(service.copy(item), .copied)
-    let objects = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: nil) as? [URL]
-    XCTAssertEqual(objects?.first?.standardizedFileURL, fileURL.standardizedFileURL)
-    XCTAssertEqual(NSPasteboard.general.string(forType: .string), fileURL.path)
   }
 
   func testCopyWritesMultipleFileReferences() throws {

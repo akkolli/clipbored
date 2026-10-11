@@ -1,14 +1,20 @@
 import AppKit
 import WebKit
 
-final class LinkPreviewWindowController: NSWindowController, WKNavigationDelegate {
+final class LinkPreviewWindowController: ClipboardAuxiliaryWindowController, WKNavigationDelegate {
+  enum NavigationDecision: Equatable {
+    case allow
+    case openExternally
+    case cancel
+  }
+
   private enum Metrics {
     static let minimumWidth: CGFloat = 760
     static let minimumHeight: CGFloat = 420
     static let preferredHeight: CGFloat = 560
     static let margin: CGFloat = 24
     static let panelGap: CGFloat = 14
-    static let toolbarHeight: CGFloat = 52
+    static let toolbarHeight: CGFloat = 56
     static let toolbarLeadingInset: CGFloat = 86
   }
 
@@ -37,36 +43,37 @@ final class LinkPreviewWindowController: NSWindowController, WKNavigationDelegat
     configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
 
     webView = WKWebView(frame: .zero, configuration: configuration)
-    let window = NSWindow(
+    let window = ClipboardPreviewPanel(
       contentRect: NSRect(x: 0, y: 0, width: Metrics.minimumWidth, height: Metrics.preferredHeight),
-      styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-      backing: .buffered,
-      defer: false
-    )
+      styleMask: [.titled, .closable, .resizable, .fullSizeContentView, .nonactivatingPanel], backing: .buffered, defer: false)
     window.title = "Link Preview"
     window.minSize = NSSize(width: 560, height: 420)
     window.isReleasedWhenClosed = false
     window.titleVisibility = .hidden
     window.titlebarAppearsTransparent = true
+    window.hidesOnDeactivate = false
+    window.level = .floating
+    window.isFloatingPanel = true
 
     super.init(window: window)
     configureContent(in: window)
     configureObservations()
   }
 
-  @available(*, unavailable)
-  required init?(coder: NSCoder) {
-    fatalError("init(coder:) has not been implemented")
-  }
+  @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
   func show(_ request: LinkPreviewRequest, relativeTo parent: NSWindow?) {
     prepareForPreview(request)
-    if let parent, let window {
-      window.setFrame(Self.previewFrame(relativeTo: parent), display: false)
-    }
-    window?.makeKeyAndOrderFront(nil)
-    NSApp.activate(ignoringOtherApps: true)
+    present(relativeTo: parent)
     webView.load(URLRequest(url: request.url))
+  }
+
+  override func windowWillClose(_ notification: Notification) {
+    webView.stopLoading()
+    // Stop already-running media and page timers as well as pending requests.
+    // A closed preview can remain owned until the shelf itself is dismissed.
+    webView.loadHTMLString("", baseURL: nil)
+    super.windowWillClose(notification)
   }
 
   private func prepareForPreview(_ request: LinkPreviewRequest) {
@@ -94,11 +101,17 @@ final class LinkPreviewWindowController: NSWindowController, WKNavigationDelegat
     let abovePanelY = parentFrame.maxY + Metrics.panelGap
     let availableAbovePanel = visibleFrame.maxY - abovePanelY - Metrics.margin
     let preferredHeight = min(Metrics.preferredHeight, usableHeight)
-    let height = availableAbovePanel >= Metrics.minimumHeight
-      ? min(preferredHeight, availableAbovePanel)
-      : preferredHeight
+    let height = availableAbovePanel >= Metrics.minimumHeight ? min(preferredHeight, availableAbovePanel) : preferredHeight
     let centeredX = parentFrame.midX - (width / 2)
-    let x = min(max(visibleFrame.minX + Metrics.margin, centeredX), visibleFrame.maxX - width - Metrics.margin)
+    let preferredX: CGFloat
+    if parentFrame.minX - Metrics.panelGap - width >= visibleFrame.minX + Metrics.margin {
+      preferredX = parentFrame.minX - Metrics.panelGap - width
+    } else if parentFrame.maxX + Metrics.panelGap + width <= visibleFrame.maxX - Metrics.margin {
+      preferredX = parentFrame.maxX + Metrics.panelGap
+    } else {
+      preferredX = centeredX
+    }
+    let x = min(max(visibleFrame.minX + Metrics.margin, preferredX), visibleFrame.maxX - width - Metrics.margin)
     let preferredY = availableAbovePanel >= Metrics.minimumHeight ? abovePanelY : visibleFrame.midY - (height / 2)
     let y = min(max(visibleFrame.minY + Metrics.margin, preferredY), visibleFrame.maxY - height - Metrics.margin)
     return NSRect(x: floor(x), y: floor(y), width: floor(width), height: floor(height))
@@ -132,8 +145,8 @@ final class LinkPreviewWindowController: NSWindowController, WKNavigationDelegat
     titleLabel.maximumNumberOfLines = 1
     titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-    addressLabel.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
-    addressLabel.textColor = .secondaryLabelColor
+    addressLabel.font = .systemFont(ofSize: 11)
+    addressLabel.textColor = ClipboardShelfStyle.secondaryText
     addressLabel.lineBreakMode = .byTruncatingMiddle
     addressLabel.maximumNumberOfLines = 1
     addressLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -142,11 +155,11 @@ final class LinkPreviewWindowController: NSWindowController, WKNavigationDelegat
       configuredButton(backButton, symbol: "chevron.left", toolTip: "Back", action: #selector(goBack)),
       configuredButton(forwardButton, symbol: "chevron.right", toolTip: "Forward", action: #selector(goForward)),
       configuredButton(reloadButton, symbol: "arrow.clockwise", toolTip: "Reload", action: #selector(reload)),
-      configuredButton(openExternalButton, symbol: "arrow.up.right.square", toolTip: "Open in Browser", action: #selector(openInBrowser))
+      configuredButton(openExternalButton, symbol: "arrow.up.right.square", toolTip: "Open in Browser", action: #selector(openInBrowser)),
     ])
     controls.orientation = .horizontal
     controls.alignment = .centerY
-    controls.spacing = 4
+    controls.spacing = 6
     controls.translatesAutoresizingMaskIntoConstraints = false
 
     progressIndicator.isIndeterminate = false
@@ -170,10 +183,8 @@ final class LinkPreviewWindowController: NSWindowController, WKNavigationDelegat
     content.addSubview(webView)
 
     NSLayoutConstraint.activate([
-      toolbar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-      toolbar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-      toolbar.topAnchor.constraint(equalTo: content.topAnchor),
-      toolbar.heightAnchor.constraint(equalToConstant: Metrics.toolbarHeight),
+      toolbar.leadingAnchor.constraint(equalTo: content.leadingAnchor), toolbar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+      toolbar.topAnchor.constraint(equalTo: content.topAnchor), toolbar.heightAnchor.constraint(equalToConstant: Metrics.toolbarHeight),
 
       controls.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor, constant: Metrics.toolbarLeadingInset),
       controls.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
@@ -191,21 +202,14 @@ final class LinkPreviewWindowController: NSWindowController, WKNavigationDelegat
       progressIndicator.bottomAnchor.constraint(equalTo: toolbar.bottomAnchor),
       progressIndicator.heightAnchor.constraint(equalToConstant: 2),
 
-      webView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-      webView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-      webView.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
-      webView.bottomAnchor.constraint(equalTo: content.bottomAnchor)
+      webView.leadingAnchor.constraint(equalTo: content.leadingAnchor), webView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+      webView.topAnchor.constraint(equalTo: toolbar.bottomAnchor), webView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
     ])
 
     updateNavigationButtons()
   }
 
-  private func configuredButton(
-    _ button: NSButton,
-    symbol: String,
-    toolTip: String,
-    action: Selector
-  ) -> NSButton {
+  private func configuredButton(_ button: NSButton, symbol: String, toolTip: String, action: Selector) -> NSButton {
     let image = NSImage(systemSymbolName: symbol, accessibilityDescription: toolTip)
     image?.isTemplate = true
     button.image = image
@@ -213,7 +217,7 @@ final class LinkPreviewWindowController: NSWindowController, WKNavigationDelegat
     button.imageScaling = .scaleProportionallyDown
     button.isBordered = false
     button.wantsLayer = true
-    button.layer?.cornerRadius = 6
+    button.layer?.cornerRadius = ClipboardShelfStyle.controlRadius
     button.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
     button.contentTintColor = .labelColor
     button.toolTip = toolTip
@@ -221,8 +225,8 @@ final class LinkPreviewWindowController: NSWindowController, WKNavigationDelegat
     button.target = self
     button.action = action
     button.translatesAutoresizingMaskIntoConstraints = false
-    button.widthAnchor.constraint(equalToConstant: 30).isActive = true
-    button.heightAnchor.constraint(equalToConstant: 30).isActive = true
+    button.widthAnchor.constraint(equalToConstant: 32).isActive = true
+    button.heightAnchor.constraint(equalToConstant: 32).isActive = true
     return button
   }
 
@@ -231,12 +235,8 @@ final class LinkPreviewWindowController: NSWindowController, WKNavigationDelegat
       self?.progressIndicator.doubleValue = webView.estimatedProgress
       self?.progressIndicator.isHidden = webView.estimatedProgress >= 1
     }
-    titleObservation = webView.observe(\.title, options: [.new]) { [weak self] webView, _ in
-      self?.applyObservedPageTitle(webView.title)
-    }
-    canGoBackObservation = webView.observe(\.canGoBack, options: [.initial, .new]) { [weak self] _, _ in
-      self?.updateNavigationButtons()
-    }
+    titleObservation = webView.observe(\.title, options: [.new]) { [weak self] webView, _ in self?.applyObservedPageTitle(webView.title) }
+    canGoBackObservation = webView.observe(\.canGoBack, options: [.initial, .new]) { [weak self] _, _ in self?.updateNavigationButtons() }
     canGoForwardObservation = webView.observe(\.canGoForward, options: [.initial, .new]) { [weak self] _, _ in
       self?.updateNavigationButtons()
     }
@@ -248,11 +248,7 @@ final class LinkPreviewWindowController: NSWindowController, WKNavigationDelegat
   }
 
   private func applyObservedPageTitle(_ title: String?) {
-    guard acceptsObservedPageTitles,
-          let title = title?.clipboardTrimmed,
-          !title.isEmpty else {
-      return
-    }
+    guard acceptsObservedPageTitles, let title = title?.clipboardTrimmed, !title.isEmpty else { return }
     setTitleText(title)
   }
 
@@ -284,9 +280,7 @@ final class LinkPreviewWindowController: NSWindowController, WKNavigationDelegat
     webView.goForward()
   }
 
-  @objc private func reload() {
-    webView.reload()
-  }
+  @objc private func reload() { webView.reload() }
 
   @objc private func openInBrowser() {
     guard let url = currentPageURL ?? currentRequest?.url else { return }
@@ -296,21 +290,15 @@ final class LinkPreviewWindowController: NSWindowController, WKNavigationDelegat
   func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
     acceptsObservedPageTitles = true
     setStatus("Loading")
-    if let url = webView.url {
-      setAddress(url)
-    }
+    if let url = webView.url { setAddress(url) }
   }
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
     setStatus("")
-    if let url = webView.url {
-      setAddress(url)
-    }
+    if let url = webView.url { setAddress(url) }
   }
 
-  func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-    handleNavigationFailure(error)
-  }
+  func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { handleNavigationFailure(error) }
 
   func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
     handleNavigationFailure(error)
@@ -323,18 +311,13 @@ final class LinkPreviewWindowController: NSWindowController, WKNavigationDelegat
 
   private static func isNavigationCancellation(_ error: Error) -> Bool {
     let nsError = error as NSError
-    if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
-      return true
-    }
-    if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
-      return isNavigationCancellation(underlying)
-    }
+    if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return true }
+    if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error { return isNavigationCancellation(underlying) }
     return false
   }
 
   func webView(
-    _ webView: WKWebView,
-    decidePolicyFor navigationAction: WKNavigationAction,
+    _ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
   ) {
     guard let url = navigationAction.request.url else {
@@ -342,14 +325,19 @@ final class LinkPreviewWindowController: NSWindowController, WKNavigationDelegat
       return
     }
 
-    let scheme = url.scheme?.lowercased()
-    guard scheme == "http" || scheme == "https" else {
+    switch Self.navigationDecision(scheme: url.scheme, navigationType: navigationAction.navigationType) {
+    case .allow: decisionHandler(.allow)
+    case .openExternally:
       openURL(url)
       decisionHandler(.cancel)
-      return
+    case .cancel: decisionHandler(.cancel)
     }
+  }
 
-    decisionHandler(.allow)
+  static func navigationDecision(scheme: String?, navigationType: WKNavigationType) -> NavigationDecision {
+    let normalizedScheme = scheme?.lowercased()
+    if normalizedScheme == "http" || normalizedScheme == "https" { return .allow }
+    return navigationType == .linkActivated ? .openExternally : .cancel
   }
 
 }

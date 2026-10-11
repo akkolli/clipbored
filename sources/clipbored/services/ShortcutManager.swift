@@ -10,58 +10,38 @@ final class ShortcutManager {
 
     var message: String {
       switch self {
-      case .registered:
-        return ""
-      case .unsupportedShortcut(let shortcut):
-        return "Unsupported shortcut: \(shortcut)"
-      case .conflict(let shortcut):
-        return "Shortcut is already in use: \(shortcut)"
-      case .registrationFailed(let message):
-        return "Shortcut registration failed: \(message)"
+      case .registered: return ""
+      case .unsupportedShortcut(let shortcut): return "Unsupported shortcut: \(shortcut)"
+      case .conflict(let shortcut): return "Shortcut is already in use: \(shortcut)"
+      case .registrationFailed(let message): return "Shortcut registration failed: \(message)"
       }
     }
   }
 
-  private enum HotKeyID: UInt32 {
-    case openPanel = 1
-    case stackCapture = 3
-  }
+  private enum HotKeyID: UInt32 { case openPanel = 1 }
 
   private let onOpenClipboardPanel: () -> Void
-  private let onToggleStackCapture: () -> Void
   private let onStatusChange: (RegistrationStatus) -> Void
 
   private var openBinding: ShortcutBinding
   private var openHotKey: EventHotKeyRef?
-  private var stackCaptureHotKey: EventHotKeyRef?
   private var eventHandler: EventHandlerRef?
 
   init(
-    onOpenClipboardPanel: @escaping () -> Void,
-    onToggleStackCapture: @escaping () -> Void = {},
-    onStatusChange: @escaping (RegistrationStatus) -> Void = { _ in },
+    onOpenClipboardPanel: @escaping () -> Void, onStatusChange: @escaping (RegistrationStatus) -> Void = { _ in },
     openShortcut: ShortcutBinding
   ) {
     self.onOpenClipboardPanel = onOpenClipboardPanel
-    self.onToggleStackCapture = onToggleStackCapture
     self.onStatusChange = onStatusChange
     self.openBinding = openShortcut
   }
 
-  deinit {
-    stop()
-  }
+  deinit { stop() }
 
-  @discardableResult
-  func start() -> RegistrationStatus {
+  @discardableResult func start() -> RegistrationStatus {
     stop()
 
     if let status = Self.validationFailure(for: openBinding) {
-      onStatusChange(status)
-      return status
-    }
-    if openBinding == Self.stackCaptureShortcut {
-      let status = RegistrationStatus.conflict(Self.stackCaptureShortcut.displayText)
       onStatusChange(status)
       return status
     }
@@ -74,12 +54,7 @@ final class ShortcutManager {
         let manager = Unmanaged<ShortcutManager>.fromOpaque(userData).takeUnretainedValue()
         manager.handle(event: event)
         return noErr
-      },
-      1,
-      &eventType,
-      Unmanaged.passUnretained(self).toOpaque(),
-      &eventHandler
-    )
+      }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &eventHandler)
 
     guard installStatus == noErr else {
       let status = RegistrationStatus.registrationFailed(osStatusMessage(installStatus))
@@ -94,72 +69,40 @@ final class ShortcutManager {
       return openStatus
     }
 
-    let stackCaptureStatus = register(binding: Self.stackCaptureShortcut, id: .stackCapture, target: &stackCaptureHotKey)
-    guard stackCaptureStatus == .registered else {
-      stop()
-      onStatusChange(stackCaptureStatus)
-      return stackCaptureStatus
-    }
-
     onStatusChange(.registered)
     return .registered
   }
 
-  @discardableResult
-  func reconfigure(openShortcut: ShortcutBinding) -> RegistrationStatus {
+  @discardableResult func reconfigure(openShortcut: ShortcutBinding) -> RegistrationStatus {
     openBinding = openShortcut
     return start()
   }
 
   func stop() {
-    if let openHotKey {
-      UnregisterEventHotKey(openHotKey)
-    }
-    if let stackCaptureHotKey {
-      UnregisterEventHotKey(stackCaptureHotKey)
-    }
-    if let eventHandler {
-      RemoveEventHandler(eventHandler)
-    }
+    if let openHotKey { UnregisterEventHotKey(openHotKey) }
+    if let eventHandler { RemoveEventHandler(eventHandler) }
 
     openHotKey = nil
-    stackCaptureHotKey = nil
     eventHandler = nil
   }
 
   private func register(binding: ShortcutBinding, id: HotKeyID, target: inout EventHotKeyRef?) -> RegistrationStatus {
-    guard let keyCode = Self.virtualKeyCode(for: binding.key) else {
-      return .unsupportedShortcut(binding.displayText)
-    }
+    guard let keyCode = Self.virtualKeyCode(for: binding.key) else { return .unsupportedShortcut(binding.displayText) }
 
     let hotKeyID = EventHotKeyID(signature: Self.hotKeySignature, id: id.rawValue)
     let status = RegisterEventHotKey(
-      UInt32(keyCode),
-      Self.carbonModifiers(for: binding.modifierFlags),
-      hotKeyID,
-      GetApplicationEventTarget(),
-      0,
-      &target
-    )
+      UInt32(keyCode), Self.carbonModifiers(for: binding.modifierFlags), hotKeyID, GetApplicationEventTarget(), 0, &target)
 
-    if status == noErr {
-      return .registered
-    }
+    if status == noErr { return .registered }
 
-    if status == eventHotKeyExistsErr {
-      return .conflict(binding.displayText)
-    }
+    if status == eventHotKeyExistsErr { return .conflict(binding.displayText) }
 
     return .registrationFailed(osStatusMessage(status))
   }
 
   static func validationFailure(for binding: ShortcutBinding) -> RegistrationStatus? {
-    guard Self.virtualKeyCode(for: binding.key) != nil else {
-      return .unsupportedShortcut(binding.displayText)
-    }
-    let required = NSEvent.ModifierFlags.command.rawValue
-      | NSEvent.ModifierFlags.option.rawValue
-      | NSEvent.ModifierFlags.control.rawValue
+    guard Self.virtualKeyCode(for: binding.key) != nil else { return .unsupportedShortcut(binding.displayText) }
+    let required = NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.option.rawValue | NSEvent.ModifierFlags.control.rawValue
     return binding.modifierFlags & required == 0 ? .unsupportedShortcut(binding.displayText) : nil
   }
 
@@ -167,32 +110,20 @@ final class ShortcutManager {
     guard let event else { return }
     var hotKeyID = EventHotKeyID()
     let status = GetEventParameter(
-      event,
-      EventParamName(kEventParamDirectObject),
-      EventParamType(typeEventHotKeyID),
-      nil,
-      MemoryLayout<EventHotKeyID>.size,
-      nil,
-      &hotKeyID
-    )
+      event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil,
+      &hotKeyID)
 
     guard status == noErr, hotKeyID.signature == Self.hotKeySignature else { return }
 
     switch HotKeyID(rawValue: hotKeyID.id) {
-    case .openPanel:
-      onOpenClipboardPanel()
-    case .stackCapture:
-      onToggleStackCapture()
-    case nil:
-      break
+    case .openPanel: onOpenClipboardPanel()
+    case nil: break
     }
   }
 
   static func virtualKeyCode(for key: String) -> UInt16? {
     guard key.utf8.count == 1, var byte = key.utf8.first else { return nil }
-    if byte >= 65, byte <= 90 {
-      byte += 32
-    }
+    if byte >= 65, byte <= 90 { byte += 32 }
 
     switch byte {
     case 97: return UInt16(kVK_ANSI_A)
@@ -254,14 +185,7 @@ final class ShortcutManager {
     return carbonFlags
   }
 
-  private static let hotKeySignature: OSType = 0x436C7042
+  private static let hotKeySignature: OSType = 0x436C_7042
 
-  static let stackCaptureShortcut = ShortcutBinding(
-    key: "c",
-    modifierFlags: NSEvent.ModifierFlags([.command, .shift]).rawValue
-  )
-
-  private func osStatusMessage(_ status: OSStatus) -> String {
-    "OSStatus \(status)"
-  }
+  private func osStatusMessage(_ status: OSStatus) -> String { "OSStatus \(status)" }
 }

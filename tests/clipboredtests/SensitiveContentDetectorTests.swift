@@ -1,5 +1,5 @@
 import XCTest
-@testable import ClipBored
+@testable import Goldfish
 
 final class SensitiveContentDetectorTests: XCTestCase {
   func testDetectsKnownSecretFormats() {
@@ -52,6 +52,8 @@ final class SensitiveContentDetectorTests: XCTestCase {
     XCTAssertNil(SensitiveContentDetector.detect("https://www.apple.com/mac/"))
     XCTAssertNil(SensitiveContentDetector.detect("Remember to request the API key from the platform team"))
     XCTAssertNil(SensitiveContentDetector.detect("Release token cleanup notes"))
+    XCTAssertNil(SensitiveContentDetector.detect("clipbored-flow-test-2145df96-7a60-46ce-984e-bdcb43078091"))
+    XCTAssertNil(SensitiveContentDetector.detect("clipbored-flow-test-360E834C-6AC1-4ADE-9CE3-F8BFE9DA4D3A"))
   }
 
   func testDetectsOtpOnlyForSensitiveSources() {

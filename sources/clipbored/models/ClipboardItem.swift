@@ -33,28 +33,22 @@ enum ClipboardItemKind: Int {
 extension ClipboardItemKind {
   var canOpen: Bool {
     switch self {
-    case .url, .file, .image, .pdf, .audio, .video:
-      return true
-    case .text, .richText, .unknown, .color, .code:
-      return false
+    case .url, .file, .image, .pdf, .audio, .video: return true
+    case .text, .richText, .unknown, .color, .code: return false
     }
   }
 
   var canReveal: Bool {
     switch self {
-    case .file, .image, .pdf, .audio, .video:
-      return true
-    case .text, .richText, .unknown, .url, .color, .code:
-      return false
+    case .file, .image, .pdf, .audio, .video: return true
+    case .text, .richText, .unknown, .url, .color, .code: return false
     }
   }
 
   var hasManagedCacheReference: Bool {
     switch self {
-    case .url, .image, .pdf, .audio, .richText, .video:
-      return true
-    case .text, .file, .unknown, .color, .code:
-      return false
+    case .url, .image, .pdf, .audio, .richText, .video: return true
+    case .text, .file, .unknown, .color, .code: return false
     }
   }
 }
@@ -72,7 +66,9 @@ enum ClipboardSortMode: Int {
   case code
   case videos
 
-  static let allCases: [ClipboardSortMode] = [.mostRecent, .mostUsed, .text, .links, .images, .colors, .audio, .videos, .files, .pinned, .code]
+  static let allCases: [ClipboardSortMode] = [
+    .mostRecent, .mostUsed, .text, .links, .images, .colors, .audio, .videos, .files, .pinned, .code,
+  ]
 
   var title: String {
     switch self {
@@ -92,50 +88,34 @@ enum ClipboardSortMode: Int {
 
   func includes(_ item: ClipboardItem) -> Bool {
     switch self {
-    case .mostRecent, .mostUsed:
-      return true
-    case .images:
-      return item.kind == .image
-    case .links:
-      return item.kind == .url
-    case .text:
-      return item.kind == .text || item.kind == .richText || item.kind == .code
-    case .pinned:
-      return item.isPinned
-    case .files:
-      return item.kind == .file || item.kind == .pdf
-    case .audio:
-      return item.kind == .audio
-    case .colors:
-      return item.kind == .color
-    case .code:
-      return item.kind == .code
-    case .videos:
-      return item.kind == .video
+    case .mostRecent, .mostUsed: return true
+    case .images: return item.presentationKind == .image
+    case .links: return item.presentationKind == .url
+    case .text: return item.presentationKind == .text || item.presentationKind == .richText || item.presentationKind == .code
+    case .pinned: return item.isPinned
+    case .files: return item.presentationKind == .file || item.presentationKind == .pdf
+    case .audio: return item.presentationKind == .audio
+    case .colors: return item.presentationKind == .color
+    case .code: return item.presentationKind == .code
+    case .videos: return item.presentationKind == .video
     }
   }
 }
 
 enum ClipboardCollectionDefaults {
-  static let names = [
-    "Useful Links",
-    "Important Notes",
-    "Code Snippets",
-    "Read Later"
-  ]
+  // Names shipped by earlier versions. Used only to migrate those preset
+  // pinboards away without deleting the clips they contain.
+  static let legacyNames = ["Useful Links", "Important Notes", "Code Snippets", "Read Later"]
 
   static func normalizedName(_ value: String?) -> String? {
     guard let value else { return nil }
-    let name = value
-      .split { $0.isWhitespace }
-      .joined(separator: " ")
-      .clipboardTrimmed
+    let name = value.split { $0.isWhitespace }.joined(separator: " ").clipboardTrimmed
     guard !name.isEmpty else { return nil }
     return String(name.prefix(40))
   }
 }
 
-struct ClipboardItem {
+struct ClipboardItem: Equatable {
   var id: UUID
   var kind: ClipboardItemKind
   var displayText: String
@@ -154,29 +134,32 @@ struct ClipboardItem {
   var customTitle: String?
   var sourceDeviceName: String?
 
+  /// A URL copied as plain or rich text is still recognizable as a link. Preserve the
+  /// original clipboard representation for paste and archive compatibility.
+  var presentationKind: ClipboardItemKind { linkURL == nil ? kind : .url }
+
+  var linkURL: URL? {
+    guard [.url, .text, .richText, .unknown].contains(kind) else { return nil }
+    let candidate = (kind == .richText ? displayText : payload).clipboardTrimmed
+    guard !candidate.contains(where: { $0.isWhitespace }), let url = URL(string: candidate),
+      ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host?.isEmpty == false
+    else { return nil }
+    return url
+  }
+
+  var linkAddress: String { linkURL?.absoluteString ?? payload }
+
   var searchableText: String {
     var text = kindLabel + " " + displayText.lowercased() + " " + payload.lowercased()
-    if let customTitle {
-      text += " " + customTitle.lowercased()
-    }
-    if let sourceApp {
-      text += " " + sourceApp.lowercased()
-    }
-    if let sourceAppBundleId {
-      text += " " + sourceAppBundleId.lowercased()
-    }
-    if let collectionName {
-      text += " " + collectionName.lowercased()
-    }
-    if let sourceDeviceName {
-      text += " " + sourceDeviceName.lowercased()
-    }
+    if let customTitle { text += " " + customTitle.lowercased() }
+    if let sourceApp { text += " " + sourceApp.lowercased() }
+    if let sourceAppBundleId { text += " " + sourceAppBundleId.lowercased() }
+    if let collectionName { text += " " + collectionName.lowercased() }
+    if let sourceDeviceName { text += " " + sourceDeviceName.lowercased() }
     return text
   }
 
-  var effectiveSourceDeviceName: String {
-    ClipboardItem.normalizedDeviceName(sourceDeviceName) ?? Self.localDeviceName
-  }
+  var effectiveSourceDeviceName: String { ClipboardItem.normalizedDeviceName(sourceDeviceName) ?? Self.localDeviceName }
 
   private var kindLabel: String {
     switch kind {
@@ -195,22 +178,9 @@ struct ClipboardItem {
   }
 
   init(
-    id: UUID,
-    kind: ClipboardItemKind,
-    displayText: String,
-    payload: String,
-    payloadHash: String,
-    createdAt: Date,
-    lastUsedAt: Date,
-    useCount: Int,
-    sourceApp: String?,
-    imagePath: String?,
-    thumbnailPath: String?,
-    isPinned: Bool = false,
-    sourceAppBundleId: String? = nil,
-    ocrText: String? = nil,
-    collectionName: String? = nil,
-    customTitle: String? = nil,
+    id: UUID, kind: ClipboardItemKind, displayText: String, payload: String, payloadHash: String, createdAt: Date, lastUsedAt: Date,
+    useCount: Int, sourceApp: String?, imagePath: String?, thumbnailPath: String?, isPinned: Bool = false, sourceAppBundleId: String? = nil,
+    ocrText: String? = nil, collectionName: String? = nil, customTitle: String? = nil,
     sourceDeviceName: String? = ClipboardItem.localDeviceName
   ) {
     self.id = id
@@ -234,27 +204,19 @@ struct ClipboardItem {
 
   static func normalizedCustomTitle(_ value: String?) -> String? {
     guard let value else { return nil }
-    let title = value
-      .split { $0.isWhitespace }
-      .joined(separator: " ")
-      .clipboardTrimmed
+    let title = value.split { $0.isWhitespace }.joined(separator: " ").clipboardTrimmed
     guard !title.isEmpty else { return nil }
     return String(title.prefix(80))
   }
 
   static var localDeviceName: String {
-    normalizedDeviceName(Host.current().localizedName)
-      ?? normalizedDeviceName(Host.current().name)
-      ?? normalizedDeviceName(ProcessInfo.processInfo.hostName)
-      ?? "This Mac"
+    normalizedDeviceName(Host.current().localizedName) ?? normalizedDeviceName(Host.current().name) ?? normalizedDeviceName(
+      ProcessInfo.processInfo.hostName) ?? "This Mac"
   }
 
   static func normalizedDeviceName(_ value: String?) -> String? {
     guard let value else { return nil }
-    let name = value
-      .split { $0.isWhitespace }
-      .joined(separator: " ")
-      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let name = value.split { $0.isWhitespace }.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
     guard !name.isEmpty else { return nil }
     return String(name.prefix(60))
   }

@@ -1,7 +1,7 @@
 import AppKit
 import Carbon
 import XCTest
-@testable import ClipBored
+@testable import Goldfish
 
 final class ShortcutManagerTests: XCTestCase {
   func testVirtualKeyCodeMappingSupportsDefaults() {
@@ -36,11 +36,9 @@ final class ShortcutManagerTests: XCTestCase {
     manager.stop()
   }
 
-  func testRejectsConfiguredShortcutConflictWithFixedStackCaptureShortcut() {
-    let manager = makeManager(openShortcut: ShortcutManager.stackCaptureShortcut)
-
-    XCTAssertEqual(manager.start(), .conflict(ShortcutManager.stackCaptureShortcut.displayText))
-    manager.stop()
+  func testCommandShiftCIsAvailableForConfiguredShortcut() {
+    let binding = ShortcutBinding(key: "c", modifierFlags: NSEvent.ModifierFlags([.command, .shift]).rawValue)
+    XCTAssertNil(ShortcutManager.validationFailure(for: binding))
   }
 
   private func makeManager(openShortcut: ShortcutBinding) -> ShortcutManager {

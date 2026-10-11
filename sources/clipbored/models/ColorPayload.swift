@@ -2,29 +2,25 @@ import AppKit
 import Foundation
 
 enum ColorPayload {
+  static func isHexColorLiteral(_ value: String) -> Bool {
+    value.hasPrefix("#") && [4, 5, 7, 9].contains(value.count) && value.dropFirst().allSatisfy { $0.isASCII && $0.isHexDigit }
+  }
+
   static func hexString(from color: NSColor) -> String? {
-    guard let rgb = color.usingColorSpace(.sRGB) ?? color.usingColorSpace(.deviceRGB) else {
-      return nil
-    }
+    guard let rgb = color.usingColorSpace(.sRGB) ?? color.usingColorSpace(.deviceRGB) else { return nil }
     let red = clampedByte(rgb.redComponent)
     let green = clampedByte(rgb.greenComponent)
     let blue = clampedByte(rgb.blueComponent)
     let alpha = clampedByte(rgb.alphaComponent)
-    if alpha >= 255 {
-      return String(format: "#%02X%02X%02X", red, green, blue)
-    }
+    if alpha >= 255 { return String(format: "#%02X%02X%02X", red, green, blue) }
     return String(format: "#%02X%02X%02X%02X", red, green, blue, alpha)
   }
 
   static func color(from payload: String) -> NSColor? {
     var value = payload.clipboardTrimmed
-    if value.hasPrefix("#") {
-      value.removeFirst()
-    }
-    guard value.count == 6 || value.count == 8,
-          let raw = UInt32(value, radix: 16) else {
-      return nil
-    }
+    if value.hasPrefix("#") { value.removeFirst() }
+    if value.count == 3 || value.count == 4 { value = value.map { "\($0)\($0)" }.joined() }
+    guard value.count == 6 || value.count == 8, let raw = UInt32(value, radix: 16) else { return nil }
 
     let hasAlpha = value.count == 8
     let red = CGFloat((raw >> (hasAlpha ? 24 : 16)) & 0xFF) / 255
@@ -35,33 +31,24 @@ enum ColorPayload {
   }
 
   static func displayHex(from payload: String) -> String {
-    if let color = color(from: payload), let hex = hexString(from: color) {
-      return hex
-    }
+    if let color = color(from: payload), let hex = hexString(from: color) { return hex }
     let normalized = payload.clipboardTrimmed
     return normalized.hasPrefix("#") ? normalized.uppercased() : "#\(normalized.uppercased())"
   }
 
   static func componentSummary(from payload: String) -> String {
-    guard let color = color(from: payload),
-          let rgb = color.usingColorSpace(.sRGB) ?? color.usingColorSpace(.deviceRGB) else {
+    guard let color = color(from: payload), let rgb = color.usingColorSpace(.sRGB) ?? color.usingColorSpace(.deviceRGB) else {
       return "Color"
     }
     let red = clampedByte(rgb.redComponent)
     let green = clampedByte(rgb.greenComponent)
     let blue = clampedByte(rgb.blueComponent)
     let alpha = clampedByte(rgb.alphaComponent)
-    if alpha >= 255 {
-      return "RGB \(red) \(green) \(blue)"
-    }
+    if alpha >= 255 { return "RGB \(red) \(green) \(blue)" }
     return "RGBA \(red) \(green) \(blue) \(alpha)"
   }
 
-  static func previewText(from payload: String) -> String {
-    "\(displayHex(from: payload))\n\(componentSummary(from: payload))"
-  }
+  static func previewText(from payload: String) -> String { "\(displayHex(from: payload))\n\(componentSummary(from: payload))" }
 
-  private static func clampedByte(_ value: CGFloat) -> Int {
-    Int((min(1, max(0, value)) * 255).rounded())
-  }
+  private static func clampedByte(_ value: CGFloat) -> Int { Int((min(1, max(0, value)) * 255).rounded()) }
 }

@@ -1,18 +1,59 @@
 import AppKit
 import Carbon
+import WebKit
 import XCTest
-@testable import ClipBored
+@testable import Goldfish
 
 final class ClipboardPanelControllerTests: XCTestCase {
+  func testHorizontalShelfSpansEachDisplayRegardlessOfSideDock() {
+    for screen in [CGRect(x: 0, y: 0, width: 1512, height: 982),
+      CGRect(x: -3440, y: 200, width: 3440, height: 1440),
+      CGRect(x: 100, y: -2160, width: 5120, height: 2160)] {
+      for sideDock: CGFloat in [-100, 0, 100] {
+        let visible = CGRect(x: screen.minX + max(0, sideDock), y: screen.minY,
+          width: screen.width - abs(sideDock), height: screen.height - 32)
+        let frame = ClipboardPanelController.panelFrames(forScreenFrame: screen, visibleFrame: visible, layout: .cards).shown
+        XCTAssertEqual(frame.minX, screen.minX + 12)
+        XCTAssertEqual(frame.maxX, screen.maxX - 12)
+        XCTAssertEqual(frame.minY, screen.minY + 12)
+      }
+    }
+  }
+
+  func testShelfLevelClearsDockWithoutCoveringSystemMenus() {
+    let level = ClipboardPanelController.shelfWindowLevel.rawValue
+    XCTAssertGreaterThan(level, Int(CGWindowLevelForKey(.dockWindow)))
+    XCTAssertLessThan(level, NSWindow.Level.popUpMenu.rawValue)
+  }
+
+  func testStatusItemClickOwnsDismissalBeforeToggle() {
+    let statusFrame = NSRect(x: -900, y: 760, width: 24, height: 24)
+    let point = NSPoint(x: -888, y: 772)
+    for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+      XCTAssertTrue(ClipboardPanelController.isPrimaryStatusItemClick(eventType: type,
+        modifiers: [], location: point, statusItemFrame: statusFrame))
+      XCTAssertFalse(ClipboardPanelController.isPrimaryStatusItemClick(eventType: type,
+        modifiers: .control, location: point, statusItemFrame: statusFrame))
+      XCTAssertFalse(ClipboardPanelController.isPrimaryStatusItemClick(eventType: type,
+        modifiers: [], location: .zero, statusItemFrame: statusFrame))
+      XCTAssertFalse(ClipboardPanelController.isPrimaryStatusItemClick(eventType: type,
+        modifiers: [], location: point, statusItemFrame: nil))
+    }
+    for type in [NSEvent.EventType.keyDown, .rightMouseDown, .otherMouseUp, .leftMouseDragged] {
+      XCTAssertFalse(ClipboardPanelController.isPrimaryStatusItemClick(eventType: type,
+        modifiers: [], location: point, statusItemFrame: statusFrame))
+    }
+  }
+
   func testPanelFrameUsesRightSideShelfByDefault() {
     let screenFrame = CGRect(x: -1200, y: -200, width: 1200, height: 800)
     let frames = ClipboardPanelController.panelFrames(forScreenFrame: screenFrame, visibleFrame: screenFrame)
 
-    XCTAssertEqual(frames.shown.maxX, screenFrame.maxX)
-    XCTAssertEqual(frames.shown.width, 336)
-    XCTAssertEqual(frames.shown.minY, screenFrame.minY)
-    XCTAssertEqual(frames.shown.maxY, screenFrame.maxY)
-    XCTAssertEqual(frames.hidden.minX, screenFrame.maxX + 1)
+    XCTAssertEqual(frames.shown.maxX, screenFrame.maxX - 12)
+    XCTAssertEqual(frames.shown.width, 420 + ClipboardShelfControls.contentTypeRailAllowance)
+    XCTAssertEqual(frames.shown.minY, screenFrame.minY + 12)
+    XCTAssertEqual(frames.shown.maxY, screenFrame.maxY - 12)
+    XCTAssertEqual(frames.hidden.minX, frames.shown.minX + 18)
     XCTAssertEqual(frames.hidden.minY, frames.shown.minY)
   }
 
@@ -60,43 +101,58 @@ final class ClipboardPanelControllerTests: XCTestCase {
     )
   }
 
-  func testPanelFrameUsesVisibleFrameAroundDock() {
+  func testPanelFrameUsesVisibleWidthAroundSideDock() {
     let screenFrame = CGRect(x: 0, y: 0, width: 1512, height: 982)
     let visibleFrame = CGRect(x: 80, y: 0, width: 1432, height: 957)
 
     let frames = ClipboardPanelController.panelFrames(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
 
-    XCTAssertEqual(frames.shown.maxX, visibleFrame.maxX)
-    XCTAssertEqual(frames.shown.minX, visibleFrame.maxX - 336)
-    XCTAssertEqual(frames.shown.minY, screenFrame.minY)
-    XCTAssertEqual(frames.shown.maxY, visibleFrame.maxY)
-    XCTAssertEqual(frames.shown.width, 336)
+    XCTAssertEqual(frames.shown.maxX, visibleFrame.maxX - 12)
+    XCTAssertEqual(frames.shown.minX, visibleFrame.maxX - 432 - ClipboardShelfControls.contentTypeRailAllowance)
+    XCTAssertEqual(frames.shown.minY, screenFrame.minY + 12)
+    XCTAssertEqual(frames.shown.maxY, visibleFrame.maxY - 12)
+    XCTAssertEqual(frames.shown.width, 420 + ClipboardShelfControls.contentTypeRailAllowance)
   }
 
-  func testPanelFrameUsesAvailableHeightWhenBottomDockIsVisible() {
+  func testPanelFrameExtendsOverBottomDock() {
     let screenFrame = CGRect(x: 0, y: 0, width: 1512, height: 982)
     let visibleFrame = CGRect(x: 0, y: 96, width: 1512, height: 861)
 
     let frames = ClipboardPanelController.panelFrames(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
 
-    XCTAssertEqual(frames.shown.maxX, visibleFrame.maxX)
-    XCTAssertEqual(frames.shown.minY, screenFrame.minY)
-    XCTAssertEqual(frames.shown.maxY, visibleFrame.maxY)
-    XCTAssertEqual(frames.shown.width, 336)
-    XCTAssertEqual(frames.hidden.minX, visibleFrame.maxX + 1)
+    XCTAssertEqual(frames.shown.maxX, visibleFrame.maxX - 12)
+    XCTAssertEqual(frames.shown.minY, screenFrame.minY + 12)
+    XCTAssertEqual(frames.shown.maxY, visibleFrame.maxY - 12)
+    XCTAssertEqual(frames.shown.height, 933)
+    XCTAssertEqual(frames.shown.width, 420 + ClipboardShelfControls.contentTypeRailAllowance)
+    XCTAssertEqual(frames.hidden.minX, frames.shown.minX + 18)
   }
 
-  func testPanelFrameTouchesScreenBottomWhenBottomDockIsAutoHidden() {
+  func testPanelFrameLeavesMarginWhenBottomDockIsAutoHidden() {
     let screenFrame = CGRect(x: 0, y: 0, width: 1512, height: 982)
     let visibleFrame = CGRect(x: 0, y: 4, width: 1512, height: 953)
 
     let frames = ClipboardPanelController.panelFrames(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
 
-    XCTAssertEqual(frames.shown.maxX, visibleFrame.maxX)
-    XCTAssertEqual(frames.shown.minY, screenFrame.minY)
-    XCTAssertEqual(frames.shown.maxY, visibleFrame.maxY)
-    XCTAssertEqual(frames.shown.width, 336)
-    XCTAssertEqual(frames.hidden.minX, visibleFrame.maxX + 1)
+    XCTAssertEqual(frames.shown.maxX, visibleFrame.maxX - 12)
+    XCTAssertEqual(frames.shown.minY, screenFrame.minY + 12)
+    XCTAssertEqual(frames.shown.maxY, visibleFrame.maxY - 12)
+    XCTAssertEqual(frames.shown.width, 420 + ClipboardShelfControls.contentTypeRailAllowance)
+    XCTAssertEqual(frames.hidden.minX, frames.shown.minX + 18)
+  }
+
+  func testPanelFrameBottomDoesNotDependOnDockHeightOnOffsetScreen() {
+    let screenFrame = CGRect(x: -1512, y: 166, width: 1512, height: 982)
+    for dockHeight: CGFloat in [0, 4, 48, 84, 140] {
+      let visibleFrame = CGRect(x: screenFrame.minX, y: screenFrame.minY + dockHeight,
+        width: screenFrame.width, height: screenFrame.height - dockHeight - 32)
+      let frames = ClipboardPanelController.panelFrames(
+        forScreenFrame: screenFrame, visibleFrame: visibleFrame)
+
+      XCTAssertEqual(frames.shown.minY, screenFrame.minY + 12, "Dock height: \(dockHeight)")
+      XCTAssertEqual(frames.shown.maxY, visibleFrame.maxY - 12, "Dock height: \(dockHeight)")
+      XCTAssertEqual(frames.shown.height, 926, "Dock height: \(dockHeight)")
+    }
   }
 
   func testPanelFrameKeepsSideShelfWidthOnTallDisplays() {
@@ -104,23 +160,23 @@ final class ClipboardPanelControllerTests: XCTestCase {
 
     let frames = ClipboardPanelController.panelFrames(forScreenFrame: screenFrame, visibleFrame: screenFrame)
 
-    XCTAssertEqual(frames.shown.width, 336)
-    XCTAssertEqual(frames.shown.height, 2000)
-    XCTAssertEqual(frames.shown.minY, screenFrame.minY)
-    XCTAssertEqual(frames.shown.maxX, screenFrame.maxX)
+    XCTAssertEqual(frames.shown.width, 420 + ClipboardShelfControls.contentTypeRailAllowance)
+    XCTAssertEqual(frames.shown.height, 1976)
+    XCTAssertEqual(frames.shown.minY, screenFrame.minY + 12)
+    XCTAssertEqual(frames.shown.maxX, screenFrame.maxX - 12)
   }
 
-  func testPanelFrameFitsTinyVisibleFrameWithoutOverflowing() {
+  func testPanelFrameFitsTinyScreenWhileExtendingBelowVisibleFrame() {
     let screenFrame = CGRect(x: 0, y: 0, width: 640, height: 320)
     let visibleFrame = CGRect(x: 0, y: 48, width: 640, height: 220)
 
     let frames = ClipboardPanelController.panelFrames(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
 
-    XCTAssertEqual(frames.shown.minY, screenFrame.minY)
-    XCTAssertEqual(frames.shown.maxY, visibleFrame.maxY)
+    XCTAssertEqual(frames.shown.minY, screenFrame.minY + 11)
+    XCTAssertEqual(frames.shown.maxY, visibleFrame.maxY - 11)
     XCTAssertEqual(frames.shown.width, 320)
     XCTAssertLessThanOrEqual(frames.shown.width, visibleFrame.width)
-    XCTAssertEqual(frames.hidden.minX, screenFrame.maxX + 1)
+    XCTAssertEqual(frames.hidden.minX, frames.shown.minX + 18)
   }
 
   func testPanelCollectionBehaviorStaysLocalToActiveSpaceAndSupportsFullscreen() {
@@ -142,12 +198,12 @@ final class ClipboardPanelControllerTests: XCTestCase {
       side: .right
     )
 
-    XCTAssertEqual(frames.shown.minY, screenFrame.minY)
-    XCTAssertEqual(frames.shown.maxY, visibleFrame.maxY)
-    XCTAssertEqual(frames.shown.maxX, visibleFrame.maxX)
-    XCTAssertEqual(frames.shown.width, 336)
+    XCTAssertEqual(frames.shown.minY, screenFrame.minY + 12)
+    XCTAssertEqual(frames.shown.maxY, visibleFrame.maxY - 12)
+    XCTAssertEqual(frames.shown.maxX, visibleFrame.maxX - 12)
+    XCTAssertEqual(frames.shown.width, 420 + ClipboardShelfControls.contentTypeRailAllowance)
     XCTAssertEqual(frames.hidden.minY, frames.shown.minY)
-    XCTAssertEqual(frames.hidden.minX, screenFrame.maxX + 1)
+    XCTAssertEqual(frames.hidden.minX, frames.shown.minX + 18)
   }
 
   func testPanelFrameUsesConfiguredLeftSideShelf() {
@@ -160,15 +216,15 @@ final class ClipboardPanelControllerTests: XCTestCase {
       side: .left
     )
 
-    XCTAssertEqual(frames.shown.minX, visibleFrame.minX)
-    XCTAssertEqual(frames.shown.minY, screenFrame.minY)
-    XCTAssertEqual(frames.shown.maxY, visibleFrame.maxY)
-    XCTAssertEqual(frames.shown.width, 336)
-    XCTAssertEqual(frames.hidden.maxX, visibleFrame.minX - 1)
+    XCTAssertEqual(frames.shown.minX, visibleFrame.minX + 12)
+    XCTAssertEqual(frames.shown.minY, visibleFrame.minY + 12)
+    XCTAssertEqual(frames.shown.maxY, visibleFrame.maxY - 12)
+    XCTAssertEqual(frames.shown.width, 420 + ClipboardShelfControls.contentTypeRailAllowance)
+    XCTAssertEqual(frames.hidden.maxX, frames.shown.maxX - 18)
     XCTAssertEqual(frames.hidden.minY, frames.shown.minY)
   }
 
-  func testPanelFrameUsesFullScreenHeightWhenVisibleFrameMatchesScreen() {
+  func testPanelFrameKeepsMarginsWhenVisibleFrameMatchesScreen() {
     let screenFrame = CGRect(x: -1512, y: -120, width: 1512, height: 982)
 
     let frames = ClipboardPanelController.panelFrames(
@@ -177,10 +233,10 @@ final class ClipboardPanelControllerTests: XCTestCase {
       side: .right
     )
 
-    XCTAssertEqual(frames.shown.minY, screenFrame.minY)
-    XCTAssertEqual(frames.shown.maxY, screenFrame.maxY)
-    XCTAssertEqual(frames.shown.maxX, screenFrame.maxX)
-    XCTAssertEqual(frames.shown.width, 336)
+    XCTAssertEqual(frames.shown.minY, screenFrame.minY + 12)
+    XCTAssertEqual(frames.shown.maxY, screenFrame.maxY - 12)
+    XCTAssertEqual(frames.shown.maxX, screenFrame.maxX - 12)
+    XCTAssertEqual(frames.shown.width, 420 + ClipboardShelfControls.contentTypeRailAllowance)
   }
 
   func testContentBottomInsetHandlesBottomAndSideDock() {
@@ -189,13 +245,13 @@ final class ClipboardPanelControllerTests: XCTestCase {
 
     let inset = ClipboardPanelController.contentBottomInset(forScreenFrame: screenFrame, visibleFrame: visibleFrame)
 
-    XCTAssertEqual(inset, 20)
+    XCTAssertEqual(inset, 16)
     XCTAssertEqual(
       ClipboardPanelController.contentBottomInset(
         forScreenFrame: screenFrame,
         visibleFrame: CGRect(x: 80, y: 0, width: 1432, height: 957)
       ),
-      18
+      16
     )
   }
 
@@ -215,6 +271,32 @@ final class ClipboardPanelControllerTests: XCTestCase {
     XCTAssertEqual(frame.width, 1088)
     XCTAssertEqual(frame.height, 536)
     XCTAssertEqual(frame.midX, shelfFrame.midX, accuracy: 0.5)
+  }
+
+  func testPreviewSitsBesideAVerticalShelfWhenSpaceAllows() {
+    let visible = NSRect(x: -1512, y: 80, width: 1512, height: 902)
+    for side in [ClipboardPanelSide.left, .right] {
+      let shelf = ClipboardPanelController.panelFrames(forScreenFrame: visible, visibleFrame: visible, side: side).shown
+      let preview = LinkPreviewWindowController.previewFrame(parentFrame: shelf, visibleFrame: visible)
+      XCTAssertTrue(visible.contains(preview))
+      XCTAssertFalse(preview.intersects(shelf))
+      XCTAssertEqual(preview.height, 560)
+    }
+  }
+
+  func testLinkPreviewOnlyOpensCustomSchemesAfterExplicitLinkActivation() {
+    XCTAssertEqual(
+      LinkPreviewWindowController.navigationDecision(scheme: "mailto", navigationType: .linkActivated),
+      .openExternally
+    )
+    XCTAssertEqual(
+      LinkPreviewWindowController.navigationDecision(scheme: "mailto", navigationType: .other),
+      .cancel
+    )
+    XCTAssertEqual(
+      LinkPreviewWindowController.navigationDecision(scheme: "https", navigationType: .other),
+      .allow
+    )
   }
 
   func testCommandNumberShortcutsMapToQuickPasteSlots() {
@@ -283,8 +365,10 @@ final class ClipboardPanelControllerTests: XCTestCase {
 
   func testCommandActionShortcutsMapToSelectedClipActions() {
     assertShortcutMappings([
+      (13, .command, .close),
       (8, .command, .copy), (14, .command, .edit), (3, .command, .focusSearch),
-      (45, .command, nil), (5, .command, .showInClipboard),
+      (45, .command, .newText), (5, .command, .showInClipboard),
+      (35, .command, .togglePin), (35, [], nil),
       (16, .command, .preview), (31, .command, .open), (15, .command, .rename),
       (17, .command, .toggleCapturePause), (6, .command, .undoDelete),
       (123, .command, .previousCollection), (124, .command, .nextCollection),
@@ -321,11 +405,8 @@ final class ClipboardPanelControllerTests: XCTestCase {
   func testModifiedShortcutsMapToPanelActions() {
     assertShortcutMappings([
       (36, .shift, .pastePlainText),
-      (1, [.command, .shift], .toggleStack),
-      (8, [.command, .shift], .toggleStackCapture),
       (9, [.command, .shift], .pastePlainText),
       (45, [.command, .shift], .newCollection),
-      (36, [.command, .shift], .pasteStackNext),
       (36, [], nil), (8, .shift, nil), (8, .command, nil),
       (8, [.command, .option, .shift], nil), (31, [.command, .shift], nil)
     ], using: ClipboardPanelController.modifiedShortcutAction)

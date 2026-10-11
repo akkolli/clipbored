@@ -1,7 +1,6 @@
 import AppKit
 
-@main
-struct ClipBoredApp {
+@main struct GoldfishApp {
   private static let appDelegate = AppDelegate()
 
   static func main() {

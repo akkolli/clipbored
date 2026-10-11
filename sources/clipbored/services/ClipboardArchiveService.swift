@@ -16,18 +16,21 @@ struct ClipboardArchiveImport {
 struct ClipboardArchiveCollection: Codable, Equatable {
   let name: String
   let colorHex: String?
+  let icon: String?
 }
 
 enum ClipboardArchiveError: LocalizedError {
   case unsupportedVersion(Int)
   case invalidArchive
+  case archiveTooLarge(Int)
 
   var errorDescription: String? {
     switch self {
-    case .unsupportedVersion(let version):
-      return "This ClipBored archive uses unsupported format version \(version)."
-    case .invalidArchive:
-      return "The selected file is not a valid ClipBored archive."
+    case .unsupportedVersion(let version): return "This Goldfish archive uses unsupported format version \(version)."
+    case .invalidArchive: return "The selected file is not a valid Goldfish archive."
+    case .archiveTooLarge(let maxBytes):
+      let limit = ByteCountFormatter.string(fromByteCount: Int64(maxBytes), countStyle: .file)
+      return "This Goldfish archive exceeds the \(limit) safety limit."
     }
   }
 }
@@ -38,66 +41,56 @@ final class ClipboardArchiveService {
 
   private let fileManager: FileManager
 
-  init(fileManager: FileManager = .default) {
-    self.fileManager = fileManager
-  }
+  init(fileManager: FileManager = .default) { self.fileManager = fileManager }
 
   func exportArchive(
-    items: [ClipboardItem],
-    to url: URL,
-    cacheService: ClipboardCacheService,
-    collections: [ClipboardArchiveCollection] = []
+    items: [ClipboardItem], to url: URL, cacheService: ClipboardCacheService, collections: [ClipboardArchiveCollection] = []
   ) throws -> ClipboardArchiveSummary {
     var sidecarCount = 0
-    let archivedItems = items.map { item -> ArchiveItem in
+    var totalSidecarBytes = 0
+    var archivedItems: [ArchiveItem] = []
+    archivedItems.reserveCapacity(items.count)
+    for item in items {
       let sidecars = archivedSidecars(for: item, cacheService: cacheService)
+      totalSidecarBytes += sidecars.reduce(0) { $0 + $1.data.count }
+      guard totalSidecarBytes <= AppConfiguration.maxPortableArchiveSidecarBytes else {
+        throw ClipboardArchiveError.archiveTooLarge(AppConfiguration.maxPortableArchiveBytes)
+      }
       sidecarCount += sidecars.count
-      return ArchiveItem(item: item, sidecars: sidecars)
+      archivedItems.append(ArchiveItem(item: item, sidecars: sidecars))
     }
 
     let archive = ArchivePayload(
-      formatVersion: Self.currentFormatVersion,
-      createdBy: AppConfiguration.appName,
-      exportedAt: Date(),
-      collections: collections,
-      items: archivedItems
-    )
+      formatVersion: Self.currentFormatVersion, createdBy: AppConfiguration.appName, exportedAt: Date(), collections: collections,
+      items: archivedItems)
 
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .secondsSince1970
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     let data = try encoder.encode(archive)
-    try fileManager.createDirectory(
-      at: url.deletingLastPathComponent(),
-      withIntermediateDirectories: true
-    )
+    guard Self.isArchiveSizeAllowed(data.count) else {
+      throw ClipboardArchiveError.archiveTooLarge(AppConfiguration.maxPortableArchiveBytes)
+    }
+    try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     try data.write(to: url, options: .atomic)
     try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
 
-    return ClipboardArchiveSummary(
-      itemCount: items.count,
-      sidecarCount: sidecarCount,
-      skippedItemCount: 0,
-      skippedSidecarCount: 0
-    )
+    return ClipboardArchiveSummary(itemCount: items.count, sidecarCount: sidecarCount, skippedItemCount: 0, skippedSidecarCount: 0)
   }
 
-  func importArchive(
-    from url: URL,
-    cacheService: ClipboardCacheService
-  ) throws -> ClipboardArchiveImport {
+  func importArchive(from url: URL, cacheService: ClipboardCacheService) throws -> ClipboardArchiveImport {
+    if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, !Self.isArchiveSizeAllowed(size) {
+      throw ClipboardArchiveError.archiveTooLarge(AppConfiguration.maxPortableArchiveBytes)
+    }
     let data = try Data(contentsOf: url)
+    guard Self.isArchiveSizeAllowed(data.count) else {
+      throw ClipboardArchiveError.archiveTooLarge(AppConfiguration.maxPortableArchiveBytes)
+    }
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .secondsSince1970
     let archive: ArchivePayload
-    do {
-      archive = try decoder.decode(ArchivePayload.self, from: data)
-    } catch {
-      throw ClipboardArchiveError.invalidArchive
-    }
-    guard archive.formatVersion <= Self.currentFormatVersion else {
-      throw ClipboardArchiveError.unsupportedVersion(archive.formatVersion)
-    }
+    do { archive = try decoder.decode(ArchivePayload.self, from: data) } catch { throw ClipboardArchiveError.invalidArchive }
+    guard archive.formatVersion <= Self.currentFormatVersion else { throw ClipboardArchiveError.unsupportedVersion(archive.formatVersion) }
 
     var importedItems: [ClipboardItem] = []
     var sidecarCount = 0
@@ -116,9 +109,7 @@ final class ClipboardArchiveService {
         case .image:
           if let path = cacheService.cacheImageSidecarData(sidecar.data, id: item.id) {
             item.imagePath = path
-            if item.kind == .image {
-              item.payload = path
-            }
+            if item.kind == .image { item.payload = path }
             sidecarCount += 1
           } else {
             skippedSidecarCount += 1
@@ -133,14 +124,8 @@ final class ClipboardArchiveService {
           }
 
         case .attachment:
-          if let path = cacheService.cacheAttachmentData(
-            sidecar.data,
-            id: item.id,
-            fileExtension: sidecar.fileExtension
-          ) {
-            if item.kind.usesManagedPayloadAttachment {
-              item.payload = path
-            }
+          if let path = cacheService.cacheAttachmentData(sidecar.data, id: item.id, fileExtension: sidecar.fileExtension) {
+            if item.kind.usesManagedPayloadAttachment { item.payload = path }
             sidecarCount += 1
           } else {
             skippedSidecarCount += 1
@@ -152,22 +137,12 @@ final class ClipboardArchiveService {
     }
 
     let summary = ClipboardArchiveSummary(
-      itemCount: importedItems.count,
-      sidecarCount: sidecarCount,
-      skippedItemCount: skippedItemCount,
-      skippedSidecarCount: skippedSidecarCount
-    )
-    return ClipboardArchiveImport(
-      items: importedItems,
-      collections: archive.collections ?? [],
-      summary: summary
-    )
+      itemCount: importedItems.count, sidecarCount: sidecarCount, skippedItemCount: skippedItemCount,
+      skippedSidecarCount: skippedSidecarCount)
+    return ClipboardArchiveImport(items: importedItems, collections: archive.collections ?? [], summary: summary)
   }
 
-  private func archivedSidecars(
-    for item: ClipboardItem,
-    cacheService: ClipboardCacheService
-  ) -> [ArchiveSidecar] {
+  private func archivedSidecars(for item: ClipboardItem, cacheService: ClipboardCacheService) -> [ArchiveSidecar] {
     var sidecars: [ArchiveSidecar] = []
     var archivedPaths = Set<String>()
 
@@ -175,13 +150,7 @@ final class ClipboardArchiveService {
       guard let path, !path.clipboardTrimmed.isEmpty, !archivedPaths.contains(path) else { return }
       guard let data = cacheService.data(for: path) else { return }
       archivedPaths.insert(path)
-      sidecars.append(
-        ArchiveSidecar(
-          role: role,
-          fileExtension: fileExtension(for: path, fallback: fallbackExtension),
-          data: data
-        )
-      )
+      sidecars.append(ArchiveSidecar(role: role, fileExtension: fileExtension(for: path, fallback: fallbackExtension), data: data))
     }
 
     switch item.kind {
@@ -189,23 +158,17 @@ final class ClipboardArchiveService {
       append(.image, path: item.imagePath ?? item.payload, fallbackExtension: "png")
       append(.thumbnail, path: item.thumbnailPath, fallbackExtension: "png")
 
-    case .url:
-      append(.thumbnail, path: item.thumbnailPath, fallbackExtension: "png")
+    case .url: append(.thumbnail, path: item.thumbnailPath, fallbackExtension: "png")
 
-    case .pdf:
-      append(.attachment, path: item.payload, fallbackExtension: "pdf")
+    case .pdf: append(.attachment, path: item.payload, fallbackExtension: "pdf")
 
-    case .audio:
-      append(.attachment, path: item.payload, fallbackExtension: "sound")
+    case .audio: append(.attachment, path: item.payload, fallbackExtension: "sound")
 
-    case .richText:
-      append(.attachment, path: item.payload, fallbackExtension: "rtf")
+    case .richText: append(.attachment, path: item.payload, fallbackExtension: "rtf")
 
-    case .video:
-      append(.attachment, path: item.payload, fallbackExtension: VideoPayload.fileExtension(from: item.payload))
+    case .video: append(.attachment, path: item.payload, fallbackExtension: VideoPayload.fileExtension(from: item.payload))
 
-    case .text, .file, .unknown, .color, .code:
-      break
+    case .text, .file, .unknown, .color, .code: break
     }
 
     return sidecars
@@ -215,6 +178,8 @@ final class ClipboardArchiveService {
     let ext = URL(fileURLWithPath: path).pathExtension.clipboardTrimmed
     return ext.isEmpty ? fallback : ext
   }
+
+  static func isArchiveSizeAllowed(_ byteCount: Int) -> Bool { byteCount >= 0 && byteCount <= AppConfiguration.maxPortableArchiveBytes }
 }
 
 private struct ArchivePayload: Codable {
@@ -224,13 +189,7 @@ private struct ArchivePayload: Codable {
   let collections: [ClipboardArchiveCollection]?
   let items: [ArchiveItem]
 
-  init(
-    formatVersion: Int,
-    createdBy: String,
-    exportedAt: Date,
-    collections: [ClipboardArchiveCollection],
-    items: [ArchiveItem]
-  ) {
+  init(formatVersion: Int, createdBy: String, exportedAt: Date, collections: [ClipboardArchiveCollection], items: [ArchiveItem]) {
     self.formatVersion = formatVersion
     self.createdBy = createdBy
     self.exportedAt = exportedAt
@@ -283,24 +242,10 @@ private struct ArchiveItem: Codable {
   func clipboardItem() -> ClipboardItem? {
     guard let kind = ClipboardItemKind(rawValue: kind) else { return nil }
     return ClipboardItem(
-      id: id,
-      kind: kind,
-      displayText: displayText,
-      payload: payload,
-      payloadHash: payloadHash,
-      createdAt: createdAt,
-      lastUsedAt: lastUsedAt,
-      useCount: useCount,
-      sourceApp: sourceApp,
-      imagePath: imagePath,
-      thumbnailPath: thumbnailPath,
-      isPinned: isPinned,
-      sourceAppBundleId: sourceAppBundleId,
-      ocrText: ocrText,
-      collectionName: collectionName,
-      customTitle: customTitle,
-      sourceDeviceName: sourceDeviceName
-    )
+      id: id, kind: kind, displayText: displayText, payload: payload, payloadHash: payloadHash, createdAt: createdAt,
+      lastUsedAt: lastUsedAt, useCount: useCount, sourceApp: sourceApp, imagePath: imagePath, thumbnailPath: thumbnailPath,
+      isPinned: isPinned, sourceAppBundleId: sourceAppBundleId, ocrText: ocrText, collectionName: collectionName, customTitle: customTitle,
+      sourceDeviceName: sourceDeviceName)
   }
 }
 
@@ -316,13 +261,11 @@ private enum ArchiveSidecarRole: String, Codable {
   case attachment
 }
 
-private extension ClipboardItemKind {
-  var usesManagedPayloadAttachment: Bool {
+extension ClipboardItemKind {
+  fileprivate var usesManagedPayloadAttachment: Bool {
     switch self {
-    case .pdf, .audio, .richText, .video:
-      return true
-    case .text, .url, .image, .file, .unknown, .color, .code:
-      return false
+    case .pdf, .audio, .richText, .video: return true
+    case .text, .url, .image, .file, .unknown, .color, .code: return false
     }
   }
 }

@@ -1,8 +1,15 @@
 import CryptoKit
+import Security
 import XCTest
-@testable import ClipBored
+@testable import Goldfish
 
 final class ClipboardEncryptionServiceTests: XCTestCase {
+  func testProductionStoragePolicyFailsClosedWithoutAKey() {
+    let encryption = ClipboardEncryptionService(keyProvider: { nil }, allowsUnencryptedStorage: false)
+    XCTAssertFalse(encryption.canPersist)
+    XCTAssertNil(encryption.protect("private clipboard text"))
+    XCTAssertThrowsError(try encryption.protectDataForStorage(Data("private media".utf8)))
+  }
   func testProtectAndUnprotectRoundTrip() throws {
     let service = makeService(byte: 7)
     let value = "secret clipboard value \(UUID().uuidString)"
@@ -68,21 +75,45 @@ final class ClipboardEncryptionServiceTests: XCTestCase {
 
   func testSystemKeychainBypassIsEnabledForTestsAndExplicitEnvironment() {
     XCTAssertTrue(ClipboardEncryptionService.shouldBypassSystemKeychain(
-      environment: ["XCTestConfigurationFilePath": "/tmp/ClipBoredTests.xctestconfiguration"],
-      arguments: ["/tmp/ClipBoredTests"]
+      environment: ["XCTestConfigurationFilePath": "/tmp/GoldfishTests.xctestconfiguration"],
+      arguments: ["/tmp/GoldfishTests"]
     ))
     XCTAssertTrue(ClipboardEncryptionService.shouldBypassSystemKeychain(
       environment: ["CLIPBORED_DISABLE_KEYCHAIN": "1"],
-      arguments: ["/tmp/ClipBored"]
+      arguments: ["/tmp/Goldfish"]
     ))
     XCTAssertTrue(ClipboardEncryptionService.shouldBypassSystemKeychain(
       environment: [:],
-      arguments: ["/tmp/ClipBoredPackageTests.xctest/Contents/MacOS/ClipBoredPackageTests"]
+      arguments: ["/tmp/GoldfishPackageTests.xctest/Contents/MacOS/GoldfishPackageTests"]
     ))
     XCTAssertFalse(ClipboardEncryptionService.shouldBypassSystemKeychain(
       environment: [:],
-      arguments: ["/Applications/ClipBored.app/Contents/MacOS/ClipBored"]
+      arguments: ["/Applications/Goldfish.app/Contents/MacOS/Goldfish"]
     ))
+  }
+
+  func testDuplicateKeychainItemUsesExistingKeyRatherThanGeneratedKey() {
+    let generated = Data(repeating: 7, count: 32)
+    let existing = Data(repeating: 9, count: 32)
+
+    XCTAssertEqual(
+      ClipboardEncryptionService.resolvedKeyData(
+        generatedData: generated,
+        addStatus: errSecDuplicateItem,
+        existingData: existing
+      ),
+      existing
+    )
+  }
+
+  func testIndeterminateKeychainSaveDoesNotSelectCompetingKey() {
+    XCTAssertNil(
+      ClipboardEncryptionService.resolvedKeyData(
+        generatedData: Data(repeating: 7, count: 32),
+        addStatus: errSecInteractionNotAllowed,
+        existingData: nil
+      )
+    )
   }
 
   private func makeService(byte: UInt8) -> ClipboardEncryptionService {

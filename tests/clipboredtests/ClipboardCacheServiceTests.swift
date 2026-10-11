@@ -1,7 +1,7 @@
 import AppKit
 import CryptoKit
 import XCTest
-@testable import ClipBored
+@testable import Goldfish
 
 final class ClipboardCacheServiceTests: XCTestCase {
   private var tempURLs: [URL] = []
@@ -13,7 +13,7 @@ final class ClipboardCacheServiceTests: XCTestCase {
     super.tearDown()
   }
 
-  func testPurgeRemovesImageCacheFilesOverByteLimit() throws {
+  func testPurgeRemovesOnlyThumbnailsOverByteLimit() throws {
     let baseURL = try makeTempDirectory()
     let cacheService = ClipboardCacheService(baseURL: baseURL, encryptionService: noOpEncryptionService())
     let first = try XCTUnwrap(cacheService.cacheImage(makeImage(color: .systemRed), id: UUID()))
@@ -27,8 +27,10 @@ final class ClipboardCacheServiceTests: XCTestCase {
     cacheService.purgeIfNeeded(maxBytes: 1)
     cacheService.flushForTesting()
 
-    let remaining = try imageCacheFileURLs(in: baseURL)
-    XCTAssertTrue(remaining.isEmpty)
+    XCTAssertEqual(try imageCacheFileURLs(in: baseURL).count, 2)
+    XCTAssertTrue(try thumbnailCacheFileURLs(in: baseURL).isEmpty)
+    XCTAssertNotNil(cacheService.image(for: first.full))
+    XCTAssertNotNil(cacheService.image(for: second.full))
   }
 
   func testClearCacheRemovesOnlyImageCacheFiles() throws {
@@ -47,9 +49,28 @@ final class ClipboardCacheServiceTests: XCTestCase {
     cacheService.clearCache()
     cacheService.flushForTesting()
 
-    XCTAssertTrue(try imageCacheFileURLs(in: baseURL).isEmpty)
+    XCTAssertEqual(try imageCacheFileURLs(in: baseURL).count, 1)
+    XCTAssertTrue(try thumbnailCacheFileURLs(in: baseURL).isEmpty)
+    XCTAssertNotNil(cacheService.image(for: image.full))
     XCTAssertTrue(FileManager.default.fileExists(atPath: pdfPath))
     XCTAssertFalse(FileManager.default.fileExists(atPath: previewURL.path))
+  }
+
+  func testClearCacheRemovesLegacyThumbnailWithoutDeletingLegacyFullImage() throws {
+    let baseURL = try makeTempDirectory()
+    let cacheService = ClipboardCacheService(baseURL: baseURL, encryptionService: noOpEncryptionService())
+    let imageDirectory = baseURL.appendingPathComponent("images", isDirectory: true)
+    let fullURL = imageDirectory.appendingPathComponent("legacy.png")
+    let thumbURL = imageDirectory.appendingPathComponent("thumb-legacy.png")
+    let imageData = try XCTUnwrap(makeImage(color: .systemBrown).pngData())
+    try imageData.write(to: fullURL)
+    try imageData.write(to: thumbURL)
+
+    cacheService.clearCache()
+    cacheService.flushForTesting()
+
+    XCTAssertTrue(FileManager.default.fileExists(atPath: fullURL.path))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: thumbURL.path))
   }
 
   func testImageCacheFilesAreEncryptedAndLoadable() throws {
@@ -162,7 +183,7 @@ final class ClipboardCacheServiceTests: XCTestCase {
   func testRichTextCacheFilesAreEncryptedAndReadable() throws {
     let baseURL = try makeTempDirectory()
     let cacheService = ClipboardCacheService(baseURL: baseURL, encryptionService: fixedEncryptionService())
-    let rtfData = Data("{\\rtf1\\ansi ClipBored}".utf8)
+    let rtfData = Data("{\\rtf1\\ansi Goldfish}".utf8)
 
     let path = try XCTUnwrap(cacheService.cacheRichText(rtfData, id: UUID()))
     let rawRTF = try Data(contentsOf: URL(fileURLWithPath: path))
@@ -298,6 +319,11 @@ final class ClipboardCacheServiceTests: XCTestCase {
     return try FileManager.default.contentsOfDirectory(at: imageDirectory, includingPropertiesForKeys: nil)
   }
 
+  private func thumbnailCacheFileURLs(in baseURL: URL) throws -> [URL] {
+    let directory = baseURL.appendingPathComponent("thumbnails", isDirectory: true)
+    return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+  }
+
   private func textItem(_ text: String) -> ClipboardItem {
     ClipboardItem(
       id: UUID(),
@@ -427,11 +453,11 @@ final class ClipboardCacheServiceTests: XCTestCase {
   private func makePDFData() throws -> Data {
     let data = NSMutableData()
     guard let consumer = CGDataConsumer(data: data as CFMutableData) else {
-      throw NSError(domain: "ClipBoredTests", code: 1)
+      throw NSError(domain: "GoldfishTests", code: 1)
     }
     var box = CGRect(x: 0, y: 0, width: 160, height: 120)
     guard let context = CGContext(consumer: consumer, mediaBox: &box, nil) else {
-      throw NSError(domain: "ClipBoredTests", code: 2)
+      throw NSError(domain: "GoldfishTests", code: 2)
     }
 
     context.beginPDFPage(nil)

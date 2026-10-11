@@ -1,17 +1,21 @@
-# ClipBored
+# Goldfish
 
-ClipBored is a native macOS clipboard manager with a keyboard-first side shelf. It captures local clipboard history and makes clips easy to find, preview, organize, copy, paste, pin, and delete. It runs as a dockless menu-bar utility by default, with an optional Dock icon.
+Goldfish is a native macOS clipboard manager with keyboard-first vertical and horizontal clipboard shelves. It captures local clipboard history and makes clips easy to find, preview, organize, copy, paste, pin, and delete. It runs as a dockless menu-bar utility by default, with an optional Dock icon.
+
+Previously named ClipBored. Goldfish retains the existing bundle identifier, preferences, history folder, Keychain service, and archive format so the rename preserves access to saved data. The source directories keep their original names; the executable and packaged app are now `Goldfish` and `Goldfish.app`.
 
 The project is intentionally dependency-light: Swift Package Manager, AppKit, Carbon hotkeys, SQLite, and system frameworks only.
 
 ## Features
 
-- A compact toolbar with an expanding search control, clear-history and settings actions, plus a vertically scrollable category icon rail beside the cards
-- Category filtering without a separate filter panel: click a chip to select it, or Command-click chips to show their union; unused empty built-in categories stay hidden while named Pinboards remain available even when empty
-- A vertically scrolling list of cards with full-color kind or Pinboard headers that fills the space beside the category rail. Hover expands a card's preview without changing keyboard selection or filtering; commands live in card context menus and keyboard shortcuts
-- Search that collapses to a magnifying-glass button when it is empty and unfocused, expands on click, typing, or `Command + F`, and stays expanded while a query is active
-- Fast, short panel, search, category, and card transitions that honor the macOS Reduce Motion accessibility setting
-- First-run setup for the open shortcut, Keep History retention, menu-bar/Dock presence, launch at login, iCloud sync, and Accessibility permission
+- Persistent search with named destinations, independent content-type filters and sorting, plus source-app/date suggestions and one-click reset
+- Icon navigation: All clips, Pinned, and user-created Pinboards stay available during zero-result searches; the vertical layout places content-type icons in an attached notch
+- Content-sized cards with copied text, image/document previews, source icons, colored type headers, and character counts. The vertical grid pairs short clips and gives long clips a full row; the horizontal rail uses the display width. Hover and selection keep layout stable
+- Shared keyboard and context-menu actions, outcome announcements, deletion Undo, and capture pause/resume
+- Optional soft copy/paste sounds with volume control, no overlap, and quieter rapid repeats
+- Compact, Standard, and Wide shelf widths; left/right placement; larger clip text; semantic light/dark colors; reduced effects and stronger contrast when requested by macOS
+- Short shelf, menu, and card transitions that honor the macOS Reduce Motion accessibility setting
+- Compact first-run welcome with a card-shelf preview, shortcut chooser, and optional automatic-paste permission. Advanced preferences stay in Settings; capture starts after setup and does not backfill earlier copies
 - A menu-bar status menu with capture state, history count, settings, manual or timed pause/resume, and quit
 - Global and panel shortcuts:
   - The configured open shortcut toggles the clipboard shelf
@@ -20,32 +24,34 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
   - `Command + 1` through `Command + 9` pastes the numbered visible card; add `Shift` to use plain text
   - `Return` pastes the selected clip; `Shift + Return` or `Command + Shift + V` uses plain text
   - `Command + C` copies the selected clip or selected clips
+  - `Command + N` creates a text clip without touching the clipboard; `Command + P` pins the current clip
   - `Command + E` edits the selected text or code clip, and `Command + R` renames it
   - `Delete` removes selected clips, and `Command + Z` restores the last deleted batch
   - `Command + G` shows a filtered result in the full clipboard history
   - `Command + O` opens the selected link, file, or media clip when possible
   - `Shift + Command + N` creates a Pinboard collection
-  - `Shift + Command + C` toggles Stack capture for queued multi-paste workflows
   - `Command + Left` and `Command + Right` move between collections
   - `Command + Up` and `Command + Down` jump to the first or last visible clip
   - `Command + T` pauses or resumes clipboard capture
   - `Command + A` selects the visible list from a focused card; Shift-modified navigation extends a range
   - `Space` or `Command + Y` previews the selected card when the focused search field is empty
-- Keyboard-focusable cards and category chips with type-to-search, visible focus chrome, VoiceOver descriptions, context menus, Up/Down card navigation, and direct category navigation
+- Keyboard-focusable cards and navigation icons with type-to-search, visible focus chrome, VoiceOver descriptions, context menus, arrow-key card navigation, and direct category navigation
 - Clipboard history for text, code, colors, URLs, images, audio, video, RTF/HTML rich text, PDFs, and file references
 - Immediate cards with previews loaded asynchronously. Image, link, document, and movie thumbnails fill in without blocking search, selection, or scrolling
-- Built-in browser previews for links, Quick Look for files and media, image rotation, and local text extraction for images
+- Previews that stay attached to the shelf: an ephemeral browser for links and native Quick Look for files and media. Closing a preview restores the selected clip; dismissing the shelf closes its previews
 - Independent-token and structured search, including `app:Safari`, `type:image,pdf`, `device:MacBook`, `pinboard:"Client Work","Read Later"`, and `date:2026-06-30`
-- Custom color-coded Pinboards, including empty Pinboards, with drag-and-drop collection assignment, context-menu editing and export, and durable retention
+- Named Pinboards, including empty Pinboards, with batch collection assignment from the context menu, Pinboard context menus for editing/export, drag-to-Pinboard assignment, and durable retention
 - Searchable custom clip titles that do not alter the copied payload
-- Multi-selection, original-format or plain-text batch copy/paste, Stack capture, next-item Stack actions, and Stack-as-text workflows
+- Multi-selection with original-format or plain-text batch copy and paste
 - SQLite persistence with bounded history, time-based retention, pinned-item and Pinboard retention, and encrypted app-managed payloads
-- A bounded thumbnail cache with asynchronous loading and byte/file-count pruning
-- Portable local archive export/import for history, Pinboards, and managed attachments; external file references stay path-based
-- Optional iCloud archive sync for signed builds with an iCloud entitlement
-- A redesigned, resizable Settings window with top-level `General`, `Shortcuts`, `Capture`, `Privacy`, `Performance`, and `Data` tabs. Each page is vertically scrollable and keeps controls aligned at narrow window sizes
-- Settings for shelf side, retention, history length, default sort, cache limit, adaptive polling profile, ignored apps, content kinds, shortcuts, launch at login, Dock/menu-bar presence, screen-capture privacy, capture pause, and clear-on-quit behavior
-- Local-first storage, with optional sensitive-content exclusion and iCloud sync disabled by default
+- A bounded, disposable thumbnail cache with asynchronous loading and byte/file-count pruning; clearing it never removes restorable full images
+- Portable local archive export/import for history, Pinboards, and managed attachments, bounded to 128 MB; external file references stay path-based
+- Optional whole-archive iCloud backup and restore for signed builds with an iCloud entitlement
+- A redesigned, resizable Settings window with a stable sidebar for `General`, `Shortcuts`, `Capture`, `Privacy`, `Performance`, and `Data`. Each page is vertically scrollable and keeps controls aligned at narrow window sizes
+- Settings for shelf layout, side, width, and text size, retention, history length, sort order, cache limit, capture responsiveness, an ignored-app picker with advanced rules, shortcut recording, and existing privacy/startup controls
+- Local-first storage, with likely-secret exclusion enabled for fresh profiles and iCloud backup disabled by default
+
+[See the rebuilt interface and design rationale](docs/GOLDFISH_DESIGN_REBUILD.md).
 
 ## Requirements
 
@@ -57,10 +63,10 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
 ```bash
 swift test
 ./scripts/build-macos-app.sh
-open build/ClipBored.app
+open build/Goldfish.app
 ```
 
-The build script packages `build/ClipBored.app`, strips the executable, applies an ad-hoc hardened-runtime signature, and enforces 2 MiB gates for both the executable and app bundle.
+The build script packages `build/Goldfish.app`, strips the executable, applies and verifies an ad-hoc hardened-runtime signature, and enforces a 2 MiB per-architecture executable gate. Bundles get a fixed additional 1 MiB allowance for the modern icon's appearance assets (3 MiB local / 5 MiB universal). Xcode 26+ compiles the layered icon; older SDKs use the bundled full-resolution `.icns` fallback.
 
 ## Development
 
@@ -77,7 +83,10 @@ swift test -q
 ./scripts/build-macos-app.sh
 ./scripts/release-macos-app.sh
 ./scripts/idle-soak-report.sh 900
+python3 scripts/project-metrics.py
 ```
+
+[Architecture and component ownership](docs/ARCHITECTURE.md) describes where each responsibility lives. The metrics script reports app/test Swift separately and excludes generated output from project size.
 
 For app-level behavior that cannot be fully covered by unit tests, run [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md). For distribution builds, see [docs/RELEASE.md](docs/RELEASE.md).
 
@@ -95,9 +104,9 @@ Project layout:
 
 ## Privacy And Security
 
-ClipBored does not use telemetry or background networking. Clipboard history is stored locally under Application Support unless iCloud Sync is explicitly enabled in a signed build with an iCloud entitlement. User-triggered link previews load the selected web page in an ephemeral built-in WebKit view.
+Goldfish does not use telemetry. Clipboard history is stored locally under Application Support unless iCloud Backup is explicitly enabled in a signed build with an iCloud entitlement. User-triggered link previews load the selected web page in an ephemeral built-in WebKit view.
 
-Textual SQLite fields, image cache files, audio clips, video clips, rich text sidecars, and PDF attachments are encrypted with AES-GCM using a Keychain-held key when Keychain access is available. If Keychain access blocks or fails, ClipBored uses an owner-only app-local fallback key so capture does not stall. Portable archive exports and iCloud sync archives are not encrypted by ClipBored, so treat them as sensitive backups. Temporary decrypted preview files are cleared on launch, cache/history clear, and quit. See [docs/SECURITY.md](docs/SECURITY.md) for details and responsible disclosure.
+Textual SQLite fields, full images, thumbnails, audio clips, video clips, rich text sidecars, and PDF attachments are encrypted with AES-GCM. Goldfish reuses legacy owner-only fallback keys when present, but does not create a competing fallback after an uncertain Keychain write. Production capture pauses if no stable key is available instead of persisting plaintext. Confidential and transient clipboard markers are always excluded. Portable archive exports and iCloud backup archives are not encrypted by Goldfish, so treat them as sensitive backups. Temporary decrypted preview files are cleared on launch, cache/history clear, and quit. See [docs/SECURITY.md](docs/SECURITY.md) for details and responsible disclosure.
 
 ## Contributing
 

@@ -10,7 +10,9 @@ Run:
 ./scripts/check.sh
 ```
 
-This runs the unit test suite, builds `build/ClipBored.app`, applies an ad-hoc hardened-runtime signature, enforces the 2 MiB executable and bundle size gates, and verifies the app signature.
+This runs the unit test suite, builds `build/Goldfish.app`, applies an ad-hoc hardened-runtime signature, enforces a 2 MiB executable budget per architecture and a bundle budget of that amount plus 1 MiB for the modern icon assets (3 MiB for one architecture, 5 MiB for universal builds), and verifies the app signature.
+
+The linker records the SDK actually selected by Xcode and the deployment minimum from Info.plist. On Xcode 26+, the build also compiles the layered app icon and its appearance assets; older SDKs retain the full-resolution `.icns` fallback. Inspect `xcrun vtool -show-build build/Goldfish.app/Contents/MacOS/Goldfish` when checking SDK or deployment-target changes.
 
 ## Local Archive
 
@@ -23,11 +25,11 @@ Run:
 Without signing credentials, this creates:
 
 ```text
-build/ClipBored.app
-build/ClipBored.zip
+build/Goldfish.app
+build/Goldfish-local-preview.zip
 ```
 
-The app remains ad-hoc signed and is suitable for local validation only.
+The app remains ad-hoc signed and is suitable for local validation only. Release builds default to universal Apple Silicon/Intel binaries. Do not describe this archive as a notarized public release.
 
 ## Developer ID Signing
 
@@ -38,11 +40,22 @@ export DEVELOPER_ID_APPLICATION="Developer ID Application: Example, Inc. (TEAMID
 ./scripts/release-macos-app.sh
 ```
 
-The script rebuilds the app, re-signs it with hardened runtime and timestamping, verifies the signature, and writes `build/ClipBored.zip`.
+The script rebuilds the app, re-signs it with hardened runtime and timestamping, and verifies the signature. Without notarization credentials, the archive is named `build/Goldfish-signed-unnotarized.zip`.
 
-## iCloud Sync Entitlements
+## Bundle Identity And iCloud Backup Entitlements
 
-The default local and release scripts do not add iCloud entitlements. `Sync history with iCloud` will report unavailable in those builds. To ship iCloud Sync, sign with an entitlement file that grants the app's ubiquity container, then repeat the signature, smoke, and notarization checks.
+The default local and release scripts keep the development bundle identifier `com.local.clipbored` and do not add iCloud entitlements. `Back up history to iCloud` reports unavailable in those builds.
+
+For a distribution build, supply the release identifier and entitlement file explicitly:
+
+```bash
+export APP_BUNDLE_IDENTIFIER="com.example.Goldfish"
+export ENTITLEMENTS_FILE="$PWD/Config/Goldfish.entitlements"
+export DEVELOPER_ID_APPLICATION="Developer ID Application: Example, Inc. (TEAMID)"
+./scripts/release-macos-app.sh
+```
+
+The scripts write `APP_BUNDLE_IDENTIFIER` into the packaged Info.plist and apply `ENTITLEMENTS_FILE` during both the ad-hoc build signature and the Developer ID signature. Verify that the entitlement grants the matching ubiquity container, then repeat the signature, backup/restore smoke, and notarization checks.
 
 ## Notarization
 
@@ -73,14 +86,21 @@ export APPLE_APP_SPECIFIC_PASSWORD="app-specific-password"
 ./scripts/release-macos-app.sh
 ```
 
-When notarization succeeds, the script staples the ticket to `build/ClipBored.app`, validates the staple, and recreates `build/ClipBored.zip`.
+When notarization succeeds, the script staples the ticket to `build/Goldfish.app`, validates the staple, and recreates `build/Goldfish.zip`.
+
+Use `./scripts/release-macos-app.sh --require-notarization` for the final public build.
+It fails early when credentials are missing and requires Gatekeeper assessment to pass.
+The app includes its GPL license and a short getting-started guide, but no clipboard
+history, demo archive, local preferences, or encryption keys. Include the matching
+GPL-licensed source when distributing binaries. Do not publish a source snapshot
+without reviewing it for project-specific private files first.
 
 ## Final Manual Checks
 
 Before publishing, run the checklist in [SMOKE_TEST.md](SMOKE_TEST.md), then confirm:
 
 ```bash
-codesign --verify --deep --strict --verbose=2 build/ClipBored.app
-xcrun stapler validate build/ClipBored.app
-spctl --assess --type execute --verbose=4 build/ClipBored.app
+codesign --verify --deep --strict --verbose=2 build/Goldfish.app
+xcrun stapler validate build/Goldfish.app
+spctl --assess --type execute --verbose=4 build/Goldfish.app
 ```

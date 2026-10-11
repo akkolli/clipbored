@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="ClipBored"
+APP_NAME="Goldfish"
 DURATION_SECONDS="${1:-900}"
 
 PID="$(pgrep -x "$APP_NAME" | head -n 1 || true)"
 if [ -z "$PID" ]; then
-  echo "ClipBored is not running. Launch build/ClipBored.app first."
+  echo "Goldfish is not running. Launch build/Goldfish.app first."
   exit 1
 fi
 

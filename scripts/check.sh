@@ -9,4 +9,4 @@ cd "$REPO_ROOT"
 bash -n "$SCRIPT_DIR/release-macos-app.sh"
 swift test -q
 "$SCRIPT_DIR/build-macos-app.sh"
-codesign --verify --deep --strict --verbose=2 "$REPO_ROOT/build/ClipBored.app"
+codesign --verify --deep --strict --verbose=2 "$REPO_ROOT/build/Goldfish.app"

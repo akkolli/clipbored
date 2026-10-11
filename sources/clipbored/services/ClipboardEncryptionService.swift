@@ -5,48 +5,46 @@ import Security
 
 // Swift marks SecAccessCreate deprecated, but macOS still needs kSecAttrAccess
 // here to avoid legacy keychain authorization UI during generic-password creation.
-@_silgen_name("SecAccessCreate")
-private func clipBoredSecAccessCreate(
-  _ descriptor: CFString,
-  _ trustedList: CFArray?,
-  _ accessRef: UnsafeMutablePointer<SecAccess?>
+@_silgen_name("SecAccessCreate") private func clipBoredSecAccessCreate(
+  _ descriptor: CFString, _ trustedList: CFArray?, _ accessRef: UnsafeMutablePointer<SecAccess?>
 ) -> OSStatus
 
 final class ClipboardEncryptionService {
+  enum StorageError: Error { case keyUnavailable, encryptionFailed }
   static let marker = "clipbored:v1:"
   private static let markerData = Data(marker.utf8)
 
   private let keyProvider: () -> SymmetricKey?
   private let resetProvider: () -> Void
+  private let allowsUnencryptedStorage: Bool
 
   init() {
     if Self.shouldBypassSystemKeychain() {
+      allowsUnencryptedStorage = true
       keyProvider = { nil }
       resetProvider = {}
     } else {
+      allowsUnencryptedStorage = false
       keyProvider = { ClipboardEncryptionKeychain.shared.symmetricKey() }
       resetProvider = { ClipboardEncryptionKeychain.shared.resetStoredKey() }
     }
   }
 
-  init(keyProvider: @escaping () -> SymmetricKey?, resetProvider: @escaping () -> Void = {}) {
+  init(keyProvider: @escaping () -> SymmetricKey?, resetProvider: @escaping () -> Void = {}, allowsUnencryptedStorage: Bool = true) {
     self.keyProvider = keyProvider
     self.resetProvider = resetProvider
+    self.allowsUnencryptedStorage = allowsUnencryptedStorage
   }
 
-  var isAvailable: Bool {
-    keyProvider() != nil
-  }
+  var isAvailable: Bool { keyProvider() != nil }
+
+  var canPersist: Bool { allowsUnencryptedStorage || isAvailable }
 
   func protect(_ value: String?) -> String? {
     guard let value else { return nil }
-    guard let key = keyProvider() else {
-      return value
-    }
-    guard let sealed = try? AES.GCM.seal(Data(value.utf8), using: key),
-          let combined = sealed.combined
-    else {
-      return value
+    guard let key = keyProvider() else { return allowsUnencryptedStorage ? value : nil }
+    guard let sealed = try? AES.GCM.seal(Data(value.utf8), using: key), let combined = sealed.combined else {
+      return allowsUnencryptedStorage ? value : nil
     }
     return Self.marker + combined.base64EncodedString()
   }
@@ -55,77 +53,62 @@ final class ClipboardEncryptionService {
     guard let value else { return nil }
     guard Self.isProtected(value) else { return value }
     let encoded = String(value.dropFirst(Self.marker.count))
-    guard let data = Data(base64Encoded: encoded),
-          let sealed = try? AES.GCM.SealedBox(combined: data)
-    else {
-      return value
-    }
-    guard let key = keyProvider(),
-          let decrypted = try? AES.GCM.open(sealed, using: key)
-    else {
-      return nil
-    }
+    guard let data = Data(base64Encoded: encoded), let sealed = try? AES.GCM.SealedBox(combined: data) else { return value }
+    guard let key = keyProvider(), let decrypted = try? AES.GCM.open(sealed, using: key) else { return nil }
     return String(data: decrypted, encoding: .utf8)
   }
 
   func protectData(_ data: Data) -> Data {
-    guard let key = keyProvider() else {
-      return data
-    }
-    guard let sealed = try? AES.GCM.seal(data, using: key),
-          let combined = sealed.combined
-    else {
-      return data
-    }
+    guard let key = keyProvider() else { return data }
+    guard let sealed = try? AES.GCM.seal(data, using: key), let combined = sealed.combined else { return data }
     var output = Self.markerData
     output.append(combined)
     return output
   }
 
+  func protectDataForStorage(_ data: Data) throws -> Data {
+    guard let key = keyProvider() else {
+      if allowsUnencryptedStorage { return data }
+      throw StorageError.keyUnavailable
+    }
+    let sealed = try AES.GCM.seal(data, using: key)
+    guard let combined = sealed.combined else { throw StorageError.encryptionFailed }
+    return Self.markerData + combined
+  }
+
   func unprotectData(_ data: Data) -> Data? {
-    guard Self.isProtected(data) else {
-      return data
-    }
+    guard Self.isProtected(data) else { return data }
     let encrypted = data.dropFirst(Self.markerData.count)
-    guard let sealed = try? AES.GCM.SealedBox(combined: encrypted),
-          let key = keyProvider(),
-          let decrypted = try? AES.GCM.open(sealed, using: key)
-    else {
-      return nil
-    }
+    guard let sealed = try? AES.GCM.SealedBox(combined: encrypted), let key = keyProvider(),
+      let decrypted = try? AES.GCM.open(sealed, using: key)
+    else { return nil }
     return decrypted
   }
 
-  static func isProtected(_ value: String) -> Bool {
-    value.hasPrefix(marker)
-  }
+  static func isProtected(_ value: String) -> Bool { value.hasPrefix(marker) }
 
-  static func isProtected(_ data: Data) -> Bool {
-    data.starts(with: markerData)
-  }
+  static func isProtected(_ data: Data) -> Bool { data.starts(with: markerData) }
 
-  func resetStoredKey() {
-    resetProvider()
-  }
+  func resetStoredKey() { resetProvider() }
 
   static func shouldBypassSystemKeychain(
-    environment: [String: String] = ProcessInfo.processInfo.environment,
-    arguments: [String] = ProcessInfo.processInfo.arguments
+    environment: [String: String] = ProcessInfo.processInfo.environment, arguments: [String] = ProcessInfo.processInfo.arguments
   ) -> Bool {
-    if environment["CLIPBORED_DISABLE_KEYCHAIN"] == "1" ||
-      environment["XCTestConfigurationFilePath"] != nil {
-      return true
-    }
+    if environment["CLIPBORED_DISABLE_KEYCHAIN"] == "1" || environment["XCTestConfigurationFilePath"] != nil { return true }
 
-    return arguments.contains { argument in
-      argument.contains(".xctest") || argument.hasSuffix("/xctest")
+    return arguments.contains { argument in argument.contains(".xctest") || argument.hasSuffix("/xctest") }
+  }
+
+  static func resolvedKeyData(generatedData: Data, addStatus: OSStatus, existingData: Data?) -> Data? {
+    switch addStatus {
+    case errSecSuccess: return generatedData
+    case errSecDuplicateItem: return existingData
+    default: return nil
     }
   }
 }
 
-private enum ClipboardEncryptionKeychain {
-  static let shared = KeychainBackedKeyProvider()
-}
+private enum ClipboardEncryptionKeychain { static let shared = KeychainBackedKeyProvider() }
 
 private final class KeychainBackedKeyProvider {
   private let queue = DispatchQueue(label: "clipboard.encryption-keychain")
@@ -134,9 +117,7 @@ private final class KeychainBackedKeyProvider {
 
   func symmetricKey() -> SymmetricKey? {
     queue.sync {
-      if let cachedKey {
-        return cachedKey
-      }
+      if let cachedKey { return cachedKey }
       if let fallback = readFallbackKeyData() {
         let key = SymmetricKey(data: fallback)
         cachedKey = key
@@ -149,16 +130,10 @@ private final class KeychainBackedKeyProvider {
       }
       let generated = SymmetricKey(size: .bits256)
       let data = generated.withUnsafeBytes { Data($0) }
-      if saveKeyData(data) {
-        cachedKey = generated
-        return generated
-      }
-      guard let fallback = loadOrCreateFallbackKeyData() else {
-        return nil
-      }
-      let fallbackKey = SymmetricKey(data: fallback)
-      cachedKey = fallbackKey
-      return fallbackKey
+      guard let storedData = saveKeyData(data) else { return nil }
+      let storedKey = SymmetricKey(data: storedData)
+      cachedKey = storedKey
+      return storedKey
     }
   }
 
@@ -179,32 +154,29 @@ private final class KeychainBackedKeyProvider {
 
       var result: CFTypeRef?
       let status = SecItemCopyMatching(query as CFDictionary, &result)
-      guard status == errSecSuccess else {
-        return nil
-      }
+      guard status == errSecSuccess else { return nil }
       return result as? Data
     }
   }
 
-  private func saveKeyData(_ data: Data) -> Bool {
-    runKeychainOperation {
-      var query = self.baseQuery()
-      query[kSecValueData as String] = data
-      query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-      query[kSecUseAuthenticationContext as String] = self.nonInteractiveContext()
-      if let access = self.keychainAccess() {
-        query[kSecAttrAccess as String] = access
-      }
+  private func saveKeyData(_ data: Data) -> Data? {
+    guard
+      let status: OSStatus = runKeychainOperation({
+        var query = self.baseQuery()
+        query[kSecValueData as String] = data
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        query[kSecUseAuthenticationContext as String] = self.nonInteractiveContext()
+        if let access = self.keychainAccess() { query[kSecAttrAccess as String] = access }
 
-      let status = SecItemAdd(query as CFDictionary, nil)
-      if status == errSecSuccess {
-        return true
-      }
-      if status == errSecDuplicateItem {
-        return self.readKeyData() != nil
-      }
-      return false
-    } ?? false
+        return SecItemAdd(query as CFDictionary, nil)
+      })
+    else {
+      // The add may still complete after our timeout. Do not create or cache a
+      // competing key while the outcome is unknown.
+      return nil
+    }
+    return ClipboardEncryptionService.resolvedKeyData(
+      generatedData: data, addStatus: status, existingData: status == errSecDuplicateItem ? readKeyData() : nil)
   }
 
   private func runKeychainOperation<T>(_ operation: @escaping () -> T?) -> T? {
@@ -220,9 +192,7 @@ private final class KeychainBackedKeyProvider {
       semaphore.signal()
     }
 
-    guard semaphore.wait(timeout: .now() + keychainTimeout) == .success else {
-      return nil
-    }
+    guard semaphore.wait(timeout: .now() + keychainTimeout) == .success else { return nil }
     lock.lock()
     defer { lock.unlock() }
     return result
@@ -230,9 +200,8 @@ private final class KeychainBackedKeyProvider {
 
   private func baseQuery() -> [String: Any] {
     [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: "com.local.clipbored.encryption",
-      kSecAttrAccount as String: "history-v1"
+      kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "com.local.clipbored.encryption",
+      kSecAttrAccount as String: "history-v1",
     ]
   }
 
@@ -244,45 +213,15 @@ private final class KeychainBackedKeyProvider {
 
   private func keychainAccess() -> SecAccess? {
     var access: SecAccess?
-    let status = clipBoredSecAccessCreate("ClipBored encryption key" as CFString, nil, &access)
-    guard status == errSecSuccess else {
-      return nil
-    }
+    let status = clipBoredSecAccessCreate("Goldfish encryption key" as CFString, nil, &access)
+    guard status == errSecSuccess else { return nil }
     return access
-  }
-
-  private func loadOrCreateFallbackKeyData() -> Data? {
-    if let existing = readFallbackKeyData() {
-      return existing
-    }
-    let generated = SymmetricKey(size: .bits256)
-    let data = generated.withUnsafeBytes { Data($0) }
-    guard saveFallbackKeyData(data) else {
-      return nil
-    }
-    return data
   }
 
   private func readFallbackKeyData() -> Data? {
     let url = fallbackKeyURL()
-    guard let data = try? Data(contentsOf: url), data.count == 32 else {
-      return nil
-    }
+    guard let data = try? Data(contentsOf: url), data.count == 32 else { return nil }
     return data
-  }
-
-  private func saveFallbackKeyData(_ data: Data) -> Bool {
-    let url = fallbackKeyURL()
-    let directory = url.deletingLastPathComponent()
-    do {
-      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-      try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-      try data.write(to: url, options: [.atomic])
-      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-      return true
-    } catch {
-      return false
-    }
   }
 
   private func deleteKeyData() -> Bool {
@@ -292,9 +231,7 @@ private final class KeychainBackedKeyProvider {
     } ?? false
   }
 
-  private func deleteFallbackKeyData() {
-    try? FileManager.default.removeItem(at: fallbackKeyURL())
-  }
+  private func deleteFallbackKeyData() { try? FileManager.default.removeItem(at: fallbackKeyURL()) }
 
   private func fallbackKeyURL() -> URL {
     let base = ClipboardStore.storageDirectory()

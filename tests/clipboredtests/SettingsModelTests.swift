@@ -1,7 +1,22 @@
 import XCTest
-@testable import ClipBored
+@testable import Goldfish
 
 final class SettingsModelTests: XCTestCase {
+  func testNewAndLegacyProfilesKeepTheVerticalShelf() {
+    let suite = "Goldfish.VerticalDefault.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    XCTAssertEqual(SettingsModel(defaults: defaults).shelfLayout, .sidebar)
+    defaults.removeObject(forKey: SettingsModel.Keys.shelfLayout)
+    XCTAssertEqual(SettingsModel(defaults: defaults).shelfLayout, .sidebar)
+    defaults.set(999, forKey: SettingsModel.Keys.shelfLayout)
+    XCTAssertEqual(SettingsModel(defaults: defaults).shelfLayout, .sidebar)
+    // An explicit layout choice still persists across launches.
+    let settings = SettingsModel(defaults: defaults)
+    settings.shelfLayout = .cards
+    XCTAssertEqual(SettingsModel(defaults: defaults).shelfLayout, .cards)
+  }
+
   func testFreshProfileRequiresOnboardingUntilCompleted() {
     let suiteName = "com.clipbored.settingsmodel.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
@@ -14,6 +29,7 @@ final class SettingsModelTests: XCTestCase {
 
     XCTAssertFalse(settings.onboardingCompleted)
     XCTAssertFalse(defaults.bool(forKey: SettingsModel.Keys.onboardingCompleted))
+    XCTAssertTrue(settings.excludeSensitive)
 
     settings.markOnboardingCompleted()
 
@@ -61,6 +77,22 @@ final class SettingsModelTests: XCTestCase {
 
     let restored = SettingsModel(defaults: defaults)
     XCTAssertTrue(restored.showDockIcon)
+  }
+
+  func testGoldMenuBarIconPersistsAndNotifies() {
+    let suiteName = "com.clipbored.settingsmodel.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let settings = SettingsModel(defaults: defaults)
+    var changes: [SettingsModel.Change] = []
+    settings.observe { changes.append($0) }
+
+    XCTAssertFalse(settings.goldMenuBarIcon)
+    settings.goldMenuBarIcon = true
+
+    XCTAssertTrue(defaults.bool(forKey: SettingsModel.Keys.goldMenuBarIcon))
+    XCTAssertEqual(changes, [.goldMenuBarIcon])
+    XCTAssertTrue(SettingsModel(defaults: defaults).goldMenuBarIcon)
   }
 
   func testHideFromScreenCapturePersistsAndNotifies() {
@@ -132,8 +164,8 @@ final class SettingsModelTests: XCTestCase {
 
     XCTAssertFalse(settings.iCloudSyncEnabled)
 
-    settings.setCloudSyncStatus(message: "Synced 3 clips to iCloud.")
-    XCTAssertEqual(settings.cloudSyncStatusMessage, "Synced 3 clips to iCloud.")
+    settings.setCloudSyncStatus(message: "Backed up 3 clips to iCloud.")
+    XCTAssertEqual(settings.cloudSyncStatusMessage, "Backed up 3 clips to iCloud.")
     changes.removeAll()
 
     settings.iCloudSyncEnabled = true
@@ -142,7 +174,7 @@ final class SettingsModelTests: XCTestCase {
     XCTAssertEqual(settings.cloudSyncStatusMessage, "")
     XCTAssertEqual(changes, [.cloudSync])
 
-    settings.setCloudSyncStatus(message: "Synced 3 clips to iCloud.")
+    settings.setCloudSyncStatus(message: "Backed up 3 clips to iCloud.")
     changes.removeAll()
     settings.iCloudSyncEnabled = false
 
@@ -207,6 +239,7 @@ final class SettingsModelTests: XCTestCase {
       defaults.removePersistentDomain(forName: suiteName)
     }
     let settings = SettingsModel(defaults: defaults)
+    settings.excludeSensitive = false
     var changes: [SettingsModel.Change] = []
     settings.observe { changes.append($0) }
 
@@ -427,15 +460,18 @@ final class SettingsModelTests: XCTestCase {
     }
     let settings = SettingsModel(defaults: defaults)
 
-    settings.ensureCollection(named: "Research Stack", colorHex: "#0A9EB8")
+    settings.ensureCollection(named: "Research Stack", colorHex: "#0A9EB8", icon: "book.closed.fill")
     settings.ensureCollection(named: "Client Work", colorHex: "#FF3355")
 
-    let updatedName = settings.updateCollection(named: "research stack", to: "Product Research", colorHex: "#3366FF")
+    let updatedName = settings.updateCollection(named: "research stack", to: "Product Research",
+      colorHex: "#3366FF", icon: "star.fill")
 
     XCTAssertEqual(updatedName, "Product Research")
     XCTAssertEqual(settings.customCollectionNames, ["Product Research", "Client Work"])
     XCTAssertNil(settings.collectionColorHex(forCollectionNamed: "Research Stack"))
     XCTAssertEqual(settings.collectionColorHex(forCollectionNamed: "Product Research"), "#3366FF")
+    XCTAssertNil(settings.collectionIcon(forCollectionNamed: "Research Stack"))
+    XCTAssertEqual(settings.collectionIcon(forCollectionNamed: "Product Research"), "star.fill")
 
     settings.deleteCollection(named: "client work")
 
@@ -445,6 +481,7 @@ final class SettingsModelTests: XCTestCase {
     let restored = SettingsModel(defaults: defaults)
     XCTAssertEqual(restored.customCollectionNames, ["Product Research"])
     XCTAssertEqual(restored.collectionColorHex(forCollectionNamed: "Product Research"), "#3366FF")
+    XCTAssertEqual(restored.collectionIcon(forCollectionNamed: "Product Research"), "star.fill")
   }
 
   private static let visibleItemKinds: [ClipboardItemKind] = [

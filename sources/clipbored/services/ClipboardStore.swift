@@ -1,7 +1,7 @@
 import AppKit
+import CommonCrypto
 import Darwin
 import Foundation
-import CommonCrypto
 import SQLite3
 
 struct ClipboardStoreRemoval {
@@ -11,24 +11,31 @@ struct ClipboardStoreRemoval {
 
 enum ClipboardStoreArchiveError: LocalizedError {
   case persistenceFailed
+  case unreadableHistory
+  case encryptionUnavailable
 
   var errorDescription: String? {
     switch self {
-    case .persistenceFailed:
-      return "ClipBored could not save the imported archive."
+    case .persistenceFailed: return "Goldfish could not save the imported archive."
+    case .unreadableHistory:
+      return
+        "Import paused to protect unreadable saved history. Restore Keychain access and relaunch before importing. Existing clips have not been replaced."
+    case .encryptionUnavailable:
+      return "Saving is paused because the history encryption key is unavailable. Unlock the login Keychain and try again."
     }
   }
 }
 
 final class ClipboardStore {
-  private(set) var items: [ClipboardItem] = [] {
-    didSet { notifyItemsChanged() }
-  }
+  private(set) var loadWarningMessage: String?
+  var canPersistHistory: Bool { encryptionService.canPersist }
+  private(set) var items: [ClipboardItem] = [] { didSet { notifyItemsChanged() } }
 
   private let settings: SettingsModel
   private let cacheService: ClipboardCacheService
   private let encryptionService: ClipboardEncryptionService
   private let dataQueue = DispatchQueue(label: "clipboard.store.persistence", qos: .utility)
+  private let dataQueueKey = DispatchSpecificKey<Void>()
   private let baseURL: URL
   private let historyURL: URL
   private let dbURL: URL
@@ -36,9 +43,7 @@ final class ClipboardStore {
   private var itemObservers: [([ClipboardItem]) -> Void] = []
 
   init(
-    settings: SettingsModel,
-    cacheService: ClipboardCacheService,
-    baseURL: URL? = nil,
+    settings: SettingsModel, cacheService: ClipboardCacheService, baseURL: URL? = nil,
     encryptionService: ClipboardEncryptionService = ClipboardEncryptionService()
   ) {
     self.settings = settings
@@ -48,19 +53,26 @@ final class ClipboardStore {
     dbURL = self.baseURL.appendingPathComponent("history.sqlite")
     historyURL = self.baseURL.appendingPathComponent("history.json")
     settings.sanitizeLimits()
-    hardenStoragePermissions()
-    openDatabase()
-    configureDatabase()
-    createSchema()
-    hardenStoragePermissions()
-    migrateLegacyJSONIfNeeded()
-    load()
+    dataQueue.setSpecific(key: dataQueueKey, value: ())
+    performOnDataQueueAndWait {
+      self.hardenStoragePermissions()
+      self.openDatabase()
+      self.configureDatabase()
+      self.createSchema()
+      self.hardenStoragePermissions()
+      self.migrateLegacyJSONIfNeeded()
+      self.load()
+    }
   }
 
   deinit {
-    if let db {
-      sqlite3_close(db)
+    let closeDatabase = {
+      if let db = self.db {
+        sqlite3_close(db)
+        self.db = nil
+      }
     }
+    if DispatchQueue.getSpecific(key: dataQueueKey) != nil { closeDatabase() } else { dataQueue.sync(execute: closeDatabase) }
   }
 
   static func storageDirectory() -> URL {
@@ -72,21 +84,22 @@ final class ClipboardStore {
     }
 
     let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-    let base = appSupport.appendingPathComponent(AppConfiguration.appName, isDirectory: true)
+    let base = appSupport.appendingPathComponent(AppConfiguration.storageDirectoryName, isDirectory: true)
     try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
     try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: base.path)
     return base
   }
 
-  @discardableResult
-  func upsert(_ incoming: ClipboardItem) -> ClipboardItem {
+  @discardableResult func upsert(_ incoming: ClipboardItem) -> ClipboardItem {
+    guard canPersistHistory else {
+      settings.setCaptureStatus(message: "Error: Saving paused; history encryption key is unavailable.")
+      return incoming
+    }
     guard let index = items.firstIndex(where: { settings.pruneDuplicates ? $0.payloadHash == incoming.payloadHash : false }) else {
       return insertNewItem(incoming)
     }
 
-    if settings.keepFirstImage, incoming.kind == .image {
-      return updateExistingKeepImage(incoming, at: index)
-    }
+    if settings.keepFirstImage, incoming.kind == .image { return updateExistingKeepImage(incoming, at: index) }
 
     return updateExistingItem(incoming, at: index)
   }
@@ -105,19 +118,22 @@ final class ClipboardStore {
     items[index].isPinned.toggle()
     let updated = items[index]
     normalizeHistoryLength()
-    if items.contains(where: { $0.id == updated.id }) {
-      persistAsync(.upsert(updated))
-    }
+    if items.contains(where: { $0.id == updated.id }) { persistAsync(.upsert(updated)) }
   }
 
-  func setCollection(_ id: UUID, name: String?) {
-    guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-    items[index].collectionName = ClipboardCollectionDefaults.normalizedName(name)
-    let updated = items[index]
-    normalizeHistoryLength()
-    if items.contains(where: { $0.id == updated.id }) {
-      persistAsync(.upsert(updated))
+  func setCollection(_ id: UUID, name: String?) { setCollection([id], name: name) }
+
+  func setCollection(_ ids: [UUID], name: String?) {
+    let idSet = Set(ids)
+    let normalizedName = ClipboardCollectionDefaults.normalizedName(name)
+    items = items.map { item in
+      guard idSet.contains(item.id) else { return item }
+      var updated = item
+      updated.collectionName = normalizedName
+      return updated
     }
+    normalizeHistoryLength()
+    persistAsync(.upsertMany(items.filter { idSet.contains($0.id) }))
   }
 
   func setCustomTitle(_ id: UUID, title: String?) {
@@ -126,13 +142,9 @@ final class ClipboardStore {
     persistAsync(.upsert(items[index]))
   }
 
-  @discardableResult
-  func updateText(_ id: UUID, text: String) -> Bool {
-    guard !text.isEmpty,
-          let index = items.firstIndex(where: { $0.id == id }),
-          items[index].kind == .text || items[index].kind == .code else {
-      return false
-    }
+  @discardableResult func updateText(_ id: UUID, text: String) -> Bool {
+    guard !text.isEmpty, let index = items.firstIndex(where: { $0.id == id }), items[index].kind == .text || items[index].kind == .code
+    else { return false }
 
     items[index].displayText = text
     items[index].payload = text
@@ -142,15 +154,10 @@ final class ClipboardStore {
     return true
   }
 
-  @discardableResult
-  func updateImage(_ id: UUID, imagePath: String, thumbnailPath: String, payloadHash: String) -> Bool {
-    guard let index = items.firstIndex(where: { $0.id == id }),
-          items[index].kind == .image,
-          !imagePath.clipboardTrimmed.isEmpty,
-          !thumbnailPath.clipboardTrimmed.isEmpty,
-          !payloadHash.clipboardTrimmed.isEmpty else {
-      return false
-    }
+  @discardableResult func updateImage(_ id: UUID, imagePath: String, thumbnailPath: String, payloadHash: String) -> Bool {
+    guard let index = items.firstIndex(where: { $0.id == id }), items[index].kind == .image, !imagePath.clipboardTrimmed.isEmpty,
+      !thumbnailPath.clipboardTrimmed.isEmpty, !payloadHash.clipboardTrimmed.isEmpty
+    else { return false }
 
     items[index].payload = imagePath
     items[index].imagePath = imagePath
@@ -160,28 +167,19 @@ final class ClipboardStore {
     return true
   }
 
-  @discardableResult
-  func updateImageText(_ id: UUID, ocrText: String) -> Bool {
-    guard let normalizedText = ImageTextExtractor.normalizedRecognizedText(ocrText) else {
-      return false
-    }
-    guard let index = items.firstIndex(where: { $0.id == id }),
-          items[index].kind == .image else {
-      return false
-    }
+  @discardableResult func updateImageText(_ id: UUID, ocrText: String) -> Bool {
+    guard let normalizedText = ImageTextExtractor.normalizedRecognizedText(ocrText) else { return false }
+    guard let index = items.firstIndex(where: { $0.id == id }), items[index].kind == .image else { return false }
 
     items[index].ocrText = normalizedText
     persistAsync(.upsert(items[index]))
     return true
   }
 
-  @discardableResult
-  func remove(_ id: UUID, purgeManagedCache: Bool = true) -> ClipboardStoreRemoval? {
+  @discardableResult func remove(_ id: UUID, purgeManagedCache: Bool = true) -> ClipboardStoreRemoval? {
     guard let index = items.firstIndex(where: { $0.id == id }) else { return nil }
     let removed = items.remove(at: index)
-    if purgeManagedCache {
-      purgeManagedCacheReferences(for: [removed])
-    }
+    if purgeManagedCache { purgeManagedCacheReferences(for: [removed]) }
     persistAsync(.delete(id))
     return ClipboardStoreRemoval(item: removed, index: index)
   }
@@ -204,9 +202,7 @@ final class ClipboardStore {
     persistAsync(.upsertMany(retainedRestoredItems))
   }
 
-  func purgeManagedCacheReferences(for removals: [ClipboardStoreRemoval]) {
-    purgeManagedCacheReferences(for: removals.map(\.item))
-  }
+  func purgeManagedCacheReferences(for removals: [ClipboardStoreRemoval]) { purgeManagedCacheReferences(for: removals.map(\.item)) }
 
   func removeAll() {
     purgeManagedCacheReferences(for: items)
@@ -215,15 +211,15 @@ final class ClipboardStore {
   }
 
   func updateHistoryLimit(_ newLimit: Int) {
-    if settings.maxHistoryItems != newLimit {
-      settings.maxHistoryItems = newLimit
-    }
+    if settings.maxHistoryItems != newLimit { settings.maxHistoryItems = newLimit }
     normalizeHistoryLength()
   }
 
   func observeItems(_ observer: @escaping ([ClipboardItem]) -> Void) {
-    itemObservers.append(observer)
-    observer(items)
+    performOnMainAndWait {
+      self.itemObservers.append(observer)
+      observer(self.items)
+    }
   }
 
   func normalizeHistoryLength() {
@@ -249,67 +245,55 @@ final class ClipboardStore {
     persistAsync(.deleteMany(idsToDelete), purgeCache: removedCachedPayload)
   }
 
-  func flushPersistenceForTesting() {
-    dataQueue.sync {}
-  }
+  func flushPersistence() { performOnDataQueueAndWait {} }
 
-  @discardableResult
-  func exportArchive(to url: URL) throws -> ClipboardArchiveSummary {
-    dataQueue.sync {}
-    let collections = settings.customCollectionNames
-      .map { name in
+  func flushPersistenceForTesting() { flushPersistence() }
+
+  @discardableResult func exportArchive(to url: URL) throws -> ClipboardArchiveSummary {
+    let snapshot = performOnMainAndWait {
+      let collections = self.settings.customCollectionNames.map { name in
         ClipboardArchiveCollection(
-          name: name,
-          colorHex: settings.collectionColorHex(forCollectionNamed: name)
-        )
+          name: name, colorHex: self.settings.collectionColorHex(forCollectionNamed: name),
+          icon: self.settings.collectionIcon(forCollectionNamed: name))
       }
+      return (items: self.items, collections: collections)
+    }
+    performOnDataQueueAndWait {}
     return try ClipboardArchiveService().exportArchive(
-      items: items,
-      to: url,
-      cacheService: cacheService,
-      collections: collections
-    )
+      items: snapshot.items, to: url, cacheService: cacheService, collections: snapshot.collections)
   }
 
-  @discardableResult
-  func exportCollection(named name: String, to url: URL) throws -> ClipboardArchiveSummary {
+  @discardableResult func exportCollection(named name: String, to url: URL) throws -> ClipboardArchiveSummary {
     guard let normalizedName = ClipboardCollectionDefaults.normalizedName(name) else {
       return try ClipboardArchiveService().exportArchive(items: [], to: url, cacheService: cacheService)
     }
-    dataQueue.sync {}
-    let collectionItems = items.filter {
-      $0.collectionName?.caseInsensitiveCompare(normalizedName) == .orderedSame
+    let snapshot = performOnMainAndWait {
+      let collectionItems = self.items.filter { $0.collectionName?.caseInsensitiveCompare(normalizedName) == .orderedSame }
+      let collection = ClipboardArchiveCollection(
+        name: normalizedName, colorHex: self.settings.collectionColorHex(forCollectionNamed: normalizedName),
+        icon: self.settings.collectionIcon(forCollectionNamed: normalizedName))
+      return (items: collectionItems, collection: collection)
     }
-    let collection = ClipboardArchiveCollection(
-      name: normalizedName,
-      colorHex: settings.collectionColorHex(forCollectionNamed: normalizedName)
-    )
+    performOnDataQueueAndWait {}
     return try ClipboardArchiveService().exportArchive(
-      items: collectionItems,
-      to: url,
-      cacheService: cacheService,
-      collections: [collection]
-    )
+      items: snapshot.items, to: url, cacheService: cacheService, collections: [snapshot.collection])
   }
 
-  @discardableResult
-  func importArchive(from url: URL) throws -> ClipboardArchiveSummary {
-    dataQueue.sync {}
-    let archiveImport = try ClipboardArchiveService().importArchive(
-      from: url,
-      cacheService: cacheService
-    )
-    for collection in archiveImport.collections {
-      settings.ensureCollection(named: collection.name, colorHex: collection.colorHex)
-    }
-    for item in archiveImport.items {
-      if let collectionName = item.collectionName {
-        settings.ensureCollection(named: collectionName)
+  @discardableResult func importArchive(from url: URL) throws -> ClipboardArchiveSummary {
+    performOnDataQueueAndWait {}
+    guard loadWarningMessage == nil else { throw ClipboardStoreArchiveError.unreadableHistory }
+    guard canPersistHistory else { throw ClipboardStoreArchiveError.encryptionUnavailable }
+    let archiveImport = try ClipboardArchiveService().importArchive(from: url, cacheService: cacheService)
+    let didSave = performOnMainAndWait {
+      for collection in archiveImport.collections {
+        self.settings.ensureCollection(named: collection.name, colorHex: collection.colorHex, icon: collection.icon)
       }
+      for item in archiveImport.items {
+        if let collectionName = item.collectionName { self.settings.ensureCollection(named: collectionName) }
+      }
+      return self.saveImportedItems(archiveImport.items)
     }
-    guard saveImportedItems(archiveImport.items) else {
-      throw ClipboardStoreArchiveError.persistenceFailed
-    }
+    guard didSave else { throw ClipboardStoreArchiveError.persistenceFailed }
     return archiveImport.summary
   }
 
@@ -329,9 +313,7 @@ final class ClipboardStore {
     existing.createdAt = Date()
     existing.lastUsedAt = Date()
     existing.useCount += 1
-    if !incoming.displayText.isEmpty {
-      existing.displayText = incoming.displayText
-    }
+    if !incoming.displayText.isEmpty { existing.displayText = incoming.displayText }
     existing.sourceApp = incoming.sourceApp
     existing.sourceAppBundleId = incoming.sourceAppBundleId
     existing.sourceDeviceName = incoming.sourceDeviceName
@@ -352,9 +334,7 @@ final class ClipboardStore {
     existing.createdAt = Date()
     existing.lastUsedAt = Date()
     existing.useCount += 1
-    if !incoming.displayText.isEmpty {
-      existing.displayText = incoming.displayText
-    }
+    if !incoming.displayText.isEmpty { existing.displayText = incoming.displayText }
     existing.payload = incoming.payload
     existing.payloadHash = incoming.payloadHash
     existing.kind = incoming.kind
@@ -372,9 +352,7 @@ final class ClipboardStore {
       existing.thumbnailPath = nil
     }
 
-    if previousCachedItem.kind.hasManagedCacheReference {
-      cacheService.removeCachedReferences(previousCachedItem)
-    }
+    if previousCachedItem.kind.hasManagedCacheReference { cacheService.removeCachedReferences(previousCachedItem) }
 
     existing.ocrText = incoming.ocrText
 
@@ -388,9 +366,7 @@ final class ClipboardStore {
   }
 
   private func purgeManagedCacheReferences(for items: [ClipboardItem]) {
-    for item in items where item.kind.hasManagedCacheReference {
-      cacheService.removeCachedReferences(item)
-    }
+    for item in items where item.kind.hasManagedCacheReference { cacheService.removeCachedReferences(item) }
   }
 
   private func saveImportedItems(_ importedItems: [ClipboardItem]) -> Bool {
@@ -398,16 +374,12 @@ final class ClipboardStore {
 
     var mergedByID: [UUID: ClipboardItem] = [:]
     mergedByID.reserveCapacity(items.count + importedItems.count)
-    for item in items {
-      mergedByID[item.id] = item
-    }
-    for item in importedItems {
-      mergedByID[item.id] = item
-    }
+    for item in items { mergedByID[item.id] = item }
+    for item in importedItems { mergedByID[item.id] = item }
 
     let merged = mergedByID.values.sorted(by: historySort)
     let plan = retentionPlan(for: merged)
-    guard saveAll(plan.kept) else { return false }
+    guard performOnDataQueueAndWait({ self.saveAll(plan.kept) }) else { return false }
 
     items = plan.kept
     if !plan.overflow.isEmpty {
@@ -452,12 +424,8 @@ final class ClipboardStore {
   }
 
   private func historySort(_ lhs: ClipboardItem, _ rhs: ClipboardItem) -> Bool {
-    if lhs.createdAt != rhs.createdAt {
-      return lhs.createdAt > rhs.createdAt
-    }
-    if lhs.lastUsedAt != rhs.lastUsedAt {
-      return lhs.lastUsedAt > rhs.lastUsedAt
-    }
+    if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
+    if lhs.lastUsedAt != rhs.lastUsedAt { return lhs.lastUsedAt > rhs.lastUsedAt }
     return lhs.id.uuidString < rhs.id.uuidString
   }
 
@@ -471,33 +439,33 @@ final class ClipboardStore {
   }
 
   private func persistAsync(_ mutation: PersistenceMutation, purgeCache: Bool = false) {
-    dataQueue.async {
+    let imageCacheMaxBytes = settings.imageCacheMaxBytes
+    let work = {
       self.applyPersistence(mutation)
-      if purgeCache {
-        self.cacheService.purgeIfNeeded(maxBytes: self.settings.imageCacheMaxBytes)
-      }
+      if purgeCache { self.cacheService.purgeIfNeeded(maxBytes: imageCacheMaxBytes) }
     }
+    if DispatchQueue.getSpecific(key: dataQueueKey) != nil { work() } else { dataQueue.async(execute: work) }
   }
 
-  private func load() {
-    loadFromDatabase()
+  private func performOnDataQueueAndWait<T>(_ work: () -> T) -> T {
+    if DispatchQueue.getSpecific(key: dataQueueKey) != nil { return work() }
+    return dataQueue.sync(execute: work)
   }
 
-  private func notifyItemsChanged() {
-    for observer in itemObservers {
-      observer(items)
-    }
+  private func performOnMainAndWait<T>(_ work: () -> T) -> T {
+    if Thread.isMainThread { return work() }
+    return DispatchQueue.main.sync(execute: work)
   }
 
-  func hashString(_ value: String) -> String {
-    hashData(Data(value.utf8))
-  }
+  private func load() { loadFromDatabase() }
+
+  private func notifyItemsChanged() { for observer in itemObservers { observer(items) } }
+
+  func hashString(_ value: String) -> String { hashData(Data(value.utf8)) }
 
   func hashData(_ data: Data) -> String {
     var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-    data.withUnsafeBytes { bytes in
-      _ = CC_SHA256(bytes.baseAddress, CC_LONG(bytes.count), &digest)
-    }
+    data.withUnsafeBytes { bytes in _ = CC_SHA256(bytes.baseAddress, CC_LONG(bytes.count), &digest) }
     return hexString(digest)
   }
 
@@ -511,15 +479,9 @@ final class ClipboardStore {
     return String(decoding: output, as: UTF8.self)
   }
 
-  private func hexDigit(_ value: UInt8) -> UInt8 {
-    value < 10 ? value + 48 : value + 87
-  }
+  private func hexDigit(_ value: UInt8) -> UInt8 { value < 10 ? value + 48 : value + 87 }
 
-  private func openDatabase() {
-    if sqlite3_open(dbURL.path, &db) != SQLITE_OK {
-      db = nil
-    }
-  }
+  private func openDatabase() { if sqlite3_open(dbURL.path, &db) != SQLITE_OK { db = nil } }
 
   private func configureDatabase() {
     _ = execute("PRAGMA secure_delete = ON;")
@@ -540,35 +502,35 @@ final class ClipboardStore {
   private func createSchema() {
     if db == nil { return }
     let createTable = """
-      CREATE TABLE IF NOT EXISTS clipboard_items (
-        id TEXT PRIMARY KEY NOT NULL,
-        kind INTEGER NOT NULL,
-        display_text TEXT NOT NULL,
-        payload TEXT NOT NULL,
-        payload_hash TEXT NOT NULL,
-        created_at REAL NOT NULL,
-        last_used_at REAL NOT NULL,
-        use_count INTEGER NOT NULL DEFAULT 0,
-        source_app TEXT,
-        source_app_bundle_id TEXT,
-        image_path TEXT,
-        thumbnail_path TEXT,
-        is_pinned INTEGER NOT NULL DEFAULT 0,
-        ocr_text TEXT,
-        collection_name TEXT,
-        custom_title TEXT,
-        source_device_name TEXT
-      );
-    """
+        CREATE TABLE IF NOT EXISTS clipboard_items (
+          id TEXT PRIMARY KEY NOT NULL,
+          kind INTEGER NOT NULL,
+          display_text TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          payload_hash TEXT NOT NULL,
+          created_at REAL NOT NULL,
+          last_used_at REAL NOT NULL,
+          use_count INTEGER NOT NULL DEFAULT 0,
+          source_app TEXT,
+          source_app_bundle_id TEXT,
+          image_path TEXT,
+          thumbnail_path TEXT,
+          is_pinned INTEGER NOT NULL DEFAULT 0,
+          ocr_text TEXT,
+          collection_name TEXT,
+          custom_title TEXT,
+          source_device_name TEXT
+        );
+      """
 
     let createIndexes = """
-      CREATE INDEX IF NOT EXISTS idx_created_at ON clipboard_items (created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_last_used_at ON clipboard_items (last_used_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_use_count ON clipboard_items (use_count DESC);
-      CREATE INDEX IF NOT EXISTS idx_kind ON clipboard_items (kind);
-      CREATE INDEX IF NOT EXISTS idx_hash ON clipboard_items (payload_hash);
-      CREATE INDEX IF NOT EXISTS idx_collection_name ON clipboard_items (collection_name);
-    """
+        CREATE INDEX IF NOT EXISTS idx_created_at ON clipboard_items (created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_last_used_at ON clipboard_items (last_used_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_use_count ON clipboard_items (use_count DESC);
+        CREATE INDEX IF NOT EXISTS idx_kind ON clipboard_items (kind);
+        CREATE INDEX IF NOT EXISTS idx_hash ON clipboard_items (payload_hash);
+        CREATE INDEX IF NOT EXISTS idx_collection_name ON clipboard_items (collection_name);
+      """
 
     _ = execute(createTable)
     _ = execute("ALTER TABLE clipboard_items ADD COLUMN collection_name TEXT;")
@@ -578,9 +540,7 @@ final class ClipboardStore {
   }
 
   private func migrateLegacyJSONIfNeeded() {
-    guard isDatabaseEmpty(), let data = try? Data(contentsOf: historyURL), !data.isEmpty else {
-      return
-    }
+    guard isDatabaseEmpty(), let data = try? Data(contentsOf: historyURL), !data.isEmpty else { return }
 
     if let decoded = decodeLegacyJSONItems(from: data) {
       items = decoded
@@ -593,67 +553,37 @@ final class ClipboardStore {
   }
 
   private func decodeLegacyJSONItems(from data: Data) -> [ClipboardItem]? {
-    guard let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-      return nil
-    }
+    guard let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
 
     var items: [ClipboardItem] = []
     items.reserveCapacity(rows.count)
-    for row in rows {
-      if let item = decodeLegacyJSONItem(row) {
-        items.append(item)
-      }
-    }
+    for row in rows { if let item = decodeLegacyJSONItem(row) { items.append(item) } }
     return items
   }
 
   private func decodeLegacyJSONItem(_ row: [String: Any]) -> ClipboardItem? {
-    guard
-      let kindValue = row["kind"] as? Int,
-      let kind = ClipboardItemKind(rawValue: kindValue),
-      let displayText = row["displayText"] as? String,
-      let payload = row["payload"] as? String,
-      let payloadHash = row["payloadHash"] as? String,
-      let createdAt = legacyDate(row["createdAt"]),
+    guard let kindValue = row["kind"] as? Int, let kind = ClipboardItemKind(rawValue: kindValue),
+      let displayText = row["displayText"] as? String, let payload = row["payload"] as? String,
+      let payloadHash = row["payloadHash"] as? String, let createdAt = legacyDate(row["createdAt"]),
       let lastUsedAt = legacyDate(row["lastUsedAt"])
-    else {
-      return nil
-    }
+    else { return nil }
 
     let id = (row["id"] as? String).flatMap(UUID.init(uuidString:)) ?? UUID()
     let useCount = row["useCount"] as? Int ?? 0
 
     return ClipboardItem(
-      id: id,
-      kind: kind,
-      displayText: displayText,
-      payload: payload,
-      payloadHash: payloadHash,
-      createdAt: createdAt,
-      lastUsedAt: lastUsedAt,
-      useCount: useCount,
-      sourceApp: row["sourceApp"] as? String,
-      imagePath: row["imagePath"] as? String,
-      thumbnailPath: row["thumbnailPath"] as? String,
-      isPinned: row["isPinned"] as? Bool ?? false,
-      sourceAppBundleId: row["sourceAppBundleId"] as? String,
-      ocrText: row["ocrText"] as? String,
-      collectionName: row["collectionName"] as? String,
-      customTitle: row["customTitle"] as? String,
-      sourceDeviceName: row["sourceDeviceName"] as? String ?? ClipboardItem.localDeviceName
-    )
+      id: id, kind: kind, displayText: displayText, payload: payload, payloadHash: payloadHash, createdAt: createdAt,
+      lastUsedAt: lastUsedAt, useCount: useCount, sourceApp: row["sourceApp"] as? String, imagePath: row["imagePath"] as? String,
+      thumbnailPath: row["thumbnailPath"] as? String, isPinned: row["isPinned"] as? Bool ?? false,
+      sourceAppBundleId: row["sourceAppBundleId"] as? String, ocrText: row["ocrText"] as? String,
+      collectionName: row["collectionName"] as? String, customTitle: row["customTitle"] as? String,
+      sourceDeviceName: row["sourceDeviceName"] as? String ?? ClipboardItem.localDeviceName)
   }
 
   private func legacyDate(_ value: Any?) -> Date? {
-    if let seconds = value as? Double {
-      return Date(timeIntervalSince1970: seconds)
-    }
-    if let number = value as? NSNumber {
-      return Date(timeIntervalSince1970: number.doubleValue)
-    }
-    guard let string = value as? String else {
-      return nil
-    }
+    if let seconds = value as? Double { return Date(timeIntervalSince1970: seconds) }
+    if let number = value as? NSNumber { return Date(timeIntervalSince1970: number.doubleValue) }
+    guard let string = value as? String else { return nil }
 
     return legacyISO8601Date(string)
   }
@@ -664,10 +594,7 @@ final class ClipboardStore {
   }
 
   private static let legacyDateFormatters: [ISO8601DateFormatter] = {
-    let formats: [ISO8601DateFormatter.Options] = [
-      [.withInternetDateTime, .withFractionalSeconds],
-      [.withInternetDateTime]
-    ]
+    let formats: [ISO8601DateFormatter.Options] = [[.withInternetDateTime, .withFractionalSeconds], [.withInternetDateTime]]
     return formats.map { options in
       let formatter = ISO8601DateFormatter()
       formatter.formatOptions = options
@@ -675,16 +602,13 @@ final class ClipboardStore {
     }
   }()
 
-
   private func isDatabaseEmpty() -> Bool {
     guard let db else { return true }
     let query = "SELECT COUNT(*) FROM clipboard_items;"
     var statement: OpaquePointer?
     defer { sqlite3_finalize(statement) }
 
-    guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
-      return true
-    }
+    guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return true }
     guard sqlite3_step(statement) == SQLITE_ROW else { return true }
     let count = sqlite3_column_int64(statement, 0)
     return count == 0
@@ -693,14 +617,14 @@ final class ClipboardStore {
   private func loadFromDatabase() {
     guard let db else { return }
     let query = """
-      SELECT
-        id, kind, display_text, payload, payload_hash, created_at,
-        last_used_at, use_count, source_app, source_app_bundle_id,
-        image_path, thumbnail_path, is_pinned, ocr_text, collection_name,
-        custom_title, source_device_name
-      FROM clipboard_items
-      ORDER BY created_at DESC, last_used_at DESC
-    """
+        SELECT
+          id, kind, display_text, payload, payload_hash, created_at,
+          last_used_at, use_count, source_app, source_app_bundle_id,
+          image_path, thumbnail_path, is_pinned, ocr_text, collection_name,
+          custom_title, source_device_name
+        FROM clipboard_items
+        ORDER BY created_at DESC, last_used_at DESC
+      """
 
     var statement: OpaquePointer?
     defer { sqlite3_finalize(statement) }
@@ -709,9 +633,7 @@ final class ClipboardStore {
 
     var canEncryptCache: Bool?
     func canEncryptForMigration() -> Bool {
-      if let canEncryptCache {
-        return canEncryptCache
-      }
+      if let canEncryptCache { return canEncryptCache }
       let canEncrypt = encryptionService.isAvailable
       canEncryptCache = canEncrypt
       return canEncrypt
@@ -721,25 +643,17 @@ final class ClipboardStore {
     var needsEncryptionMigration = false
     var hadDecodeFailure = false
     while sqlite3_step(statement) == SQLITE_ROW {
-      guard
-        let idText = sqlite3_column_text(statement, 0),
-        let kindValue = Int(exactly: sqlite3_column_int(statement, 1)),
+      guard let idText = sqlite3_column_text(statement, 0), let kindValue = Int(exactly: sqlite3_column_int(statement, 1)),
         let kind = ClipboardItemKind(rawValue: kindValue)
-      else {
-        continue
-      }
+      else { continue }
 
       let id = UUID(uuidString: String(cString: idText)) ?? UUID()
 
       func stringValue(_ index: Int32) -> (value: String?, migrationNeeded: Bool, decodeFailed: Bool) {
-        guard let raw = sqlite3_column_text(statement, index) else {
-          return (nil, false, false)
-        }
+        guard let raw = sqlite3_column_text(statement, index) else { return (nil, false, false) }
         let value = String(cString: raw)
         if ClipboardEncryptionService.isProtected(value) {
-          guard let decoded = encryptionService.unprotect(value) else {
-            return (nil, false, true)
-          }
+          guard let decoded = encryptionService.unprotect(value) else { return (nil, false, true) }
           return (decoded, decoded == value && canEncryptForMigration(), false)
         }
         return (value, canEncryptForMigration(), false)
@@ -748,25 +662,13 @@ final class ClipboardStore {
       let displayTextValue = stringValue(2)
       let payloadValue = stringValue(3)
       let payloadHashValue = stringValue(4)
-      guard
-        let displayText = displayTextValue.value,
-        let payload = payloadValue.value,
-        let payloadHash = payloadHashValue.value
-      else {
-        hadDecodeFailure = hadDecodeFailure
-          || displayTextValue.decodeFailed
-          || payloadValue.decodeFailed
-          || payloadHashValue.decodeFailed
+      guard let displayText = displayTextValue.value, let payload = payloadValue.value, let payloadHash = payloadHashValue.value else {
+        hadDecodeFailure = hadDecodeFailure || displayTextValue.decodeFailed || payloadValue.decodeFailed || payloadHashValue.decodeFailed
         continue
       }
-      needsEncryptionMigration = needsEncryptionMigration
-        || displayTextValue.migrationNeeded
-        || payloadValue.migrationNeeded
-        || payloadHashValue.migrationNeeded
-      hadDecodeFailure = hadDecodeFailure
-        || displayTextValue.decodeFailed
-        || payloadValue.decodeFailed
-        || payloadHashValue.decodeFailed
+      needsEncryptionMigration =
+        needsEncryptionMigration || displayTextValue.migrationNeeded || payloadValue.migrationNeeded || payloadHashValue.migrationNeeded
+      hadDecodeFailure = hadDecodeFailure || displayTextValue.decodeFailed || payloadValue.decodeFailed || payloadHashValue.decodeFailed
 
       let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 5))
       let lastUsedAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 6))
@@ -781,52 +683,32 @@ final class ClipboardStore {
       let customTitleValue = stringValue(15)
       let sourceDeviceNameValue = stringValue(16)
 
-      needsEncryptionMigration = needsEncryptionMigration
-        || sourceAppValue.migrationNeeded
-        || sourceAppBundleIdValue.migrationNeeded
-        || imagePathValue.migrationNeeded
-        || thumbnailPathValue.migrationNeeded
-        || ocrTextValue.migrationNeeded
-        || collectionNameValue.migrationNeeded
-        || customTitleValue.migrationNeeded
-        || sourceDeviceNameValue.migrationNeeded
-      hadDecodeFailure = hadDecodeFailure
-        || sourceAppValue.decodeFailed
-        || sourceAppBundleIdValue.decodeFailed
-        || imagePathValue.decodeFailed
-        || thumbnailPathValue.decodeFailed
-        || ocrTextValue.decodeFailed
-        || collectionNameValue.decodeFailed
-        || customTitleValue.decodeFailed
+      needsEncryptionMigration =
+        needsEncryptionMigration || sourceAppValue.migrationNeeded || sourceAppBundleIdValue.migrationNeeded
+        || imagePathValue.migrationNeeded || thumbnailPathValue.migrationNeeded || ocrTextValue.migrationNeeded
+        || collectionNameValue.migrationNeeded || customTitleValue.migrationNeeded || sourceDeviceNameValue.migrationNeeded
+      hadDecodeFailure =
+        hadDecodeFailure || sourceAppValue.decodeFailed || sourceAppBundleIdValue.decodeFailed || imagePathValue.decodeFailed
+        || thumbnailPathValue.decodeFailed || ocrTextValue.decodeFailed || collectionNameValue.decodeFailed || customTitleValue.decodeFailed
         || sourceDeviceNameValue.decodeFailed
 
       loaded.append(
         ClipboardItem(
-          id: id,
-          kind: kind,
-          displayText: displayText,
-          payload: payload,
-          payloadHash: payloadHash,
-          createdAt: createdAt,
-          lastUsedAt: lastUsedAt,
-          useCount: useCount,
-          sourceApp: sourceAppValue.value,
-          imagePath: imagePathValue.value,
-          thumbnailPath: thumbnailPathValue.value,
-          isPinned: isPinned,
-          sourceAppBundleId: sourceAppBundleIdValue.value,
-          ocrText: ocrTextValue.value,
-          collectionName: collectionNameValue.value,
-          customTitle: customTitleValue.value,
-          sourceDeviceName: sourceDeviceNameValue.value ?? ClipboardItem.localDeviceName
-        )
-      )
+          id: id, kind: kind, displayText: displayText, payload: payload, payloadHash: payloadHash, createdAt: createdAt,
+          lastUsedAt: lastUsedAt, useCount: useCount, sourceApp: sourceAppValue.value, imagePath: imagePathValue.value,
+          thumbnailPath: thumbnailPathValue.value, isPinned: isPinned, sourceAppBundleId: sourceAppBundleIdValue.value,
+          ocrText: ocrTextValue.value, collectionName: collectionNameValue.value, customTitle: customTitleValue.value,
+          sourceDeviceName: sourceDeviceNameValue.value ?? ClipboardItem.localDeviceName))
     }
 
     sqlite3_finalize(statement)
     statement = nil
 
     items = loaded
+    if hadDecodeFailure {
+      loadWarningMessage =
+        "Some saved history could not be decrypted. Goldfish left the database intact. Do not clear history; restore Keychain access and relaunch."
+    }
     normalizeHistoryLength()
     cacheService.encryptCachedReferencesIfNeeded(for: items)
     if needsEncryptionMigration, !hadDecodeFailure, saveAll(items) {
@@ -843,9 +725,7 @@ final class ClipboardStore {
     case deleteAll
   }
 
-  private func applyPersistence(_ mutation: PersistenceMutation) {
-    guard let db else { return }
-    let insertSQL = """
+  private static let insertSQL = """
       INSERT OR REPLACE INTO clipboard_items (
         id, kind, display_text, payload, payload_hash,
         created_at, last_used_at, use_count, source_app,
@@ -854,118 +734,12 @@ final class ClipboardStore {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """
 
+  private func applyPersistence(_ mutation: PersistenceMutation) {
     switch mutation {
-    case .upsert(let item):
-      var statement: OpaquePointer?
-      var shouldRollback = false
-      defer {
-        if let statement {
-          sqlite3_finalize(statement)
-        }
-        if shouldRollback {
-          _ = execute("ROLLBACK;")
-        }
-      }
-
-      guard execute("BEGIN IMMEDIATE TRANSACTION;") else { return }
-      guard sqlite3_prepare_v2(db, insertSQL, -1, &statement, nil) == SQLITE_OK else {
-        shouldRollback = true
-        return
-      }
-
-      bindItem(item, to: statement)
-
-      let stepResult = sqlite3_step(statement)
-      if stepResult != SQLITE_DONE {
-        shouldRollback = true
-        return
-      }
-
-      if !execute("COMMIT;") {
-        shouldRollback = true
-      }
-
-    case .upsertMany(let items):
-      guard !items.isEmpty else { return }
-      var statement: OpaquePointer?
-      var shouldRollback = false
-      defer {
-        if let statement {
-          sqlite3_finalize(statement)
-        }
-        if shouldRollback {
-          _ = execute("ROLLBACK;")
-        }
-      }
-
-      guard execute("BEGIN IMMEDIATE TRANSACTION;") else { return }
-      guard sqlite3_prepare_v2(db, insertSQL, -1, &statement, nil) == SQLITE_OK else {
-        shouldRollback = true
-        return
-      }
-
-      for item in items {
-        bindItem(item, to: statement)
-        let stepResult = sqlite3_step(statement)
-        if stepResult != SQLITE_DONE {
-          shouldRollback = true
-          return
-        }
-        sqlite3_reset(statement)
-        sqlite3_clear_bindings(statement)
-      }
-
-      if !execute("COMMIT;") {
-        shouldRollback = true
-      }
-
-    case .delete(let id):
-      guard execute("BEGIN IMMEDIATE TRANSACTION;") else { return }
-      let query = "DELETE FROM clipboard_items WHERE id = ?;"
-      var statement: OpaquePointer?
-      guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
-        _ = execute("ROLLBACK;")
-        return
-      }
-      bindText(statement, 1, id.uuidString)
-
-      let stepResult = sqlite3_step(statement)
-      sqlite3_finalize(statement)
-      if stepResult != SQLITE_DONE {
-        _ = execute("ROLLBACK;")
-        return
-      }
-      _ = execute("COMMIT;")
-
-    case .deleteMany(let ids):
-      guard !ids.isEmpty else { return }
-      var placeholders = "?"
-      if ids.count > 1 {
-        for _ in 1..<ids.count {
-          placeholders += ",?"
-        }
-      }
-      let query = "DELETE FROM clipboard_items WHERE id IN (\(placeholders));"
-      var statement: OpaquePointer?
-      guard execute("BEGIN IMMEDIATE TRANSACTION;") else { return }
-      guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
-        _ = execute("ROLLBACK;")
-        return
-      }
-
-      for (offset, id) in ids.enumerated() {
-        bindText(statement, Int32(offset + 1), id.uuidString)
-      }
-
-      let stepResult = sqlite3_step(statement)
-      sqlite3_finalize(statement)
-      if stepResult != SQLITE_DONE {
-        _ = execute("ROLLBACK;")
-        return
-      }
-
-      _ = execute("COMMIT;")
-
+    case .upsert(let item): _ = transaction { insert([item]) }
+    case .upsertMany(let items): if !items.isEmpty { _ = transaction { insert(items) } }
+    case .delete(let id): _ = transaction { delete([id]) }
+    case .deleteMany(let ids): if !ids.isEmpty { _ = transaction { delete(ids) } }
     case .deleteAll:
       if execute("DELETE FROM clipboard_items;") {
         vacuumDatabase()
@@ -975,71 +749,48 @@ final class ClipboardStore {
     }
   }
 
-  @discardableResult
-  private func saveAll(_ items: [ClipboardItem]) -> Bool {
+  @discardableResult private func saveAll(_ items: [ClipboardItem]) -> Bool {
+    transaction { execute("DELETE FROM clipboard_items;") && insert(items) }
+  }
+
+  private func transaction(_ work: () -> Bool) -> Bool {
+    guard let db, execute("BEGIN IMMEDIATE TRANSACTION;") else { return false }
+    defer { if sqlite3_get_autocommit(db) == 0 { _ = execute("ROLLBACK;") } }
+    return work() && execute("COMMIT;")
+  }
+
+  private func insert(_ items: [ClipboardItem]) -> Bool {
+    guard !items.isEmpty else { return true }
     guard let db else { return false }
-    let deleteSQL = "DELETE FROM clipboard_items;"
-    let insertSQL = """
-      INSERT OR REPLACE INTO clipboard_items (
-        id, kind, display_text, payload, payload_hash,
-        created_at, last_used_at, use_count, source_app,
-        source_app_bundle_id, image_path, thumbnail_path, is_pinned, ocr_text,
-        collection_name, custom_title, source_device_name
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-    """
-
-    guard execute("BEGIN IMMEDIATE TRANSACTION;") else {
-      return false
-    }
-
-    defer {
-      if sqlite3_get_autocommit(db) == 0 {
-        _ = execute("ROLLBACK;")
-      }
-    }
-
-    guard execute(deleteSQL) else {
-      _ = execute("ROLLBACK;")
-      return false
-    }
-
     var statement: OpaquePointer?
     defer { sqlite3_finalize(statement) }
-
-    guard sqlite3_prepare_v2(db, insertSQL, -1, &statement, nil) == SQLITE_OK else {
-      _ = execute("ROLLBACK;")
-      return false
-    }
-
+    guard sqlite3_prepare_v2(db, Self.insertSQL, -1, &statement, nil) == SQLITE_OK else { return false }
     for item in items {
       bindItem(item, to: statement)
-
-      let stepResult = sqlite3_step(statement)
-      if stepResult != SQLITE_DONE {
-        _ = execute("ROLLBACK;")
-        return false
-      }
-
+      guard sqlite3_step(statement) == SQLITE_DONE else { return false }
       sqlite3_reset(statement)
       sqlite3_clear_bindings(statement)
-    }
-
-    if !execute("COMMIT;") {
-      _ = execute("ROLLBACK;")
-      return false
     }
     return true
   }
 
-  @discardableResult
-  private func execute(_ sql: String) -> Bool {
+  private func delete(_ ids: [UUID]) -> Bool {
+    guard let db, !ids.isEmpty else { return false }
+    let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+    let query = "DELETE FROM clipboard_items WHERE id IN (\(placeholders));"
+    var statement: OpaquePointer?
+    defer { sqlite3_finalize(statement) }
+    guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return false }
+    for (offset, id) in ids.enumerated() { bindText(statement, Int32(offset + 1), id.uuidString) }
+    return sqlite3_step(statement) == SQLITE_DONE
+  }
+
+  @discardableResult private func execute(_ sql: String) -> Bool {
     guard let db else { return false }
     return sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK
   }
 
-  private func vacuumDatabase() {
-    _ = execute("VACUUM;")
-  }
+  private func vacuumDatabase() { _ = execute("VACUUM;") }
 
   private func bindText(_ statement: OpaquePointer?, _ index: Int32, _ value: String?) {
     guard let value else {
@@ -1047,10 +798,9 @@ final class ClipboardStore {
       return
     }
 
-    let destructor: Optional<@convention(c) (UnsafeMutableRawPointer?) -> ()> = unsafeBitCast(-1, to: Optional<@convention(c) (UnsafeMutableRawPointer?) -> ()>.self)
-    _ = value.withCString { ptr in
-      sqlite3_bind_text(statement, index, ptr, -1, destructor)
-    }
+    let destructor: (@convention(c) (UnsafeMutableRawPointer?) -> Void)? = unsafeBitCast(
+      -1, to: Optional<@convention(c) (UnsafeMutableRawPointer?) -> Void>.self)
+    _ = value.withCString { ptr in sqlite3_bind_text(statement, index, ptr, -1, destructor) }
   }
 
   private func bindItem(_ item: ClipboardItem, to statement: OpaquePointer?) {

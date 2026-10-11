@@ -6,21 +6,27 @@ final class PasteActionService {
   private let accessibilityPermissionProvider: () -> Bool
   private let targetActivator: (NSRunningApplication) -> Bool
   private let keyboardPasteScheduler: (@escaping () -> Void) -> Void
+  private let feedback: (ClipboardSound) -> Void
+  private let frontmostPID: () -> pid_t?
+  private let keyboardPastePoster: () -> Bool
 
   init(
     cacheService: ClipboardCacheService = ClipboardCacheService(),
-    accessibilityPermissionProvider: @escaping () -> Bool = AccessibilityPermissionService.requestPromptIfNeeded,
+    accessibilityPermissionProvider: @escaping () -> Bool = { AccessibilityPermissionService.isTrusted },
     targetActivator: @escaping (NSRunningApplication) -> Bool = PasteActionService.activateForAutomaticPaste,
     keyboardPasteScheduler: @escaping (@escaping () -> Void) -> Void = { action in
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-        action()
-      }
-    }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { action() }
+    }, feedback: @escaping (ClipboardSound) -> Void = { _ in },
+    frontmostPID: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier },
+    keyboardPastePoster: @escaping () -> Bool = PasteActionService.pasteViaKeyboard
   ) {
     self.cacheService = cacheService
     self.accessibilityPermissionProvider = accessibilityPermissionProvider
     self.targetActivator = targetActivator
     self.keyboardPasteScheduler = keyboardPasteScheduler
+    self.feedback = feedback
+    self.frontmostPID = frontmostPID
+    self.keyboardPastePoster = keyboardPastePoster
   }
 
   enum PasteActionResult: Equatable {
@@ -34,58 +40,38 @@ final class PasteActionService {
 
     var message: String {
       switch self {
-      case .pasted:
-        return "Pasted"
-      case .pastedPlainText:
-        return "Pasted Plain Text"
-      case .copied:
-        return "Copied"
-      case .copiedPlainText:
-        return "Copied Plain Text"
-      case .copiedNeedsPermission:
-        return "Copied. Grant Accessibility access to paste automatically."
-      case .copiedPlainTextNeedsPermission:
-        return "Copied Plain Text. Grant Accessibility access to paste automatically."
-      case .failed(let message):
-        return message
+      case .pasted: return "Pasted"
+      case .pastedPlainText: return "Pasted Plain Text"
+      case .copied: return "Copied"
+      case .copiedPlainText: return "Copied Plain Text"
+      case .copiedNeedsPermission: return "Copied. Grant Accessibility access to paste automatically."
+      case .copiedPlainTextNeedsPermission: return "Copied Plain Text. Grant Accessibility access to paste automatically."
+      case .failed(let message): return message
       }
     }
   }
 
   func paste(_ item: ClipboardItem, targetApp: NSRunningApplication?) -> PasteActionResult {
-    guard writeToPasteboard(item) else {
-      return .failed("Could not write item to clipboard.")
-    }
+    guard writeToPasteboard(item) else { return .failed("Could not write item to clipboard.") }
 
-    return completePaste(targetApp: targetApp)
+    return reportCopyFeedback(completePaste(targetApp: targetApp))
   }
 
   func paste(_ items: [ClipboardItem], targetApp: NSRunningApplication?) -> PasteActionResult {
-    guard writeToPasteboard(items) else {
-      return .failed("Could not write items to clipboard.")
-    }
+    guard writeToPasteboard(items) else { return .failed("Could not write items to clipboard.") }
 
-    return completePaste(targetApp: targetApp)
+    return reportCopyFeedback(completePaste(targetApp: targetApp))
   }
 
-  private func completePaste(targetApp: NSRunningApplication?) -> PasteActionResult {
-    guard let targetApp,
-          !targetApp.isTerminated else {
-      return .copied
-    }
+  private func completePaste(targetApp: NSRunningApplication?, asPlainText: Bool = false) -> PasteActionResult {
+    guard let targetApp, !targetApp.isTerminated else { return asPlainText ? .copiedPlainText : .copied }
 
-    guard accessibilityPermissionProvider() else {
-      return .copiedNeedsPermission
-    }
+    guard accessibilityPermissionProvider() else { return asPlainText ? .copiedPlainTextNeedsPermission : .copiedNeedsPermission }
 
-    guard targetActivator(targetApp) else {
-      return .copied
-    }
+    guard targetActivator(targetApp) else { return asPlainText ? .copiedPlainText : .copied }
 
-    keyboardPasteScheduler { [weak self] in
-      self?.pasteViaKeyboard()
-    }
-    return .pasted
+    schedulePaste(into: targetApp)
+    return asPlainText ? .pastedPlainText : .pasted
   }
 
   func pastePlainText(_ item: ClipboardItem, targetApp: NSRunningApplication?) -> PasteActionResult {
@@ -93,35 +79,37 @@ final class PasteActionService {
       return .failed("Could not write plain text to clipboard.")
     }
 
-    return completePlainTextPaste(targetApp: targetApp)
+    return reportCopyFeedback(completePaste(targetApp: targetApp, asPlainText: true))
   }
 
   func pastePlainText(_ value: String, targetApp: NSRunningApplication?) -> PasteActionResult {
-    guard writePlainTextToPasteboard(value) else {
-      return .failed("Could not write plain text to clipboard.")
+    guard writePlainTextToPasteboard(value) else { return .failed("Could not write plain text to clipboard.") }
+
+    return reportCopyFeedback(completePaste(targetApp: targetApp, asPlainText: true))
+  }
+
+  @discardableResult func copy(_ item: ClipboardItem) -> PasteActionResult {
+    reportCopyFeedback(writeToPasteboard(item) ? .copied : .failed("Could not write item to clipboard."))
+  }
+
+  @discardableResult func copy(_ items: [ClipboardItem]) -> PasteActionResult {
+    reportCopyFeedback(writeToPasteboard(items) ? .copied : .failed("Could not write items to clipboard."))
+  }
+
+  @discardableResult func copyPlainText(_ item: ClipboardItem) -> PasteActionResult {
+    reportCopyFeedback(writePlainTextToPasteboard(item) ? .copiedPlainText : .failed("Could not write plain text to clipboard."))
+  }
+
+  @discardableResult func copyPlainText(_ value: String) -> PasteActionResult {
+    reportCopyFeedback(writePlainTextToPasteboard(value) ? .copiedPlainText : .failed("Could not write plain text to clipboard."))
+  }
+
+  private func reportCopyFeedback(_ result: PasteActionResult) -> PasteActionResult {
+    switch result {
+    case .copied, .copiedPlainText, .copiedNeedsPermission, .copiedPlainTextNeedsPermission: feedback(.copy)
+    case .pasted, .pastedPlainText, .failed: break
     }
-
-    return completePlainTextPaste(targetApp: targetApp)
-  }
-
-  @discardableResult
-  func copy(_ item: ClipboardItem) -> PasteActionResult {
-    writeToPasteboard(item) ? .copied : .failed("Could not write item to clipboard.")
-  }
-
-  @discardableResult
-  func copy(_ items: [ClipboardItem]) -> PasteActionResult {
-    writeToPasteboard(items) ? .copied : .failed("Could not write items to clipboard.")
-  }
-
-  @discardableResult
-  func copyPlainText(_ item: ClipboardItem) -> PasteActionResult {
-    writePlainTextToPasteboard(item) ? .copiedPlainText : .failed("Could not write plain text to clipboard.")
-  }
-
-  @discardableResult
-  func copyPlainText(_ value: String) -> PasteActionResult {
-    writePlainTextToPasteboard(value) ? .copiedPlainText : .failed("Could not write plain text to clipboard.")
+    return result
   }
 
   func pasteboardWriters(for item: ClipboardItem) -> [NSPasteboardWriting] {
@@ -160,9 +148,7 @@ final class PasteActionService {
         let pasteboardItem = NSPasteboardItem()
         pasteboardItem.setData(data, forType: .rtf)
         let text = richTextPlainString(from: data) ?? item.displayText.clipboardTrimmed
-        if !text.isEmpty {
-          pasteboardItem.setString(text, forType: .string)
-        }
+        if !text.isEmpty { pasteboardItem.setString(text, forType: .string) }
         return [pasteboardItem]
       }
 
@@ -171,9 +157,7 @@ final class PasteActionService {
 
     case .file:
       let urls = FilePayload.urls(from: item.payload)
-      guard !urls.isEmpty, urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) else {
-        return []
-      }
+      guard !urls.isEmpty, urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) else { return [] }
       return urls.map { $0.standardizedFileURL as NSURL }
 
     case .url:
@@ -192,8 +176,7 @@ final class PasteActionService {
     }
   }
 
-  @discardableResult
-  func writeToPasteboard(_ item: ClipboardItem) -> Bool {
+  @discardableResult func writeToPasteboard(_ item: ClipboardItem) -> Bool {
     let board = NSPasteboard.general
     let didWrite: Bool
     switch item.kind {
@@ -217,17 +200,13 @@ final class PasteActionService {
       guard let color = ColorPayload.color(from: item.payload) else { return false }
       board.clearContents()
       didWrite = board.writeObjects([color])
-      if didWrite {
-        board.setString(ColorPayload.displayHex(from: item.payload), forType: .string)
-      }
+      if didWrite { board.setString(ColorPayload.displayHex(from: item.payload), forType: .string) }
     case .richText:
       if let data = cacheService.data(for: item.payload) {
         board.clearContents()
         let text = richTextPlainString(from: data) ?? item.displayText.clipboardTrimmed
         let wroteRTF = board.setData(data, forType: .rtf)
-        if !text.isEmpty {
-          _ = board.setString(text, forType: .string)
-        }
+        if !text.isEmpty { _ = board.setString(text, forType: .string) }
         didWrite = wroteRTF
       } else {
         let fallbackText = richTextFallbackPlainString(for: item)
@@ -240,9 +219,7 @@ final class PasteActionService {
       guard !urls.isEmpty, urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) else { return false }
       board.clearContents()
       didWrite = board.writeObjects(urls.map { $0 as NSURL })
-      if didWrite {
-        board.setString(urls.map(\.path).joined(separator: "\n"), forType: .string)
-      }
+      if didWrite { board.setString(urls.map(\.path).joined(separator: "\n"), forType: .string) }
     case .url:
       guard !item.payload.isEmpty else { return false }
       board.clearContents()
@@ -253,14 +230,11 @@ final class PasteActionService {
       didWrite = board.setString(item.payload, forType: .string)
     }
 
-    if didWrite {
-      ClipboardSelfWriteTracker.mark(changeCount: board.changeCount)
-    }
+    if didWrite { ClipboardSelfWriteTracker.mark(changeCount: board.changeCount) }
     return didWrite
   }
 
-  @discardableResult
-  func writeToPasteboard(_ items: [ClipboardItem]) -> Bool {
+  @discardableResult func writeToPasteboard(_ items: [ClipboardItem]) -> Bool {
     guard !items.isEmpty else { return false }
     var writers: [NSPasteboardWriting] = []
     for item in items {
@@ -273,69 +247,51 @@ final class PasteActionService {
     let board = NSPasteboard.general
     board.clearContents()
     let didWrite = board.writeObjects(writers)
-    if didWrite {
-      ClipboardSelfWriteTracker.mark(changeCount: board.changeCount)
-    }
+    if didWrite { ClipboardSelfWriteTracker.mark(changeCount: board.changeCount) }
     return didWrite
   }
 
   func plainText(for item: ClipboardItem) -> String? {
     switch item.kind {
-    case .text, .code, .unknown:
-      return nonEmptyPlainText(item.payload) ?? nonEmptyPlainText(item.displayText)
-    case .url, .file:
-      return nonEmptyPlainText(item.payload) ?? nonEmptyPlainText(item.displayText)
+    case .text, .code, .unknown: return nonEmptyPlainText(item.payload) ?? nonEmptyPlainText(item.displayText)
+    case .url, .file: return nonEmptyPlainText(item.payload) ?? nonEmptyPlainText(item.displayText)
     case .richText:
-      if let data = cacheService.data(for: item.payload),
-         let text = richTextPlainString(from: data) {
-        return text
-      }
+      if let data = cacheService.data(for: item.payload), let text = richTextPlainString(from: data) { return text }
       return nonEmptyPlainText(richTextFallbackPlainString(for: item))
-    case .image:
-      return nonEmptyPlainText(item.ocrText) ?? nonEmptyPlainText(item.displayText)
-    case .pdf, .audio, .video:
-      return nonEmptyPlainText(item.displayText)
-    case .color:
-      return nonEmptyPlainText(ColorPayload.displayHex(from: item.payload)) ?? nonEmptyPlainText(item.displayText)
+    case .image: return nonEmptyPlainText(item.ocrText) ?? nonEmptyPlainText(item.displayText)
+    case .pdf, .audio, .video: return nonEmptyPlainText(item.displayText)
+    case .color: return nonEmptyPlainText(ColorPayload.displayHex(from: item.payload)) ?? nonEmptyPlainText(item.displayText)
     }
   }
 
-  @discardableResult
-  func writePlainTextToPasteboard(_ item: ClipboardItem) -> Bool {
+  @discardableResult func writePlainTextToPasteboard(_ item: ClipboardItem) -> Bool {
     guard let text = plainText(for: item) else { return false }
     return writePlainTextToPasteboard(text)
   }
 
-  @discardableResult
-  private func writePlainTextToPasteboard(_ text: String) -> Bool {
+  @discardableResult private func writePlainTextToPasteboard(_ text: String) -> Bool {
     guard !text.clipboardTrimmed.isEmpty else { return false }
     let board = NSPasteboard.general
     board.clearContents()
     let didWrite = board.setString(text, forType: .string)
-    if didWrite {
-      ClipboardSelfWriteTracker.mark(changeCount: board.changeCount)
-    }
+    if didWrite { ClipboardSelfWriteTracker.mark(changeCount: board.changeCount) }
     return didWrite
   }
 
-  private func completePlainTextPaste(targetApp: NSRunningApplication?) -> PasteActionResult {
-    guard let targetApp,
-          !targetApp.isTerminated else {
-      return .copiedPlainText
-    }
-
-    guard accessibilityPermissionProvider() else {
-      return .copiedPlainTextNeedsPermission
-    }
-
-    guard targetActivator(targetApp) else {
-      return .copiedPlainText
-    }
-
+  private func schedulePaste(into targetApp: NSRunningApplication) {
+    let changeCount = NSPasteboard.general.changeCount
     keyboardPasteScheduler { [weak self] in
-      self?.pasteViaKeyboard()
+      guard let self, !targetApp.isTerminated,
+        Self.shouldDeliverPaste(
+          targetPID: targetApp.processIdentifier, frontmostPID: self.frontmostPID(), expectedChangeCount: changeCount,
+          actualChangeCount: NSPasteboard.general.changeCount)
+      else { return }
+      if self.keyboardPastePoster() { self.feedback(.paste) }
     }
-    return .pastedPlainText
+  }
+
+  static func shouldDeliverPaste(targetPID: pid_t, frontmostPID: pid_t?, expectedChangeCount: Int, actualChangeCount: Int) -> Bool {
+    targetPID == frontmostPID && expectedChangeCount == actualChangeCount
   }
 
   private func stringPasteboardItem(_ value: String) -> NSPasteboardItem {
@@ -346,9 +302,7 @@ final class PasteActionService {
 
   private func dragLabel(for item: ClipboardItem) -> String {
     let display = item.displayText.clipboardTrimmed
-    if !display.isEmpty {
-      return display
-    }
+    if !display.isEmpty { return display }
     return item.kind.displayName.capitalized
   }
 
@@ -356,9 +310,7 @@ final class PasteActionService {
     guard !payload.isEmpty else { return false }
     let wroteString = board.setString(payload, forType: .string)
     board.setString(payload, forType: .URL)
-    if let url = URL(string: payload) {
-      _ = board.writeObjects([url as NSURL])
-    }
+    if let url = URL(string: payload) { _ = board.writeObjects([url as NSURL]) }
     if let title = urlTitleForPasteboard(title, payload: payload) {
       board.setString(title, forType: NSPasteboard.PasteboardType(rawValue: "public.url-name"))
     }
@@ -379,21 +331,15 @@ final class PasteActionService {
   }
 
   private func richTextPlainString(from data: Data) -> String? {
-    guard let attributed = NSAttributedString(rtf: data, documentAttributes: nil) else {
-      return nil
-    }
+    guard let attributed = NSAttributedString(rtf: data, documentAttributes: nil) else { return nil }
     let text = attributed.string.clipboardTrimmed
     return text.isEmpty ? nil : text
   }
 
   private func richTextFallbackPlainString(for item: ClipboardItem) -> String {
     let payload = item.payload.clipboardTrimmed
-    if looksLikeRichTextCachePath(payload) {
-      return item.displayText.clipboardTrimmed
-    }
-    if !payload.isEmpty {
-      return payload
-    }
+    if looksLikeRichTextCachePath(payload) { return item.displayText.clipboardTrimmed }
+    if !payload.isEmpty { return payload }
     return item.displayText.clipboardTrimmed
   }
 
@@ -403,23 +349,19 @@ final class PasteActionService {
   }
 
   private static func activateForAutomaticPaste(_ targetApp: NSRunningApplication) -> Bool {
-    if #available(macOS 14, *) {
-      return targetApp.activate()
-    } else {
-      return targetApp.activate(options: [.activateIgnoringOtherApps])
-    }
+    if #available(macOS 14, *) { return targetApp.activate() } else { return targetApp.activate(options: [.activateIgnoringOtherApps]) }
   }
 
-  private func pasteViaKeyboard() {
+  static func pasteViaKeyboard() -> Bool {
     let keyCode: UInt16 = 9
-    guard
-      let srcDown = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true),
+    guard let srcDown = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true),
       let srcUp = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false)
-    else { return }
+    else { return false }
 
     srcDown.flags = .maskCommand
     srcDown.post(tap: .cghidEventTap)
     srcUp.flags = .maskCommand
     srcUp.post(tap: .cghidEventTap)
+    return true
   }
 }

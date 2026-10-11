@@ -17,8 +17,7 @@ final class AppLifecycleService {
         case .notRegistered:
           try service.register()
           return .success
-        case .enabled:
-          return .noChange
+        case .enabled: return .noChange
         default:
           try service.register()
           return .success
@@ -29,12 +28,8 @@ final class AppLifecycleService {
       } else {
         return .noChange
       }
-    } catch {
-      return .failure(error.localizedDescription)
-    }
+    } catch { return .failure(error.localizedDescription) }
   }
 
-  func isEnabled() -> Bool {
-    service.status == .enabled
-  }
+  func isEnabled() -> Bool { service.status == .enabled }
 }

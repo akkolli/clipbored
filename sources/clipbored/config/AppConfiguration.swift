@@ -1,8 +1,10 @@
-import Foundation
 import AppKit
+import Foundation
 
 enum AppConfiguration {
-  static let appName = "ClipBored"
+  static let appName = "Goldfish"
+  // Stable on-disk identity preserves history and backups across the rename.
+  static let storageDirectoryName = "ClipBored"
   static let storageDirectoryOverrideEnvironmentKey = "CLIPBORED_STORAGE_DIR"
   static let defaultHistoryLength = 300
   static let minHistoryLength = 50
@@ -12,19 +14,15 @@ enum AppConfiguration {
   static let maxCacheMaxBytes: Int64 = 512 * 1024 * 1024
   static let maxPinnedItems = 250
   static let maxFullImagePixelSize: CGFloat = 1600
+  static let maxManagedPayloadBytes = 64 * 1024 * 1024
+  static let maxPortableArchiveSidecarBytes = 96 * 1024 * 1024
+  static let maxPortableArchiveBytes = 128 * 1024 * 1024
   static let maxRecognizedImageTextLength = 4096
   static let maxImageCacheFiles = 1000
-  static let defaultOpenShortcut = ShortcutBinding(key: "v", modifierFlags: NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.option.rawValue)
+  static let defaultOpenShortcut = ShortcutBinding(
+    key: "v", modifierFlags: NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.option.rawValue)
   static let defaultSettingsShortcut = ShortcutBinding(key: ",", modifierFlags: NSEvent.ModifierFlags.command.rawValue)
-  static let defaultIgnoredApps: [String] = [
-    "1password",
-    "bitwarden",
-    "lastpass",
-    "dashlane",
-    "keeper",
-    "keepass",
-    "authy"
-  ]
+  static let defaultIgnoredApps: [String] = ["1password", "bitwarden", "lastpass", "dashlane", "keeper", "keepass", "authy"]
   static let defaultPollProfile: PollProfile = .balanced
   static let minResponsiveActiveInterval: TimeInterval = 0.075
 
@@ -53,9 +51,9 @@ enum AppConfiguration {
 
     var activeInterval: TimeInterval {
       switch self {
-        case .battery: return 0.12
-        case .balanced: return 0.075
-        case .responsive: return 0.075
+      case .battery: return 0.12
+      case .balanced: return 0.075
+      case .responsive: return 0.075
       }
     }
 
@@ -88,31 +86,21 @@ struct ShortcutBinding: Equatable {
   }
 
   func matches(_ event: NSEvent) -> Bool {
-    guard let eventChar = event.charactersIgnoringModifiers?.lowercased(), eventChar.count == 1 else {
-      return false
-    }
-    let mask = event.modifierFlags.rawValue & (
-      NSEvent.ModifierFlags.command.rawValue |
-      NSEvent.ModifierFlags.option.rawValue |
-      NSEvent.ModifierFlags.control.rawValue |
-      NSEvent.ModifierFlags.shift.rawValue
-    )
+    guard let eventChar = event.charactersIgnoringModifiers?.lowercased(), eventChar.count == 1 else { return false }
+    let mask =
+      event.modifierFlags.rawValue
+      & (NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.option.rawValue | NSEvent.ModifierFlags.control.rawValue
+        | NSEvent.ModifierFlags.shift.rawValue)
     return eventChar == key && mask == modifierFlags
   }
 
-  func encoded() -> String {
-    "\(modifierFlags)|\(key)"
-  }
+  func encoded() -> String { "\(modifierFlags)|\(key)" }
 
-  func has(_ flag: NSEvent.ModifierFlags) -> Bool {
-    modifierFlags & flag.rawValue != 0
-  }
+  func has(_ flag: NSEvent.ModifierFlags) -> Bool { modifierFlags & flag.rawValue != 0 }
 
   init?(encoded value: String) {
     let parts = value.split(separator: "|")
-    guard parts.count == 2, let flags = UInt(parts[0]), let key = parts.last else {
-      return nil
-    }
+    guard parts.count == 2, let flags = UInt(parts[0]), let key = parts.last else { return nil }
     self.key = String(key).lowercased()
     self.modifierFlags = flags
   }

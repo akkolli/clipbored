@@ -1,8 +1,40 @@
 import AppKit
+import Carbon
 import XCTest
-@testable import ClipBored
+@testable import Goldfish
 
 final class AppDelegateTests: XCTestCase {
+  func testGoldMenuBarIconRendersOrangePixelsInsteadOfATemplate() throws {
+    let regular = try XCTUnwrap(AppDelegate.menuBarIcon(gold: false))
+    XCTAssertTrue(regular.isTemplate)
+
+    let gold = try XCTUnwrap(AppDelegate.menuBarIcon(gold: true))
+    XCTAssertFalse(gold.isTemplate)
+    let representation = try XCTUnwrap(gold.tiffRepresentation)
+    let bitmap = try XCTUnwrap(NSBitmapImageRep(data: representation))
+    let hasTransparentPixel = (0..<bitmap.pixelsHigh).contains { y in
+      (0..<bitmap.pixelsWide).contains { x in
+        (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 1) < 0.1
+      }
+    }
+    let hasOrangePixel = (0..<bitmap.pixelsHigh).contains { y in
+      (0..<bitmap.pixelsWide).contains { x in
+        guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
+        return color.alphaComponent > 0.5
+          && color.redComponent > color.greenComponent
+          && color.greenComponent > color.blueComponent
+      }
+    }
+    XCTAssertTrue(hasTransparentPixel)
+    XCTAssertTrue(hasOrangePixel)
+  }
+
+  func testInteractiveLaunchShowsShelfButLoginLaunchStaysQuiet() {
+    XCTAssertTrue(AppDelegate.shouldShowShelfOnLaunch(eventID: nil, launchReason: nil))
+    XCTAssertTrue(AppDelegate.shouldShowShelfOnLaunch(eventID: kAEOpenApplication, launchReason: nil))
+    XCTAssertFalse(AppDelegate.shouldShowShelfOnLaunch(eventID: kAEOpenApplication, launchReason: keyAELaunchedAsLogInItem))
+    XCTAssertFalse(AppDelegate.shouldShowShelfOnLaunch(eventID: kAEOpenApplication, launchReason: keyAELaunchedAsServiceItem))
+  }
   func testPresentationPlanMapsDockPreferenceToActivationPolicy() {
     let dockless = AppDelegate.presentationPlan(
       showMenuBarIcon: true,
@@ -73,48 +105,36 @@ final class AppDelegateTests: XCTestCase {
     XCTAssertEqual(
       menu.items.map { $0.isSeparatorItem ? "-" : $0.title },
       [
-        "ClipBored",
-        "Capture Running - 42 clips",
-        "Captured text from Safari.",
+        "42 clips",
         "-",
-        "Show Clipboard",
-        "New Collection",
-        "Stack Capture",
-        settingsTitle,
-        "-",
+        "Open Goldfish",
         "Pause Capture",
-        "Pause for 5 Minutes",
-        "Pause for 30 Minutes",
-        "Pause for 1 Hour",
         "-",
-        "Quit ClipBored"
+        settingsTitle,
+        "Quit Goldfish"
       ]
     )
 
-    let showClipboard = menu.items.first { $0.title == "Show Clipboard" }
-    XCTAssertEqual(showClipboard?.keyEquivalent, "v")
-    XCTAssertTrue(showClipboard?.keyEquivalentModifierMask.contains(.command) == true)
-    XCTAssertTrue(showClipboard?.keyEquivalentModifierMask.contains(.option) == true)
+    let open = menu.items.first { $0.title == "Open Goldfish" }
+    XCTAssertEqual(open?.keyEquivalent, "v")
+    XCTAssertTrue(open?.keyEquivalentModifierMask.contains(.command) == true)
+    XCTAssertTrue(open?.keyEquivalentModifierMask.contains(.option) == true)
+    XCTAssertNotNil(open?.image)
 
     XCTAssertNil(menu.items.first { $0.title == "New Text Clip" })
-
-    let newCollection = menu.items.first { $0.title == "New Collection" }
-    XCTAssertEqual(newCollection?.keyEquivalent, "n")
-    XCTAssertTrue(newCollection?.keyEquivalentModifierMask.contains(.command) == true)
-    XCTAssertTrue(newCollection?.keyEquivalentModifierMask.contains(.shift) == true)
-
-    let stackCapture = menu.items.first { $0.title == "Stack Capture" }
-    XCTAssertEqual(stackCapture?.keyEquivalent, "c")
-    XCTAssertTrue(stackCapture?.keyEquivalentModifierMask.contains(.command) == true)
-    XCTAssertTrue(stackCapture?.keyEquivalentModifierMask.contains(.shift) == true)
+    XCTAssertNil(menu.items.first { $0.title == "New Pinboard…" })
+    XCTAssertEqual(menu.items.first?.toolTip, "Captured text from Safari.")
 
     let settings = menu.items.first { $0.title == settingsTitle }
     XCTAssertEqual(settings?.keyEquivalent, ",")
     XCTAssertTrue(settings?.keyEquivalentModifierMask.contains(.command) == true)
 
     let pauseCapture = menu.items.first { $0.title == "Pause Capture" }
-    XCTAssertEqual(pauseCapture?.keyEquivalent, "t")
-    XCTAssertTrue(pauseCapture?.keyEquivalentModifierMask.contains(.command) == true)
+    XCTAssertEqual(pauseCapture?.submenu?.items.map { $0.isSeparatorItem ? "-" : $0.title },
+      ["5 minutes", "30 minutes", "1 hour", "-", "Until resumed"])
+    let indefinite = pauseCapture?.submenu?.items.first { $0.title == "Until resumed" }
+    XCTAssertEqual(indefinite?.keyEquivalent, "t")
+    XCTAssertTrue(indefinite?.keyEquivalentModifierMask.contains(.command) == true)
   }
 
   func testStatusMenuPausedStateTakesPriorityOverOlderCaptureStatus() {
@@ -135,14 +155,13 @@ final class AppDelegateTests: XCTestCase {
       target: nil
     )
 
-    XCTAssertEqual(presentation.summary, "Capture Paused - 1 clip")
+    XCTAssertEqual(presentation.summary, "Paused · 1 clip")
     XCTAssertEqual(presentation.detail, "Capture is paused.")
     let resumeCapture = menu.items.first { $0.title == "Resume Capture" }
-    XCTAssertEqual(resumeCapture?.state, .on)
     XCTAssertEqual(resumeCapture?.keyEquivalent, "t")
     XCTAssertTrue(resumeCapture?.keyEquivalentModifierMask.contains(.command) == true)
     XCTAssertNil(menu.items.first { $0.title == "Pause Capture" })
-    XCTAssertNil(menu.items.first { $0.title == "Pause for 5 Minutes" })
+    XCTAssertNil(resumeCapture?.submenu)
   }
 
   func testStatusMenuPresentationShowsTimedPauseRemainingBeforeOlderStatuses() {
@@ -159,7 +178,7 @@ final class AppDelegateTests: XCTestCase {
       launchAtLoginStatus: ""
     )
 
-    XCTAssertEqual(presentation.summary, "Capture Paused - 12 clips")
+    XCTAssertEqual(presentation.summary, "Paused · 12 clips")
     XCTAssertEqual(presentation.detail, "Capture is paused for 5 more minutes.")
   }
 
@@ -199,7 +218,7 @@ final class AppDelegateTests: XCTestCase {
       launchAtLoginStatus: ""
     )
 
-    XCTAssertEqual(presentation.summary, "Capture Running - 2000 clips")
+    XCTAssertEqual(presentation.summary, "2000 clips")
     XCTAssertNotNil(presentation.detail)
     XCTAssertLessThanOrEqual(presentation.detail?.count ?? 0, 68)
     XCTAssertTrue(presentation.detail?.hasSuffix("...") == true)

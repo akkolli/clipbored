@@ -25,60 +25,41 @@ enum SensitiveContentDetector {
     (.stripeKey, regex(#"\b[srp]k_(?:live|test)_[A-Za-z0-9]{16,}(?![A-Za-z0-9_])"#)),
     (.openAIToken, regex(#"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_])"#)),
     (.googleAPIKey, regex(#"\bAIza[A-Za-z0-9_-]{35}(?![A-Za-z0-9_])"#)),
-    (.jsonWebToken, regex(#"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_])"#))
+    (.jsonWebToken, regex(#"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_])"#)),
   ]
+  private static let uuidSuffixedIdentifier = regex(
+    #"(?i)^[a-z][a-z0-9-]{0,80}[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"#)
 
-  static func detect(
-    _ text: String,
-    sourceBundleId: String? = nil,
-    sourceApp: String? = nil
-  ) -> Reason? {
+  static func detect(_ text: String, sourceBundleId: String? = nil, sourceApp: String? = nil) -> Reason? {
     let value = text.clipboardTrimmed
     guard !value.isEmpty else { return nil }
 
-    if value.contains("-----BEGIN "), value.contains("PRIVATE KEY-----") {
-      return .privateKey
-    }
-    if let match = tokenPatterns.first(where: { matches($0.1, in: value) }) {
-      return match.0
-    }
+    if value.contains("-----BEGIN "), value.contains("PRIVATE KEY-----") { return .privateKey }
+    if let match = tokenPatterns.first(where: { matches($0.1, in: value) }) { return match.0 }
     if containsCreditCard(value) { return .creditCard }
-    if looksLikeOneTimeCode(value, sourceBundleId: sourceBundleId, sourceApp: sourceApp) {
-      return .oneTimeCode
-    }
+    if looksLikeOneTimeCode(value, sourceBundleId: sourceBundleId, sourceApp: sourceApp) { return .oneTimeCode }
     if looksHighEntropy(value) { return .highEntropyToken }
 
     let lowered = value.lowercased()
-    if lowered.contains("password")
-      || lowered.contains("secret")
-      || lowered.contains("api_key")
-      || looksLikeSecretAssignment(lowered) {
+    if lowered.contains("password") || lowered.contains("secret") || lowered.contains("api_key") || looksLikeSecretAssignment(lowered) {
       return .keyword
     }
     return nil
   }
 
-  static func isLikelySensitive(
-    _ text: String,
-    sourceBundleId: String? = nil,
-    sourceApp: String? = nil
-  ) -> Bool {
+  static func isLikelySensitive(_ text: String, sourceBundleId: String? = nil, sourceApp: String? = nil) -> Bool {
     detect(text, sourceBundleId: sourceBundleId, sourceApp: sourceApp) != nil
   }
 
-  private static func regex(_ pattern: String) -> NSRegularExpression {
-    try! NSRegularExpression(pattern: pattern)
-  }
+  private static func regex(_ pattern: String) -> NSRegularExpression { try! NSRegularExpression(pattern: pattern) }
 
   private static func matches(_ regex: NSRegularExpression, in text: String) -> Bool {
     regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
   }
 
   private static func looksHighEntropy(_ text: String) -> Bool {
-    guard (32...256).contains(text.count),
-          !text.contains(where: \.isWhitespace) else {
-      return false
-    }
+    guard (32...256).contains(text.count), !text.contains(where: \.isWhitespace) else { return false }
+    if matches(uuidSuffixedIdentifier, in: text) { return false }
 
     var characterClasses = 0
     var hasSymbol = false
@@ -91,30 +72,22 @@ enum SensitiveContentDetector {
       default: return false
       }
     }
-    return characterClasses.nonzeroBitCount >= 2 && hasSymbol
+    // Lowercase UUIDs and ordinary slug identifiers commonly combine letters,
+    // digits, and hyphens. Require all three alphanumeric classes before the
+    // generic entropy heuristic fires; known token formats are matched above.
+    return characterClasses.nonzeroBitCount >= 3 && hasSymbol
   }
 
-  private static func looksLikeOneTimeCode(
-    _ text: String,
-    sourceBundleId: String?,
-    sourceApp: String?
-  ) -> Bool {
-    guard (6...8).contains(text.count), text.allSatisfy(\.isNumber) else {
-      return false
-    }
+  private static func looksLikeOneTimeCode(_ text: String, sourceBundleId: String?, sourceApp: String?) -> Bool {
+    guard (6...8).contains(text.count), text.allSatisfy(\.isNumber) else { return false }
     let source = "\(sourceBundleId ?? "") \(sourceApp ?? "")".lowercased()
-    return ["auth", "1password", "bitwarden", "lastpass", "keeper", "dashlane"]
-      .contains(where: source.contains)
+    return ["auth", "1password", "bitwarden", "lastpass", "keeper", "dashlane"].contains(where: source.contains)
   }
 
   private static func containsCreditCard(_ text: String) -> Bool {
     var digits: [Int] = []
     func isCard(_ digits: [Int]) -> Bool {
-      guard (13...19).contains(digits.count),
-            let first = digits.first,
-            digits.contains(where: { $0 != first }) else {
-        return false
-      }
+      guard (13...19).contains(digits.count), let first = digits.first, digits.contains(where: { $0 != first }) else { return false }
       var sum = 0
       for (index, digit) in digits.reversed().enumerated() {
         let doubled = index.isMultiple(of: 2) ? digit : digit * 2
@@ -126,7 +99,7 @@ enum SensitiveContentDetector {
     for character in text {
       if let digit = character.wholeNumberValue {
         digits.append(digit)
-      } else if (character == " " || character == "-"), !digits.isEmpty {
+      } else if character == " " || character == "-", !digits.isEmpty {
         continue
       } else {
         if isCard(digits) { return true }
@@ -138,21 +111,14 @@ enum SensitiveContentDetector {
 
   private static func looksLikeSecretAssignment(_ text: String) -> Bool {
     let keys = [
-      "api_key", "apikey", "access_token", "auth_token", "client_secret",
-      "private_token", "refresh_token", "secret_key", "passwd"
+      "api_key", "apikey", "access_token", "auth_token", "client_secret", "private_token", "refresh_token", "secret_key", "passwd",
     ]
     for key in keys {
       guard let range = text.range(of: key) else { continue }
       let suffix = text[range.upperBound...].drop(while: \.isWhitespace)
       guard suffix.first == "=" || suffix.first == ":" else { continue }
-      let value = suffix.dropFirst().drop {
-        $0.isWhitespace || $0 == "\"" || $0 == "'"
-      }
-      if value.prefix(while: {
-        !$0.isWhitespace && $0 != "\"" && $0 != "'" && $0 != ","
-      }).count >= 8 {
-        return true
-      }
+      let value = suffix.dropFirst().drop { $0.isWhitespace || $0 == "\"" || $0 == "'" }
+      if value.prefix(while: { !$0.isWhitespace && $0 != "\"" && $0 != "'" && $0 != "," }).count >= 8 { return true }
     }
     return false
   }
