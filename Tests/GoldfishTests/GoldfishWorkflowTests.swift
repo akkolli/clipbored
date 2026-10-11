@@ -226,8 +226,17 @@ final class GoldfishWorkflowTests: ClipboardTestCase {
     let point = hovered.convert(NSPoint(x: hovered.bounds.midX, y: hovered.bounds.midY), to: nil)
     panel.updateHoverForPointer(atWindowLocation: point)
     XCTAssertEqual(model.selectedIndex, hovered.representedIndex)
-    settle(0.2)
-    XCTAssertGreaterThan(hovered.layer?.transform.m11 ?? 1, 1)
+    // The model transform changes synchronously; running the event loop here
+    // would let the machine's real pointer replace the simulated hover.
+    let layer = try XCTUnwrap(hovered.layer)
+    if ClipboardShelfMotion.reducesMotion {
+      XCTAssertEqual(layer.transform.m11, 1)
+    } else {
+      XCTAssertGreaterThan(layer.transform.m11, 1)
+    }
+    panel.clearPointerHoverStates()
+    XCTAssertEqual(layer.transform.m11, 1)
+    XCTAssertEqual(model.selectedIndex, hovered.representedIndex)
   }
 
   func testSettingsWindowNavigationChangesPersistentCaptureAndAppearancePreferences() throws {
