@@ -104,3 +104,9 @@ codesign --verify --deep --strict --verbose=2 build/Goldfish.app
 xcrun stapler validate build/Goldfish.app
 spctl --assess --type execute --verbose=4 build/Goldfish.app
 ```
+
+## Source identity and local installation
+
+Release and default builds require committed sources that include current `main`. The check command permits an explicitly marked development preview; the installer rejects it. Goldfish bundles include `Contents/Resources/BuildInfo.json` with the source commit, hash, checkout and build time. A source change during packaging fails the build.
+
+After committing and quitting Goldfish, run `./scripts/install-macos-app.sh`. It rebuilds current `main`, validates the app name, source provenance and signature, preserves the previous app, installs to `/Applications/Goldfish.app`, and launches the installed copy. An optional absolute destination ending in `Goldfish.app` supports a user Applications folder.

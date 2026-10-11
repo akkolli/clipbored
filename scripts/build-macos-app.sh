@@ -7,8 +7,15 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUTPUT_ROOT="$REPO_ROOT/build"
 APP_BUNDLE="$OUTPUT_ROOT/${APP_NAME}.app"
 BIN_NAME="$APP_NAME"
-INFO_PLIST="$REPO_ROOT/sources/clipbored/resources/Info.plist"
-ICON_FILE="$REPO_ROOT/sources/clipbored/resources/AppIcon.icns"
+BUILD_MODE=""
+if [[ "${1:-}" == "--allow-dirty" ]]; then BUILD_MODE="--allow-dirty";
+elif [[ -n "${1:-}" ]]; then echo "Usage: scripts/build-macos-app.sh [--allow-dirty]"; exit 1; fi
+BUILD_INFO="$(mktemp "${TMPDIR:-/tmp}/goldfish-build-info.XXXXXX")"
+ICON_BUILD_DIRECTORY=""
+trap 'rm -f "$BUILD_INFO"; [[ -z "$ICON_BUILD_DIRECTORY" ]] || rm -rf "$ICON_BUILD_DIRECTORY"' EXIT
+python3 "$SCRIPT_DIR/build-state.py" capture "$BUILD_INFO" "$BUILD_MODE"
+INFO_PLIST="$REPO_ROOT/Sources/Goldfish/resources/Info.plist"
+ICON_FILE="$REPO_ROOT/Sources/Goldfish/resources/AppIcon.icns"
 SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
 MINIMUM_SYSTEM_VERSION="$(plutil -extract LSMinimumSystemVersion raw -o - "$INFO_PLIST")"
 read -r -a BUILD_ARCHITECTURES <<< "${ARCHITECTURES:-$(uname -m)}"
@@ -51,8 +58,7 @@ cp "$ICON_FILE" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 # the full-resolution .icns fallback for older SDKs and macOS releases.
 if [[ "${SDK_VERSION%%.*}" -ge 26 ]]; then
   ICON_BUILD_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/goldfish-icons.XXXXXX")"
-  trap 'rm -rf "$ICON_BUILD_DIRECTORY"' EXIT
-  xcrun actool "$REPO_ROOT/sources/clipbored/resources/AppIcon.icon" \
+  xcrun actool "$REPO_ROOT/Sources/Goldfish/resources/AppIcon.icon" \
     --compile "$ICON_BUILD_DIRECTORY" --app-icon AppIcon --platform macosx \
     --minimum-deployment-target 13.0 --target-device mac --optimization space \
     --output-partial-info-plist "$ICON_BUILD_DIRECTORY/Icon.plist" \
@@ -65,6 +71,8 @@ cp "$REPO_ROOT/docs/QUICK_START.md" "$APP_BUNDLE/Contents/Resources/Quick Start.
 cp "$BIN_PATH" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 chmod +x "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 strip "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+python3 "$SCRIPT_DIR/build-state.py" verify "$BUILD_INFO"
+cp "$BUILD_INFO" "$APP_BUNDLE/Contents/Resources/BuildInfo.json"
 CODESIGN_ARGUMENTS=(--deep --force --options runtime --sign -)
 if [[ -n "${ENTITLEMENTS_FILE:-}" ]]; then
   if [[ ! -f "$ENTITLEMENTS_FILE" ]]; then

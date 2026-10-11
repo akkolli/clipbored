@@ -34,8 +34,8 @@ def measure(root):
     files = list(files_under(root, GENERATED))
     executable = root / "build/Goldfish.app/Contents/MacOS/Goldfish"
     return {
-        "app_swift": code_metrics(path for path in files if path.is_relative_to(root / "sources")),
-        "test_swift": code_metrics(path for path in files if path.is_relative_to(root / "tests")),
+        "app_swift": code_metrics(path for path in files if path.is_relative_to(root / "Sources")),
+        "test_swift": code_metrics(path for path in files if path.is_relative_to(root / "Tests")),
         "tooling": code_metrics((path for path in files if path.is_relative_to(root / "scripts")
                                  or path == root / "Package.swift"), (".swift", ".sh", ".py")),
         "project_bytes_excluding_generated": sum(path.stat().st_size for path in files),

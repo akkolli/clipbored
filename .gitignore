@@ -28,3 +28,6 @@ build/
 
 # Local planning notes (not synced)
 plan/
+
+# Python build-tool caches
+__pycache__/

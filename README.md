@@ -2,7 +2,7 @@
 
 Goldfish is a native macOS clipboard manager with keyboard-first vertical and horizontal clipboard shelves. It captures local clipboard history and makes clips easy to find, preview, organize, copy, paste, pin, and delete. It runs as a dockless menu-bar utility by default, with an optional Dock icon.
 
-Previously named ClipBored. Goldfish retains the existing bundle identifier, preferences, history folder, Keychain service, and archive format so the rename preserves access to saved data. The source directories keep their original names; the executable and packaged app are now `Goldfish` and `Goldfish.app`.
+Previously named ClipBored. Goldfish retains the existing bundle identifier, preferences, history folder, Keychain service, and archive format so the rename preserves access to saved data. Application sources live in `Sources/Goldfish` and Swift tests in `Tests/GoldfishTests`; the executable and packaged app are `Goldfish` and `Goldfish.app`.
 
 The project is intentionally dependency-light: Swift Package Manager, AppKit, Carbon hotkeys, SQLite, and system frameworks only.
 
@@ -63,14 +63,16 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
 ```bash
 swift test
 ./scripts/build-macos-app.sh
-open build/Goldfish.app
+./scripts/install-macos-app.sh
 ```
+
+Use the clean, committed `main` checkout for installation and quit Goldfish first. `scripts/install-macos-app.sh` builds, verifies, backs up the existing app, installs to `/Applications/Goldfish.app`, and launches it. Stale checkouts, uncommitted main changes in another checkout, dirty installs, and source/provenance mismatches fail before replacement. Each bundle records its commit, checkout, source hash and build time in `Contents/Resources/BuildInfo.json`.
 
 The build script packages `build/Goldfish.app`, strips the executable, applies and verifies an ad-hoc hardened-runtime signature, and enforces a 2 MiB per-architecture executable gate. Bundles get a fixed additional 1 MiB allowance for the modern icon's appearance assets (3 MiB local / 5 MiB universal). Xcode 26+ compiles the layered icon; older SDKs use the bundled full-resolution `.icns` fallback.
 
 ## Development
 
-Run the full local validation:
+For development, `./scripts/build-macos-app.sh --allow-dirty` produces a preview that the installer rejects. Run the full local validation with Goldfish stopped:
 
 ```bash
 ./scripts/check.sh
@@ -92,14 +94,14 @@ For app-level behavior that cannot be fully covered by unit tests, run [docs/SMO
 
 Project layout:
 
-- `sources/clipbored/app` - app entry point and service wiring
-- `sources/clipbored/config` - defaults and power/size guardrails
-- `sources/clipbored/extensions` - small AppKit/Foundation helpers
-- `sources/clipbored/models` - clipboard item and settings models
-- `sources/clipbored/resources` - app bundle metadata and icon assets
-- `sources/clipbored/services` - capture, persistence, cache, shortcuts, paste, diagnostics, and privacy filters
-- `sources/clipbored/views` - panel, onboarding, preview, and settings UI
-- `tests/clipboredtests` - focused behavior tests for capture, persistence, search, paste, and settings decisions
+- `Sources/Goldfish/app` - app entry point and service wiring
+- `Sources/Goldfish/config` - defaults and power/size guardrails
+- `Sources/Goldfish/extensions` - small AppKit/Foundation helpers
+- `Sources/Goldfish/models` - clipboard item and settings models
+- `Sources/Goldfish/resources` - app bundle metadata and icon assets
+- `Sources/Goldfish/services` - capture, persistence, cache, shortcuts, paste, diagnostics, and privacy filters
+- `Sources/Goldfish/views` - panel, onboarding, preview, and settings UI
+- `Tests/GoldfishTests` - focused behavior tests for capture, persistence, search, paste, and settings decisions
 - `docs` - architecture, security, release, smoke-test, and roadmap notes
 
 ## Privacy And Security

@@ -2,7 +2,7 @@
 import AppKit
 
 let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-let resources = root.appendingPathComponent("sources/clipbored/resources")
+let resources = root.appendingPathComponent("Sources/Goldfish/resources")
 let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Goldfish-icon-\(UUID().uuidString)")
 let iconset = temporary.appendingPathComponent("AppIcon.iconset")
 try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)

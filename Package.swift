@@ -12,7 +12,6 @@ let package = Package(
   targets: [
     .executableTarget(
       name: "Goldfish",
-      path: "sources/clipbored",
       exclude: ["resources"],
       linkerSettings: [
         .linkedFramework("AppKit"),
@@ -28,8 +27,7 @@ let package = Package(
     ),
     .testTarget(
       name: "GoldfishTests",
-      dependencies: ["Goldfish"],
-      path: "tests/clipboredtests"
+      dependencies: ["Goldfish"]
     )
   ]
 )

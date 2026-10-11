@@ -4,13 +4,17 @@ Thanks for working on Goldfish. The project is optimized for a small binary, low
 
 ## Local Setup
 
+Start with `git worktree list` and compare the current checkout with `main`. The latest Goldfish code is committed on `main`; `codex/legacy-clipbored-refactor` is an archived experiment without the redesign. Do not merge or ship it as current Goldfish.
+
 Quit Goldfish before running tests: the clipboard integration tests use the system pasteboard. This prevents the running app from saving test fixtures into your history.
 
 ```bash
 swift test
-./scripts/build-macos-app.sh
+./scripts/build-macos-app.sh --allow-dirty
 open build/Goldfish.app
 ```
+
+Commit verified work before using `./scripts/install-macos-app.sh`. Builds embed provenance, installation requires clean current `main`, and the build guard checks other worktrees for unpublished main changes.
 
 Run the full local check before opening a pull request:
 
@@ -28,7 +32,7 @@ Run the full local check before opening a pull request:
 - Add tests for persistence, pruning, sensitive filtering, shortcut parsing, pasteboard behavior, and search/sort changes.
 - Prefer behavior-level tests. Use the smoke checklist for visual layout instead of adding production debug accessors for private UI details.
 - Extend `GoldfishWorkflowTests` when a user journey crosses capture, storage, search, transfer, shelf, or Settings. Keep focused tests for failure paths and formats that the workflow tests cannot safely exercise.
-- Format application Swift consistently with `xcrun swift-format format --configuration .swift-format --in-place --recursive Sources/clipbored`.
+- Format application Swift consistently with `xcrun swift-format format --configuration .swift-format --in-place --recursive Sources/Goldfish`.
 - Put card actions in `ClipboardCardCommand` and its shared handler; keep ordinary settings reads/writes together in a typed binding.
 - Keep geometry, appearance, and field-editor behavior in their named components. Remove obsolete paths when a design is retired.
 - Report source and release size with `python3 scripts/project-metrics.py`; do not count cache removal as code reduction.
