@@ -18,7 +18,7 @@ Goldfish is designed as a local-first macOS utility. Its default privacy promise
 - App-owned storage directories are restricted to the current user, and saved history/cache files are written with owner-only permissions where the filesystem supports POSIX modes.
 - Archive exports are written with owner-only permissions where supported and are limited to 128 MB. Managed clipboard payload capture is limited to 64 MB per item.
 - iCloud Backup is off by default and uses the app-private ubiquity container only when entitlement access is available. Enabling it never implicitly restores a remote archive.
-- Fresh profiles do not begin clipboard polling until onboarding is finished or skipped, and likely-secret exclusion defaults on.
+- Fresh profiles do not begin clipboard polling until onboarding is completed with Start, and likely-secret exclusion defaults on.
 - Goldfish marks its own pasteboard writes so copy/paste actions from history are not re-captured as new clipboard events.
 - The clipboard panel can be configured to opt out of screenshots, screen sharing, and screen recordings.
 - Sensitive-content exclusion can skip common high-risk values:

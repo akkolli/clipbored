@@ -3,6 +3,13 @@ import Foundation
 
 enum AppConfiguration {
   static let appName = "Goldfish"
+  static var buildDescription: String {
+    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
+    guard let url = Bundle.main.url(forResource: "BuildInfo", withExtension: "json"), let data = try? Data(contentsOf: url),
+      let info = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let revision = info["revision"] as? String
+    else { return version }
+    return "\(version) · \(revision.prefix(8))" + (info["dirty"] as? Bool == true ? " · preview" : "")
+  }
   // Stable on-disk identity preserves history and backups across the rename.
   static let storageDirectoryName = "ClipBored"
   static let storageDirectoryOverrideEnvironmentKey = "CLIPBORED_STORAGE_DIR"

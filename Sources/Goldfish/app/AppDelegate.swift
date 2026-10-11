@@ -47,13 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var statusMenu: NSMenu?
   private var pauseResumeTimer: Timer?
   private var cloudSyncPushWorkItem: DispatchWorkItem?
-  private let cloudSyncOperationQueue: OperationQueue = {
-    let queue = OperationQueue()
-    queue.name = "clipbored.cloud-sync"
-    queue.qualityOfService = .utility
-    queue.maxConcurrentOperationCount = 1
-    return queue
-  }()
+  private let dataCoordinator = ClipboardDataCoordinator()
   private let cloudSyncStateLock = NSLock()
   private var suppressCloudSyncPush = false
   private var cloudSyncOperationGeneration = 0
@@ -65,10 +59,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     cacheService = ClipboardCacheService()
     cloudSyncService = ClipboardCloudSyncService()
     store = ClipboardStore(settings: settings, cacheService: cacheService)
-    removeLegacyPinboardsIfNeeded()
+    Self.restoreCollectionMetadata(settings: settings, store: store)
     monitor = ClipboardMonitorService(store: store, cacheService: cacheService, settings: settings)
     panelController = ClipboardPanelController(
-      store: store, settings: settings, cacheService: cacheService,
+      store: store, settings: settings, cacheService: cacheService, dataCoordinator: dataCoordinator,
       pollClipboardNow: { [weak self] in
         guard let self, self.settings.onboardingCompleted else { return }
         self.monitor.pollNow()
@@ -82,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       self?.soundService.play(.copy)
     }
     settingsController = SettingsWindowController(
-      settings: settings, store: store, cacheService: cacheService, cloudSyncService: cloudSyncService,
+      settings: settings, store: store, cacheService: cacheService, cloudSyncService: cloudSyncService, dataCoordinator: dataCoordinator,
       previewSound: { [weak self] in self?.soundService.play($0, preview: true) })
     lifecycleService = AppLifecycleService()
     shortcutManager = ShortcutManager(
@@ -127,16 +121,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationWillTerminate(_ notification: Notification) {
     pauseResumeTimer?.invalidate()
     cloudSyncPushWorkItem?.cancel()
-    cloudSyncOperationQueue.cancelAllOperations()
+    dataCoordinator.cancel()
     monitor.stop()
     shortcutManager.stop()
     cacheService.clearTemporaryPreviews(wait: true)
-    if settings.clearHistoryOnQuit {
-      store.removeAll()
+    if settings.clearHistoryOnQuit, store.removeAll() {
       store.flushPersistence()
       cacheService.clearCache()
       cacheService.flushForTesting()
     }
+    store.flushPersistence()
   }
 
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -166,28 +160,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     panelController.createTextClip()
   }
 
-  private func removeLegacyPinboardsIfNeeded() { Self.removeLegacyPinboardsIfNeeded(settings: settings, store: store, defaults: .standard) }
-
-  @discardableResult static func removeLegacyPinboardsIfNeeded(settings: SettingsModel, store: ClipboardStore, defaults: UserDefaults)
-    -> Bool
-  {
-    let migrationKey = "removedLegacyDefaultPinboardsV1"
-    guard !defaults.bool(forKey: migrationKey), store.canPersistHistory, store.loadWarningMessage == nil else { return false }
-    let legacyNames = ClipboardCollectionDefaults.legacyNames
-    let legacyKeys = Set(legacyNames.map { $0.lowercased() })
-    let assignedIDs = store.items.compactMap { item -> UUID? in
-      guard let name = ClipboardCollectionDefaults.normalizedName(item.collectionName), legacyKeys.contains(name.lowercased()) else {
-        return nil
-      }
-      return item.id
-    }
-    if !assignedIDs.isEmpty {
-      store.setCollection(assignedIDs, name: nil)
-      store.flushPersistenceForTesting()
-    }
-    for name in legacyNames { settings.deleteCollection(named: name) }
-    defaults.set(true, forKey: migrationKey)
-    return true
+  static func restoreCollectionMetadata(settings: SettingsModel, store: ClipboardStore) {
+    // Existing assignments are user data, including boards with old preset names.
+    guard store.loadWarningMessage == nil else { return }
+    for name in Set(store.items.compactMap(\.collectionName)) { settings.ensureCollection(named: name) }
   }
 
   @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -574,6 +550,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     cloudSyncPushWorkItem?.cancel()
     cloudSyncPushWorkItem = nil
     cloudSyncOperationGeneration += 1
+    dataCoordinator.setBackupEnabled(settings.iCloudSyncEnabled)
     let generation = cloudSyncOperationGeneration
 
     guard settings.iCloudSyncEnabled else {
@@ -584,24 +561,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     settings.setCloudSyncStatus(message: "Checking iCloud Backup…")
     setCloudSyncPushSuppressed(true)
-    cloudSyncOperationQueue.addOperation { [weak self] in
-      guard let self else { return }
-      let status = self.cloudSyncService.status()
-      let result: (message: String, schedulesInitialPush: Bool)
-      if !status.isAvailable {
-        result = (status.message, false)
-      } else if status.lastModifiedAt == nil {
-        result = ("iCloud Backup is ready. Creating the first backup…", true)
-      } else {
-        result = ("iCloud Backup is ready. Local changes will update the existing backup.", false)
-      }
-      DispatchQueue.main.async { [weak self] in
-        guard let self else { return }
-        self.setCloudSyncPushSuppressed(false)
-        guard generation == self.cloudSyncOperationGeneration, self.settings.iCloudSyncEnabled else { return }
-        self.settings.setCloudSyncStatus(message: result.message)
-        if result.schedulesInitialPush { self.scheduleCloudSyncPush(after: 1.0) }
-      }
+    dataCoordinator.perform({ [cloudSyncService = self.cloudSyncService!] in cloudSyncService.status() }) { [weak self] status in
+      guard let self, generation == self.cloudSyncOperationGeneration, self.settings.iCloudSyncEnabled else { return }
+      self.setCloudSyncPushSuppressed(false)
+      self.settings.setCloudSyncStatus(message: status.message)
+      if status.isAvailable && status.lastModifiedAt == nil { self.scheduleCloudSyncPush(after: 1.0) }
     }
   }
 
@@ -615,16 +579,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func pushCloudSyncArchive() {
     guard settings.iCloudSyncEnabled else { return }
     let generation = cloudSyncOperationGeneration
-    cloudSyncOperationQueue.addOperation { [weak self] in
-      guard let self else { return }
-      let message: String
-      do {
-        let summary = try self.cloudSyncService.push(store: self.store)
-        message = "Backed up \(summary.itemCount) clips to iCloud."
-      } catch { message = "iCloud Backup failed: \(error.localizedDescription)" }
-      DispatchQueue.main.async { [weak self] in
-        guard let self, generation == self.cloudSyncOperationGeneration, self.settings.iCloudSyncEnabled else { return }
-        self.settings.setCloudSyncStatus(message: message)
+    let operation = dataCoordinator.backupOperation { [cloudSyncService = self.cloudSyncService!, store = self.store!] write in
+      try cloudSyncService.push(store: store, write: write)
+    }
+    dataCoordinator.perform(operation) { [weak self] result in
+      guard let self, generation == self.cloudSyncOperationGeneration, self.settings.iCloudSyncEnabled else { return }
+      switch result {
+      case .success(let summary): self.settings.setCloudSyncStatus(message: "Backed up \(summary.itemCount) clips to iCloud.")
+      case .failure(let error): self.settings.setCloudSyncStatus(message: "iCloud Backup failed: \(error.localizedDescription)")
       }
     }
   }

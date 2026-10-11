@@ -51,12 +51,13 @@ The project is intentionally dependency-light: Swift Package Manager, AppKit, Ca
 - Settings for shelf layout, side, width, and text size, retention, history length, sort order, cache limit, capture responsiveness, an ignored-app picker with advanced rules, shortcut recording, and existing privacy/startup controls
 - Local-first storage, with likely-secret exclusion enabled for fresh profiles and iCloud backup disabled by default
 
-[See the rebuilt interface and design rationale](docs/GOLDFISH_DESIGN_REBUILD.md).
+[Current design, architecture, and developer guides](docs/README.md).
 
 ## Requirements
 
 - macOS 13 or newer
 - Xcode command line tools with Swift 5.9 or newer
+- Python 3.9 or newer for build provenance and verification
 
 ## Build
 

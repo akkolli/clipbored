@@ -23,7 +23,7 @@ final class ClipboardCacheService {
     imageDirectory = base.appendingPathComponent("images", isDirectory: true)
     thumbnailDirectory = base.appendingPathComponent("thumbnails", isDirectory: true)
     attachmentDirectory = base.appendingPathComponent("attachments", isDirectory: true)
-    temporaryPreviewDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+    temporaryPreviewDirectory = (baseURL ?? FileManager.default.temporaryDirectory).appendingPathComponent(
       AppConfiguration.storageDirectoryName, isDirectory: true
     ).appendingPathComponent("Previews", isDirectory: true)
     self.encryptionService = encryptionService
@@ -252,24 +252,29 @@ final class ClipboardCacheService {
   func encryptCachedReferencesIfNeeded(for items: [ClipboardItem]) {
     queue.async { [weak self] in
       guard let self else { return }
-      for item in items { for path in self.cachedReferences(for: item) { _ = self.data(for: path) } }
+      for item in items { for path in self.managedPaths(for: item) { _ = self.data(for: path) } }
     }
   }
 
-  func removeCachedReferences(_ item: ClipboardItem) {
+  func removeCachedReferences(_ item: ClipboardItem, preserving paths: Set<String> = []) {
+    removeManagedFiles(managedPaths(for: item).filter { !paths.contains($0) })
+  }
+
+  func removeManagedFiles(_ paths: [String]) {
+    guard !paths.isEmpty else { return }
     queue.async { [weak self] in
       guard let self else { return }
-      for path in self.cachedReferences(for: item) {
+      for path in paths where self.isManagedSidecar(path: path) {
         try? self.fileManager.removeItem(atPath: path)
         self.thumbnailCache.removeObject(forKey: NSString(string: path))
       }
     }
   }
 
-  private func cachedReferences(for item: ClipboardItem) -> [String] {
+  func managedPaths(for item: ClipboardItem) -> [String] {
     var paths = [item.imagePath, item.thumbnailPath].compactMap { $0 }
-    if [.pdf, .audio, .richText, .video].contains(item.kind), isManagedAttachment(path: item.payload) { paths.append(item.payload) }
-    return paths
+    if [.image, .pdf, .audio, .richText, .video].contains(item.kind) { paths.append(item.payload) }
+    return Array(Set(paths.filter { isManagedSidecar(path: $0) }))
   }
 
   func purgeIfNeeded(maxBytes: Int64) {
@@ -332,14 +337,13 @@ final class ClipboardCacheService {
 
   private func hardenFile(_ url: URL) { try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path) }
 
-  private func isManagedAttachment(path: String) -> Bool {
-    URL(fileURLWithPath: path).deletingLastPathComponent().standardizedFileURL == attachmentDirectory.standardizedFileURL
-  }
-
-  private func isManagedSidecar(path: String) -> Bool {
-    let directory = URL(fileURLWithPath: path).deletingLastPathComponent().standardizedFileURL
-    return directory == imageDirectory.standardizedFileURL || directory == thumbnailDirectory.standardizedFileURL
-      || directory == attachmentDirectory.standardizedFileURL
+  func isManagedSidecar(path: String) -> Bool {
+    let original = URL(fileURLWithPath: path).standardizedFileURL
+    let url = original.resolvingSymlinksInPath()
+    return [imageDirectory, thumbnailDirectory, attachmentDirectory].contains {
+      original.deletingLastPathComponent() == $0.standardizedFileURL
+        && url.deletingLastPathComponent() == $0.standardizedFileURL.resolvingSymlinksInPath()
+    }
   }
 
   private func thumbnailFileURLs() -> [URL] {

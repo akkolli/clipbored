@@ -1,5 +1,7 @@
 import Foundation
 
+typealias ArchiveWrite = (_ write: () throws -> Void) throws -> Void
+
 struct ClipboardArchiveSummary: Equatable {
   let itemCount: Int
   let sidecarCount: Int
@@ -11,6 +13,7 @@ struct ClipboardArchiveImport {
   let items: [ClipboardItem]
   let collections: [ClipboardArchiveCollection]
   let summary: ClipboardArchiveSummary
+  let createdPaths: [String]
 }
 
 struct ClipboardArchiveCollection: Codable, Equatable {
@@ -22,12 +25,14 @@ struct ClipboardArchiveCollection: Codable, Equatable {
 enum ClipboardArchiveError: LocalizedError {
   case unsupportedVersion(Int)
   case invalidArchive
+  case attachmentWriteFailed
   case archiveTooLarge(Int)
 
   var errorDescription: String? {
     switch self {
     case .unsupportedVersion(let version): return "This Goldfish archive uses unsupported format version \(version)."
     case .invalidArchive: return "The selected file is not a valid Goldfish archive."
+    case .attachmentWriteFailed: return "Goldfish could not save the archive attachments. Existing clips have not been replaced."
     case .archiveTooLarge(let maxBytes):
       let limit = ByteCountFormatter.string(fromByteCount: Int64(maxBytes), countStyle: .file)
       return "This Goldfish archive exceeds the \(limit) safety limit."
@@ -44,7 +49,8 @@ final class ClipboardArchiveService {
   init(fileManager: FileManager = .default) { self.fileManager = fileManager }
 
   func exportArchive(
-    items: [ClipboardItem], to url: URL, cacheService: ClipboardCacheService, collections: [ClipboardArchiveCollection] = []
+    items: [ClipboardItem], to url: URL, cacheService: ClipboardCacheService, collections: [ClipboardArchiveCollection] = [],
+    write: ArchiveWrite = { try $0() }
   ) throws -> ClipboardArchiveSummary {
     var sidecarCount = 0
     var totalSidecarBytes = 0
@@ -71,9 +77,11 @@ final class ClipboardArchiveService {
     guard Self.isArchiveSizeAllowed(data.count) else {
       throw ClipboardArchiveError.archiveTooLarge(AppConfiguration.maxPortableArchiveBytes)
     }
-    try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-    try data.write(to: url, options: .atomic)
-    try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    try write {
+      try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try data.write(to: url, options: .atomic)
+      try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
 
     return ClipboardArchiveSummary(itemCount: items.count, sidecarCount: sidecarCount, skippedItemCount: 0, skippedSidecarCount: 0)
   }
@@ -91,11 +99,15 @@ final class ClipboardArchiveService {
     let archive: ArchivePayload
     do { archive = try decoder.decode(ArchivePayload.self, from: data) } catch { throw ClipboardArchiveError.invalidArchive }
     guard archive.formatVersion <= Self.currentFormatVersion else { throw ClipboardArchiveError.unsupportedVersion(archive.formatVersion) }
+    guard archive.formatVersion > 0 else { throw ClipboardArchiveError.invalidArchive }
 
     var importedItems: [ClipboardItem] = []
     var sidecarCount = 0
     var skippedItemCount = 0
     var skippedSidecarCount = 0
+    var createdPaths: [String] = []
+    var completed = false
+    defer { if !completed { cacheService.removeManagedFiles(createdPaths) } }
     importedItems.reserveCapacity(archive.items.count)
 
     for archivedItem in archive.items {
@@ -104,42 +116,47 @@ final class ClipboardArchiveService {
         continue
       }
 
+      // Storage identities are local. Never overwrite a live attachment with an
+      // imported UUID, or trust absolute paths from a portable archive.
+      let storageID = UUID()
+      var roles = Set<String>()
       for sidecar in archivedItem.sidecars {
+        guard roles.insert(sidecar.role.rawValue).inserted else { throw ClipboardArchiveError.invalidArchive }
+        let path: String?
         switch sidecar.role {
         case .image:
-          if let path = cacheService.cacheImageSidecarData(sidecar.data, id: item.id) {
-            item.imagePath = path
-            if item.kind == .image { item.payload = path }
-            sidecarCount += 1
-          } else {
-            skippedSidecarCount += 1
-          }
-
+          guard item.kind == .image || item.kind == .url else { throw ClipboardArchiveError.invalidArchive }
+          path = cacheService.cacheImageSidecarData(sidecar.data, id: storageID)
+          item.imagePath = path
+          if item.kind == .image { item.payload = path ?? "" }
         case .thumbnail:
-          if let path = cacheService.cacheImageSidecarData(sidecar.data, id: item.id, fileNamePrefix: "thumb") {
-            item.thumbnailPath = path
-            sidecarCount += 1
-          } else {
-            skippedSidecarCount += 1
-          }
-
+          guard item.kind == .image || item.kind == .url else { throw ClipboardArchiveError.invalidArchive }
+          path = cacheService.cacheImageSidecarData(sidecar.data, id: storageID, fileNamePrefix: "thumb")
+          item.thumbnailPath = path
         case .attachment:
-          if let path = cacheService.cacheAttachmentData(sidecar.data, id: item.id, fileExtension: sidecar.fileExtension) {
-            if item.kind.usesManagedPayloadAttachment { item.payload = path }
-            sidecarCount += 1
-          } else {
-            skippedSidecarCount += 1
-          }
+          guard item.kind.usesManagedPayloadAttachment else { throw ClipboardArchiveError.invalidArchive }
+          path = cacheService.cacheAttachmentData(sidecar.data, id: storageID, fileExtension: sidecar.fileExtension)
+          item.payload = path ?? ""
         }
+        guard let path else { throw ClipboardArchiveError.attachmentWriteFailed }
+        createdPaths.append(path)
+        sidecarCount += 1
       }
-
+      if item.kind == .image || item.kind.usesManagedPayloadAttachment, item.payload.isEmpty {
+        skippedItemCount += 1
+        skippedSidecarCount += archivedItem.sidecars.count
+        cacheService.removeCachedReferences(item)
+        continue
+      }
       importedItems.append(item)
     }
 
     let summary = ClipboardArchiveSummary(
       itemCount: importedItems.count, sidecarCount: sidecarCount, skippedItemCount: skippedItemCount,
       skippedSidecarCount: skippedSidecarCount)
-    return ClipboardArchiveImport(items: importedItems, collections: archive.collections ?? [], summary: summary)
+    completed = true
+    return ClipboardArchiveImport(
+      items: importedItems, collections: archive.collections ?? [], summary: summary, createdPaths: createdPaths)
   }
 
   private func archivedSidecars(for item: ClipboardItem, cacheService: ClipboardCacheService) -> [ArchiveSidecar] {
@@ -147,7 +164,7 @@ final class ClipboardArchiveService {
     var archivedPaths = Set<String>()
 
     func append(_ role: ArchiveSidecarRole, path: String?, fallbackExtension: String) {
-      guard let path, !path.clipboardTrimmed.isEmpty, !archivedPaths.contains(path) else { return }
+      guard let path, cacheService.isManagedSidecar(path: path), !archivedPaths.contains(path) else { return }
       guard let data = cacheService.data(for: path) else { return }
       archivedPaths.insert(path)
       sidecars.append(ArchiveSidecar(role: role, fileExtension: fileExtension(for: path, fallback: fallbackExtension), data: data))
@@ -240,12 +257,15 @@ private struct ArchiveItem: Codable {
   }
 
   func clipboardItem() -> ClipboardItem? {
-    guard let kind = ClipboardItemKind(rawValue: kind) else { return nil }
+    guard let kind = ClipboardItemKind(rawValue: kind), (0...Int(Int32.max)).contains(useCount), createdAt.timeIntervalSince1970.isFinite,
+      lastUsedAt.timeIntervalSince1970.isFinite, createdAt >= .distantPast, createdAt <= .distantFuture, lastUsedAt >= .distantPast,
+      lastUsedAt <= .distantFuture
+    else { return nil }
     return ClipboardItem(
-      id: id, kind: kind, displayText: displayText, payload: payload, payloadHash: payloadHash, createdAt: createdAt,
-      lastUsedAt: lastUsedAt, useCount: useCount, sourceApp: sourceApp, imagePath: imagePath, thumbnailPath: thumbnailPath,
-      isPinned: isPinned, sourceAppBundleId: sourceAppBundleId, ocrText: ocrText, collectionName: collectionName, customTitle: customTitle,
-      sourceDeviceName: sourceDeviceName)
+      id: id, kind: kind, displayText: displayText, payload: kind == .image || kind.usesManagedPayloadAttachment ? "" : payload,
+      payloadHash: payloadHash, createdAt: createdAt, lastUsedAt: lastUsedAt, useCount: useCount, sourceApp: sourceApp, imagePath: nil,
+      thumbnailPath: nil, isPinned: isPinned, sourceAppBundleId: sourceAppBundleId, ocrText: ocrText, collectionName: collectionName,
+      customTitle: customTitle, sourceDeviceName: sourceDeviceName)
   }
 }
 

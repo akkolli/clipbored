@@ -28,7 +28,11 @@ enum ClipboardStoreArchiveError: LocalizedError {
 
 final class ClipboardStore {
   private(set) var loadWarningMessage: String?
-  var canPersistHistory: Bool { encryptionService.canPersist }
+  private(set) var persistenceWarningMessage: String?
+  var canPersistHistory: Bool { db != nil && loadWarningMessage == nil && encryptionService.canPersist }
+  var savingUnavailableMessage: String {
+    loadWarningMessage ?? persistenceWarningMessage ?? "Saving paused; history encryption key is unavailable."
+  }
   private(set) var items: [ClipboardItem] = [] { didSet { notifyItemsChanged() } }
 
   private let settings: SettingsModel
@@ -90,124 +94,137 @@ final class ClipboardStore {
     return base
   }
 
-  @discardableResult func upsert(_ incoming: ClipboardItem) -> ClipboardItem {
-    guard canPersistHistory else {
-      settings.setCaptureStatus(message: "Error: Saving paused; history encryption key is unavailable.")
-      return incoming
+  // Mutations are proposed on the main thread, committed on the storage queue,
+  // and published once. Failed transactions leave both memory and files intact.
+  @discardableResult func upsert(_ incoming: ClipboardItem) -> ClipboardItem? {
+    var proposed = items
+    var saved = incoming
+    if settings.pruneDuplicates, let index = proposed.firstIndex(where: { $0.payloadHash == incoming.payloadHash }) {
+      let previous = proposed.remove(at: index)
+      saved.id = previous.id
+      saved.createdAt = Date()
+      saved.lastUsedAt = Date()
+      saved.useCount = min(Int(Int32.max), previous.useCount + 1)
+      saved.isPinned = previous.isPinned
+      saved.collectionName = incoming.collectionName ?? previous.collectionName
+      saved.customTitle = incoming.customTitle ?? previous.customTitle
+      if settings.keepFirstImage, incoming.kind == .image {
+        saved.payload = previous.payload
+        saved.imagePath = previous.imagePath
+        saved.thumbnailPath = previous.thumbnailPath
+        saved.ocrText = previous.ocrText
+      }
     }
-    guard let index = items.firstIndex(where: { settings.pruneDuplicates ? $0.payloadHash == incoming.payloadHash : false }) else {
-      return insertNewItem(incoming)
+    proposed.insert(saved, at: 0)
+    guard commitItems(proposed) else {
+      cacheService.removeCachedReferences(incoming, preserving: Set(items.flatMap { cacheService.managedPaths(for: $0) }))
+      return nil
     }
-
-    if settings.keepFirstImage, incoming.kind == .image { return updateExistingKeepImage(incoming, at: index) }
-
-    return updateExistingItem(incoming, at: index)
+    let paths = Set(items.flatMap { cacheService.managedPaths(for: $0) })
+    cacheService.removeCachedReferences(incoming, preserving: paths)
+    return items.first { $0.id == saved.id }
   }
 
-  func markUsed(_ id: UUID) {
-    guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-    var used = items.remove(at: index)
-    used.lastUsedAt = Date()
-    used.useCount += 1
-    items.insert(used, at: 0)
-    persistAsync(.upsert(used))
+  func markUsed(_ id: UUID) { markUsed([id]) }
+
+  @discardableResult func markUsed(_ ids: [UUID]) -> Bool {
+    let idSet = Set(ids)
+    var proposed = items
+    var used: [ClipboardItem] = []
+    proposed.removeAll { item in
+      guard idSet.contains(item.id) else { return false }
+      var updated = item
+      updated.lastUsedAt = Date()
+      updated.useCount = min(Int(Int32.max), updated.useCount + 1)
+      used.insert(updated, at: 0)
+      return true
+    }
+    return commitItems(used + proposed)
   }
 
-  func togglePin(_ id: UUID) {
-    guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-    items[index].isPinned.toggle()
-    let updated = items[index]
-    normalizeHistoryLength()
-    if items.contains(where: { $0.id == updated.id }) { persistAsync(.upsert(updated)) }
-  }
+  @discardableResult func togglePin(_ id: UUID) -> Bool { updateItem(id) { $0.isPinned.toggle() } }
 
-  func setCollection(_ id: UUID, name: String?) { setCollection([id], name: name) }
+  @discardableResult func setCollection(_ id: UUID, name: String?) -> Bool { setCollection([id], name: name) }
 
-  func setCollection(_ ids: [UUID], name: String?) {
+  @discardableResult func setCollection(_ ids: [UUID], name: String?) -> Bool {
     let idSet = Set(ids)
     let normalizedName = ClipboardCollectionDefaults.normalizedName(name)
-    items = items.map { item in
-      guard idSet.contains(item.id) else { return item }
-      var updated = item
-      updated.collectionName = normalizedName
-      return updated
-    }
-    normalizeHistoryLength()
-    persistAsync(.upsertMany(items.filter { idSet.contains($0.id) }))
+    return commitItems(
+      items.map { item in
+        var updated = item
+        if idSet.contains(item.id) { updated.collectionName = normalizedName }
+        return updated
+      })
   }
 
-  func setCustomTitle(_ id: UUID, title: String?) {
-    guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-    items[index].customTitle = ClipboardItem.normalizedCustomTitle(title)
-    persistAsync(.upsert(items[index]))
+  @discardableResult func setCustomTitle(_ id: UUID, title: String?) -> Bool {
+    updateItem(id) { $0.customTitle = ClipboardItem.normalizedCustomTitle(title) }
   }
 
   @discardableResult func updateText(_ id: UUID, text: String) -> Bool {
-    guard !text.isEmpty, let index = items.firstIndex(where: { $0.id == id }), items[index].kind == .text || items[index].kind == .code
-    else { return false }
-
-    items[index].displayText = text
-    items[index].payload = text
-    items[index].payloadHash = hashString(text)
-    items[index].ocrText = nil
-    persistAsync(.upsert(items[index]))
-    return true
+    guard !text.isEmpty, let item = items.first(where: { $0.id == id }), [.text, .code].contains(item.kind) else { return false }
+    return updateItem(id) {
+      $0.displayText = text
+      $0.payload = text
+      $0.payloadHash = hashString(text)
+      $0.ocrText = nil
+    }
   }
 
   @discardableResult func updateImage(_ id: UUID, imagePath: String, thumbnailPath: String, payloadHash: String) -> Bool {
-    guard let index = items.firstIndex(where: { $0.id == id }), items[index].kind == .image, !imagePath.clipboardTrimmed.isEmpty,
-      !thumbnailPath.clipboardTrimmed.isEmpty, !payloadHash.clipboardTrimmed.isEmpty
+    guard items.contains(where: { $0.id == id && $0.kind == .image }), cacheService.isManagedSidecar(path: imagePath),
+      cacheService.isManagedSidecar(path: thumbnailPath), !payloadHash.isEmpty
     else { return false }
-
-    items[index].payload = imagePath
-    items[index].imagePath = imagePath
-    items[index].thumbnailPath = thumbnailPath
-    items[index].payloadHash = payloadHash
-    persistAsync(.upsert(items[index]), purgeCache: true)
-    return true
+    return updateItem(id) {
+      $0.payload = imagePath
+      $0.imagePath = imagePath
+      $0.thumbnailPath = thumbnailPath
+      $0.payloadHash = payloadHash
+    }
   }
 
   @discardableResult func updateImageText(_ id: UUID, ocrText: String) -> Bool {
-    guard let normalizedText = ImageTextExtractor.normalizedRecognizedText(ocrText) else { return false }
-    guard let index = items.firstIndex(where: { $0.id == id }), items[index].kind == .image else { return false }
+    guard let text = ImageTextExtractor.normalizedRecognizedText(ocrText), items.contains(where: { $0.id == id && $0.kind == .image })
+    else { return false }
+    return updateItem(id) { $0.ocrText = text }
+  }
 
-    items[index].ocrText = normalizedText
-    persistAsync(.upsert(items[index]))
-    return true
+  private func updateItem(_ id: UUID, _ update: (inout ClipboardItem) -> Void) -> Bool {
+    guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
+    var proposed = items
+    update(&proposed[index])
+    return commitItems(proposed)
   }
 
   @discardableResult func remove(_ id: UUID, purgeManagedCache: Bool = true) -> ClipboardStoreRemoval? {
-    guard let index = items.firstIndex(where: { $0.id == id }) else { return nil }
-    let removed = items.remove(at: index)
-    if purgeManagedCache { purgeManagedCacheReferences(for: [removed]) }
-    persistAsync(.delete(id))
-    return ClipboardStoreRemoval(item: removed, index: index)
+    remove([id], purgeManagedCache: purgeManagedCache)?.first
   }
 
-  func restore(_ removals: [ClipboardStoreRemoval]) {
-    guard !removals.isEmpty else { return }
-
-    var restoredItems: [ClipboardItem] = []
-    for removal in removals.sorted(by: { $0.index < $1.index }) {
-      guard !items.contains(where: { $0.id == removal.item.id }) else { continue }
-      let insertionIndex = max(0, min(removal.index, items.count))
-      items.insert(removal.item, at: insertionIndex)
-      restoredItems.append(removal.item)
+  @discardableResult func remove(_ ids: [UUID], purgeManagedCache: Bool = true) -> [ClipboardStoreRemoval]? {
+    let ids = Set(ids)
+    let removals = items.enumerated().compactMap {
+      ids.contains($0.element.id) ? ClipboardStoreRemoval(item: $0.element, index: $0.offset) : nil
     }
-
-    guard !restoredItems.isEmpty else { return }
-    normalizeHistoryLength()
-    let retainedIDs = Set(items.map(\.id))
-    let retainedRestoredItems = restoredItems.filter { retainedIDs.contains($0.id) }
-    persistAsync(.upsertMany(retainedRestoredItems))
+    guard !removals.isEmpty else { return nil }
+    return commitItems(items.filter { !ids.contains($0.id) }, purgeRemoved: purgeManagedCache) ? removals : nil
   }
 
-  func purgeManagedCacheReferences(for removals: [ClipboardStoreRemoval]) { purgeManagedCacheReferences(for: removals.map(\.item)) }
+  @discardableResult func restore(_ removals: [ClipboardStoreRemoval]) -> Bool {
+    var proposed = items
+    for removal in removals.sorted(by: { $0.index < $1.index }) where !proposed.contains(where: { $0.id == removal.item.id }) {
+      proposed.insert(removal.item, at: max(0, min(removal.index, proposed.count)))
+    }
+    return commitItems(proposed)
+  }
 
-  func removeAll() {
-    purgeManagedCacheReferences(for: items)
-    items.removeAll()
-    persistAsync(.deleteAll)
+  func purgeManagedCacheReferences(for removals: [ClipboardStoreRemoval]) {
+    let paths = Set(items.flatMap { cacheService.managedPaths(for: $0) })
+    for removal in removals { cacheService.removeCachedReferences(removal.item, preserving: paths) }
+  }
+
+  @discardableResult func removeAll() -> Bool {
+    guard commitItems([], clearAll: true) else { return false }
+    return true
   }
 
   func updateHistoryLimit(_ newLimit: Int) {
@@ -222,34 +239,57 @@ final class ClipboardStore {
     }
   }
 
-  func normalizeHistoryLength() {
-    let plan = retentionPlan(for: items)
-    let kept = plan.kept
-    let overflow = plan.overflow
+  @discardableResult func normalizeHistoryLength() -> Bool { commitItems(items) }
 
-    guard !overflow.isEmpty else { return }
-
-    items = kept
-
-    var removedCachedPayload = false
-    var idsToDelete: [UUID] = []
-    idsToDelete.reserveCapacity(overflow.count)
-    for item in overflow {
-      idsToDelete.append(item.id)
-      if item.kind.hasManagedCacheReference {
-        removedCachedPayload = true
-        cacheService.removeCachedReferences(item)
+  private func commitItems(_ proposed: [ClipboardItem], purgeRemoved: Bool = true, clearAll: Bool = false) -> Bool {
+    guard canPersistHistory else { return reportPersistenceFailure(savingUnavailableMessage) }
+    let kept = retentionPlan(for: proposed).kept
+    let oldByID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+    let keptIDs = Set(kept.map(\.id))
+    let changed = kept.filter { oldByID[$0.id] != $0 }
+    let removed = items.filter { !keptIDs.contains($0.id) }
+    let saved = performOnDataQueueAndWait {
+      self.transaction {
+        if clearAll { return self.execute("DELETE FROM clipboard_items;") }
+        return self.insert(changed) && (removed.isEmpty || self.delete(removed.map(\.id)))
       }
     }
+    guard saved else {
+      return reportPersistenceFailure(
+        "Goldfish could not save history. Existing clips are unchanged; check disk space and storage access, then retry.")
+    }
+    persistenceWarningMessage = nil
+    let oldItems = items
+    if kept != items { items = kept }
+    if purgeRemoved {
+      let paths = Set(kept.flatMap { cacheService.managedPaths(for: $0) })
+      let keptByID = Dictionary(kept.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+      for item in oldItems where keptByID[item.id] != item { cacheService.removeCachedReferences(item, preserving: paths) }
+      for item in proposed where !keptIDs.contains(item.id) { cacheService.removeCachedReferences(item, preserving: paths) }
+    }
+    if clearAll {
+      performOnDataQueueAndWait {
+        self.vacuumDatabase()
+        self.encryptionService.resetStoredKey()
+      }
+    }
+    hardenStoragePermissions()
+    cacheService.purgeIfNeeded(maxBytes: settings.imageCacheMaxBytes)
+    return true
+  }
 
-    persistAsync(.deleteMany(idsToDelete), purgeCache: removedCachedPayload)
+  private func reportPersistenceFailure(_ message: String) -> Bool {
+    persistenceWarningMessage = message
+    settings.setCaptureStatus(message: "Error: " + message)
+    return false
   }
 
   func flushPersistence() { performOnDataQueueAndWait {} }
 
   func flushPersistenceForTesting() { flushPersistence() }
 
-  @discardableResult func exportArchive(to url: URL) throws -> ClipboardArchiveSummary {
+  @discardableResult func exportArchive(to url: URL, write: ArchiveWrite = { try $0() }) throws -> ClipboardArchiveSummary {
+    guard loadWarningMessage == nil else { throw ClipboardStoreArchiveError.unreadableHistory }
     let snapshot = performOnMainAndWait {
       let collections = self.settings.customCollectionNames.map { name in
         ClipboardArchiveCollection(
@@ -260,10 +300,11 @@ final class ClipboardStore {
     }
     performOnDataQueueAndWait {}
     return try ClipboardArchiveService().exportArchive(
-      items: snapshot.items, to: url, cacheService: cacheService, collections: snapshot.collections)
+      items: snapshot.items, to: url, cacheService: cacheService, collections: snapshot.collections, write: write)
   }
 
   @discardableResult func exportCollection(named name: String, to url: URL) throws -> ClipboardArchiveSummary {
+    guard loadWarningMessage == nil else { throw ClipboardStoreArchiveError.unreadableHistory }
     guard let normalizedName = ClipboardCollectionDefaults.normalizedName(name) else {
       return try ClipboardArchiveService().exportArchive(items: [], to: url, cacheService: cacheService)
     }
@@ -284,110 +325,20 @@ final class ClipboardStore {
     guard loadWarningMessage == nil else { throw ClipboardStoreArchiveError.unreadableHistory }
     guard canPersistHistory else { throw ClipboardStoreArchiveError.encryptionUnavailable }
     let archiveImport = try ClipboardArchiveService().importArchive(from: url, cacheService: cacheService)
-    let didSave = performOnMainAndWait {
+    var didSave = false
+    defer { if !didSave { cacheService.removeManagedFiles(archiveImport.createdPaths) } }
+    didSave = performOnMainAndWait {
+      var merged = Dictionary(self.items.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+      for item in archiveImport.items { merged[item.id] = item }
+      guard self.commitItems(merged.values.sorted(by: self.historySort)) else { return false }
       for collection in archiveImport.collections {
         self.settings.ensureCollection(named: collection.name, colorHex: collection.colorHex, icon: collection.icon)
       }
-      for item in archiveImport.items {
-        if let collectionName = item.collectionName { self.settings.ensureCollection(named: collectionName) }
-      }
-      return self.saveImportedItems(archiveImport.items)
+      for item in archiveImport.items { if let name = item.collectionName { self.settings.ensureCollection(named: name) } }
+      return true
     }
     guard didSave else { throw ClipboardStoreArchiveError.persistenceFailed }
     return archiveImport.summary
-  }
-
-  private func insertNewItem(_ incoming: ClipboardItem) -> ClipboardItem {
-    items.insert(incoming, at: 0)
-    normalizeHistoryLength()
-    if let retained = items.first(where: { $0.id == incoming.id }) {
-      persistAsync(.upsert(retained), purgeCache: retained.imagePath != nil)
-      return retained
-    }
-    return incoming
-  }
-
-  private func updateExistingKeepImage(_ incoming: ClipboardItem, at index: Int) -> ClipboardItem {
-    cacheService.removeCachedReferences(incoming)
-    var existing = items.remove(at: index)
-    existing.createdAt = Date()
-    existing.lastUsedAt = Date()
-    existing.useCount += 1
-    if !incoming.displayText.isEmpty { existing.displayText = incoming.displayText }
-    existing.sourceApp = incoming.sourceApp
-    existing.sourceAppBundleId = incoming.sourceAppBundleId
-    existing.sourceDeviceName = incoming.sourceDeviceName
-    existing.collectionName = incoming.collectionName ?? existing.collectionName
-    existing.customTitle = incoming.customTitle ?? existing.customTitle
-    items.insert(existing, at: 0)
-    normalizeHistoryLength()
-    if let retained = items.first(where: { $0.id == existing.id }) {
-      persistAsync(.upsert(retained), purgeCache: retained.kind == .image)
-      return retained
-    }
-    return existing
-  }
-
-  private func updateExistingItem(_ incoming: ClipboardItem, at index: Int) -> ClipboardItem {
-    var existing = items.remove(at: index)
-    let previousCachedItem = existing
-    existing.createdAt = Date()
-    existing.lastUsedAt = Date()
-    existing.useCount += 1
-    if !incoming.displayText.isEmpty { existing.displayText = incoming.displayText }
-    existing.payload = incoming.payload
-    existing.payloadHash = incoming.payloadHash
-    existing.kind = incoming.kind
-    existing.sourceApp = incoming.sourceApp
-    existing.sourceAppBundleId = incoming.sourceAppBundleId
-    existing.sourceDeviceName = incoming.sourceDeviceName
-    existing.collectionName = incoming.collectionName ?? existing.collectionName
-    existing.customTitle = incoming.customTitle ?? existing.customTitle
-
-    if incoming.kind == .image || incoming.kind == .url {
-      existing.imagePath = incoming.imagePath
-      existing.thumbnailPath = incoming.thumbnailPath
-    } else {
-      existing.imagePath = nil
-      existing.thumbnailPath = nil
-    }
-
-    if previousCachedItem.kind.hasManagedCacheReference { cacheService.removeCachedReferences(previousCachedItem) }
-
-    existing.ocrText = incoming.ocrText
-
-    items.insert(existing, at: 0)
-    normalizeHistoryLength()
-    if let retained = items.first(where: { $0.id == existing.id }) {
-      persistAsync(.upsert(retained), purgeCache: retained.imagePath != nil)
-      return retained
-    }
-    return existing
-  }
-
-  private func purgeManagedCacheReferences(for items: [ClipboardItem]) {
-    for item in items where item.kind.hasManagedCacheReference { cacheService.removeCachedReferences(item) }
-  }
-
-  private func saveImportedItems(_ importedItems: [ClipboardItem]) -> Bool {
-    guard !importedItems.isEmpty else { return true }
-
-    var mergedByID: [UUID: ClipboardItem] = [:]
-    mergedByID.reserveCapacity(items.count + importedItems.count)
-    for item in items { mergedByID[item.id] = item }
-    for item in importedItems { mergedByID[item.id] = item }
-
-    let merged = mergedByID.values.sorted(by: historySort)
-    let plan = retentionPlan(for: merged)
-    guard performOnDataQueueAndWait({ self.saveAll(plan.kept) }) else { return false }
-
-    items = plan.kept
-    if !plan.overflow.isEmpty {
-      purgeManagedCacheReferences(for: plan.overflow)
-      cacheService.purgeIfNeeded(maxBytes: settings.imageCacheMaxBytes)
-    }
-    hardenStoragePermissions()
-    return true
   }
 
   private func retentionPlan(for sourceItems: [ClipboardItem]) -> (kept: [ClipboardItem], overflow: [ClipboardItem]) {
@@ -438,15 +389,6 @@ final class ClipboardStore {
     return item.createdAt < cutoff
   }
 
-  private func persistAsync(_ mutation: PersistenceMutation, purgeCache: Bool = false) {
-    let imageCacheMaxBytes = settings.imageCacheMaxBytes
-    let work = {
-      self.applyPersistence(mutation)
-      if purgeCache { self.cacheService.purgeIfNeeded(maxBytes: imageCacheMaxBytes) }
-    }
-    if DispatchQueue.getSpecific(key: dataQueueKey) != nil { work() } else { dataQueue.async(execute: work) }
-  }
-
   private func performOnDataQueueAndWait<T>(_ work: () -> T) -> T {
     if DispatchQueue.getSpecific(key: dataQueueKey) != nil { return work() }
     return dataQueue.sync(execute: work)
@@ -481,7 +423,13 @@ final class ClipboardStore {
 
   private func hexDigit(_ value: UInt8) -> UInt8 { value < 10 ? value + 48 : value + 87 }
 
-  private func openDatabase() { if sqlite3_open(dbURL.path, &db) != SQLITE_OK { db = nil } }
+  private func openDatabase() {
+    if sqlite3_open(dbURL.path, &db) != SQLITE_OK {
+      if let db { sqlite3_close(db) }
+      db = nil
+      loadWarningMessage = "Goldfish could not open saved history. Check storage access and relaunch; existing files are untouched."
+    }
+  }
 
   private func configureDatabase() {
     _ = execute("PRAGMA secure_delete = ON;")
@@ -532,11 +480,14 @@ final class ClipboardStore {
         CREATE INDEX IF NOT EXISTS idx_collection_name ON clipboard_items (collection_name);
       """
 
-    _ = execute(createTable)
+    guard execute(createTable) else {
+      loadWarningMessage = "Goldfish could not initialize saved history. Existing files are untouched."
+      return
+    }
     _ = execute("ALTER TABLE clipboard_items ADD COLUMN collection_name TEXT;")
     _ = execute("ALTER TABLE clipboard_items ADD COLUMN custom_title TEXT;")
     _ = execute("ALTER TABLE clipboard_items ADD COLUMN source_device_name TEXT;")
-    _ = execute(createIndexes)
+    if !execute(createIndexes) { loadWarningMessage = "Goldfish could not initialize history indexes. Existing files are untouched." }
   }
 
   private func migrateLegacyJSONIfNeeded() {
@@ -544,7 +495,7 @@ final class ClipboardStore {
 
     if let decoded = decodeLegacyJSONItems(from: data) {
       items = decoded
-      normalizeHistoryLength()
+      items = retentionPlan(for: decoded).kept
       if saveAll(items) {
         try? FileManager.default.removeItem(at: historyURL)
         hardenStoragePermissions()
@@ -629,7 +580,10 @@ final class ClipboardStore {
     var statement: OpaquePointer?
     defer { sqlite3_finalize(statement) }
 
-    guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else { return }
+    guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+      loadWarningMessage = "Goldfish could not read saved history. Existing files are untouched."
+      return
+    }
 
     var canEncryptCache: Bool?
     func canEncryptForMigration() -> Bool {
@@ -642,7 +596,9 @@ final class ClipboardStore {
     var loaded: [ClipboardItem] = []
     var needsEncryptionMigration = false
     var hadDecodeFailure = false
-    while sqlite3_step(statement) == SQLITE_ROW {
+    var result = sqlite3_step(statement)
+    while result == SQLITE_ROW {
+      defer { result = sqlite3_step(statement) }
       guard let idText = sqlite3_column_text(statement, 0), let kindValue = Int(exactly: sqlite3_column_int(statement, 1)),
         let kind = ClipboardItemKind(rawValue: kindValue)
       else { continue }
@@ -672,7 +628,7 @@ final class ClipboardStore {
 
       let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 5))
       let lastUsedAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 6))
-      let useCount = Int(sqlite3_column_int(statement, 7))
+      let useCount = Int(sqlite3_column_int64(statement, 7))
       let sourceAppValue = stringValue(8)
       let sourceAppBundleIdValue = stringValue(9)
       let imagePathValue = stringValue(10)
@@ -701,6 +657,7 @@ final class ClipboardStore {
           sourceDeviceName: sourceDeviceNameValue.value ?? ClipboardItem.localDeviceName))
     }
 
+    if result != SQLITE_DONE { loadWarningMessage = "Goldfish could not finish reading history. Existing files are untouched." }
     sqlite3_finalize(statement)
     statement = nil
 
@@ -709,20 +666,12 @@ final class ClipboardStore {
       loadWarningMessage =
         "Some saved history could not be decrypted. Goldfish left the database intact. Do not clear history; restore Keychain access and relaunch."
     }
-    normalizeHistoryLength()
+    if loadWarningMessage == nil { normalizeHistoryLength() }
     cacheService.encryptCachedReferencesIfNeeded(for: items)
     if needsEncryptionMigration, !hadDecodeFailure, saveAll(items) {
       vacuumDatabase()
       hardenStoragePermissions()
     }
-  }
-
-  private enum PersistenceMutation {
-    case upsert(ClipboardItem)
-    case upsertMany([ClipboardItem])
-    case delete(UUID)
-    case deleteMany([UUID])
-    case deleteAll
   }
 
   private static let insertSQL = """
@@ -733,21 +682,6 @@ final class ClipboardStore {
         collection_name, custom_title, source_device_name
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """
-
-  private func applyPersistence(_ mutation: PersistenceMutation) {
-    switch mutation {
-    case .upsert(let item): _ = transaction { insert([item]) }
-    case .upsertMany(let items): if !items.isEmpty { _ = transaction { insert(items) } }
-    case .delete(let id): _ = transaction { delete([id]) }
-    case .deleteMany(let ids): if !ids.isEmpty { _ = transaction { delete(ids) } }
-    case .deleteAll:
-      if execute("DELETE FROM clipboard_items;") {
-        vacuumDatabase()
-        hardenStoragePermissions()
-        encryptionService.resetStoredKey()
-      }
-    }
-  }
 
   @discardableResult private func saveAll(_ items: [ClipboardItem]) -> Bool {
     transaction { execute("DELETE FROM clipboard_items;") && insert(items) }
@@ -811,7 +745,7 @@ final class ClipboardStore {
     bindText(statement, 5, encryptionService.protect(item.payloadHash))
     sqlite3_bind_double(statement, 6, item.createdAt.timeIntervalSince1970)
     sqlite3_bind_double(statement, 7, item.lastUsedAt.timeIntervalSince1970)
-    sqlite3_bind_int(statement, 8, Int32(item.useCount))
+    sqlite3_bind_int64(statement, 8, Int64(item.useCount))
     bindText(statement, 9, encryptionService.protect(item.sourceApp))
     bindText(statement, 10, encryptionService.protect(item.sourceAppBundleId))
     bindText(statement, 11, encryptionService.protect(item.imagePath))

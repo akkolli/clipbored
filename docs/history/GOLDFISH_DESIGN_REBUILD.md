@@ -1,5 +1,7 @@
 # Goldfish design and workflow rebuild · September 22, 2026
 
+> Historical record. Counts, screenshots, and implementation details describe that pass. Current guidance is in [the documentation index](../README.md); source links refer to current files and have no historical line guarantees.
+
 Goldfish keeps its vertical shelf, vertical destination menu, and one column of cards. The design now centers on recognizing the copied object before selecting it. iOS is out of scope. The Goldfish name and existing history, storage, bundle, and keychain compatibility are preserved.
 
 ## Design basis
@@ -64,7 +66,7 @@ These native AppKit fixtures use synthetic content and isolated preferences, wit
 
 The full suite passes **332 tests**. The production app is packaged as `build/Goldfish.app`, with a verified hardened-runtime ad-hoc signature and passing executable/bundle size gates. Shell syntax and `git diff --check` pass.
 
-Automated coverage includes card geometry and text fitting, consistent Link classification, original file identity, card reuse, viewport preservation, search-to-result focus, preview ownership and closure, editor preservation, Settings geometry, safe cleanup cancellation, capture, paste fallback, persistence, encryption, and archive compatibility. See [SMOKE_TEST.md](SMOKE_TEST.md) for the release checklist.
+Automated coverage includes card geometry and text fitting, consistent Link classification, original file identity, card reuse, viewport preservation, search-to-result focus, preview ownership and closure, editor preservation, Settings geometry, safe cleanup cancellation, capture, paste fallback, persistence, encryption, and archive compatibility. See [SMOKE_TEST.md](../SMOKE_TEST.md) for the release checklist.
 
 Live checks on this Mac confirmed capture of a harmless TextEdit sample, keyboard search, Down-to-result focus, Space preview, Escape returning to the same result and search, Copy feedback, intact paste back into TextEdit, Settings opening from the shelf, all six Settings sections, shortcut cancellation, and archive export cancellation. The final export sheet displayed exactly one archive extension and returned to Settings on Cancel. Escape also dismissed the history-cleanup confirmation without deleting anything. Command-W closed Settings in the final packaged app. The live pass found and drove fixes for search focus, editor padding, duplicated export extensions, and the missing standard Close command.
 

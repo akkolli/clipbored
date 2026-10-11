@@ -1,5 +1,7 @@
 # Codebase cleanup — 2026-09-24
 
+> Historical record. Counts, screenshots, and implementation details describe that pass. Current guidance is in [the documentation index](../README.md); source links refer to current files and have no historical line guarantees.
+
 This compares the working app immediately before cleanup with the rebuilt app.
 The existing redesign was already uncommitted, so the baseline is a working-tree
 snapshot, not the repository's older Git HEAD.
@@ -122,4 +124,4 @@ removed to lower the line count.
 
 `./scripts/check.sh` passed with 188 tests, a release build, and strict
 code-signature verification. The rebuilt Goldfish app was restarted after the
-checks. The test runner restores the system clipboard when it finishes.
+checks. The original suite did not consistently restore the system clipboard. The October safety pass replaces those tests with private pasteboards.

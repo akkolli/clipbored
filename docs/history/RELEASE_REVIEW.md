@@ -1,5 +1,7 @@
 # Goldfish release review — September 21, 2026
 
+> Historical review. Use [current release procedures](../RELEASE.md) and the [documentation index](../README.md).
+
 ## Scope and benchmark
 
 The benchmark is a useful, coherent **local Mac clipboard manager**, retaining
@@ -61,7 +63,7 @@ was retained. No user history is packaged into the app or ZIP.
 Still requires a separate pre-distribution pass: a clean Mac install, Intel hardware
 (a universal compile is not hardware testing), multi-display/Spaces behavior,
 login-item registration, and granted Accessibility paste into representative apps.
-The full manual checklist is in [SMOKE_TEST.md](SMOKE_TEST.md); it is a checklist,
+The full manual checklist is in [SMOKE_TEST.md](../SMOKE_TEST.md); it is a checklist,
 not a claim that every item has been manually exercised.
 
 ## Deliberately not claimed
@@ -74,5 +76,5 @@ not a claim that every item has been manually exercised.
   were changed during this review.
 
 Public-distribution requirements are separate from UI completion. See
-[RELEASE.md](RELEASE.md) and Apple's
+[RELEASE.md](../RELEASE.md) and Apple's
 [notarization documentation](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).

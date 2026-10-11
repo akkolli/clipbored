@@ -25,13 +25,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   private let cacheService: ClipboardCacheService
   private let cloudSyncService: ClipboardCloudSyncServicing
   private let previewSound: (ClipboardSound) -> Void
-  private let dataOperationQueue: OperationQueue = {
-    let queue = OperationQueue()
-    queue.name = "clipbored.settings.data-operations"
-    queue.qualityOfService = .userInitiated
-    queue.maxConcurrentOperationCount = 1
-    return queue
-  }()
+  private let dataCoordinator: ClipboardDataCoordinator
   private var dataOperationInProgress = false
   private var window: NSWindow?
   private var cachedCloudSyncStatus: ClipboardCloudSyncStatus?
@@ -91,12 +85,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
   init(
     settings: SettingsModel, store: ClipboardStore, cacheService: ClipboardCacheService,
-    cloudSyncService: ClipboardCloudSyncServicing = ClipboardCloudSyncService(), previewSound: @escaping (ClipboardSound) -> Void = { _ in }
+    cloudSyncService: ClipboardCloudSyncServicing = ClipboardCloudSyncService(),
+    dataCoordinator: ClipboardDataCoordinator = ClipboardDataCoordinator(), previewSound: @escaping (ClipboardSound) -> Void = { _ in }
   ) {
     self.settings = settings
     self.store = store
     self.cacheService = cacheService
     self.cloudSyncService = cloudSyncService
+    self.dataCoordinator = dataCoordinator
+    dataCoordinator.setBackupEnabled(settings.iCloudSyncEnabled)
     self.previewSound = previewSound
     super.init()
 
@@ -104,7 +101,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     let window = NSWindow(
       contentRect: windowRect, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered,
       defer: false)
-    window.title = "Goldfish Settings"
+    window.title = "Goldfish Settings — " + AppConfiguration.buildDescription
     window.backgroundColor = ClipboardShelfStyle.windowBackground
     window.titlebarAppearsTransparent = true
     window.titleVisibility = .hidden
@@ -664,7 +661,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     case .launchAtLogin: refreshLaunchAtLoginControls()
     case .status: refreshStatusIndicators(refreshCloudSyncStatus: false)
     case .captureStatus: refreshCaptureStatusLabel()
-    case .cloudSync: refreshCloudSyncControls(refreshStatus: settings.iCloudSyncEnabled && cachedCloudSyncStatus == nil)
+    case .cloudSync:
+      dataCoordinator.setBackupEnabled(settings.iCloudSyncEnabled)
+      refreshCloudSyncControls(refreshStatus: settings.iCloudSyncEnabled && cachedCloudSyncStatus == nil)
     case .ignoredItemKinds: refreshAllowedKindControls()
     case .pauseCapture: refreshPauseCaptureControls()
     case .soundEffects: refreshSoundControls()
@@ -1065,12 +1064,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     settings.setCloudSyncStatus(message: "Backing up to iCloud…")
-    performDataOperation({ [cloudSyncService, store] in
-      Result {
-        let summary = try cloudSyncService.push(store: store)
+    performDataOperation(
+      dataCoordinator.backupOperation { [cloudSyncService, store] write in
+        let summary = try cloudSyncService.push(store: store, write: write)
         return (summary, cloudSyncService.status())
       }
-    }) { [weak self] result in
+    ) { [weak self] result in
+      guard self?.settings.iCloudSyncEnabled == true else { return }
       switch result {
       case .success(let (summary, status)):
         self?.cachedCloudSyncStatus = status
@@ -1088,12 +1088,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     settings.setCloudSyncStatus(message: "Restoring from iCloud…")
-    performDataOperation({ [cloudSyncService, store] in
-      Result {
+    performDataOperation(
+      dataCoordinator.backupOperation { [cloudSyncService, store] _ in
         let summary = try cloudSyncService.pull(store: store)
         return (summary, cloudSyncService.status())
       }
-    }) { [weak self] result in
+    ) { [weak self] result in
+      guard self?.settings.iCloudSyncEnabled == true else { return }
       switch result {
       case .success(let (summary, status)):
         self?.cachedCloudSyncStatus = status
@@ -1112,16 +1113,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     exportArchiveButton.isEnabled = false
     importArchiveButton.isEnabled = false
     refreshCloudSyncControls(refreshStatus: false)
-    dataOperationQueue.addOperation { [weak self] in
-      let result = operation()
-      DispatchQueue.main.async { [weak self] in
-        guard let self else { return }
-        self.dataOperationInProgress = false
-        self.exportArchiveButton.isEnabled = true
-        self.importArchiveButton.isEnabled = true
-        completion(result)
-        self.refreshCloudSyncControls(refreshStatus: false)
-      }
+    dataCoordinator.perform(operation) { [weak self] result in
+      guard let self else { return }
+      self.dataOperationInProgress = false
+      self.exportArchiveButton.isEnabled = true
+      self.importArchiveButton.isEnabled = true
+      completion(result)
+      self.refreshCloudSyncControls(refreshStatus: false)
     }
   }
 
@@ -1145,9 +1143,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         "This permanently removes all clips, including pinned clips and Pinboard contents, and saved attachments. Your current system clipboard stays unchanged.",
       buttonTitle: "Clear History"
     ) { [weak self] in
-      self?.store.removeAll()
-      self?.cacheService.clearTemporaryPreviews()
-      self?.setDataStatus("Cleared clipboard history.")
+      guard let self, self.store.removeAll() else {
+        self?.settings.setCaptureStatus(message: "Error: Could not clear history; existing clips are unchanged.")
+        return
+      }
+      self.cacheService.clearTemporaryPreviews()
+      self.setDataStatus("Cleared clipboard history.")
     }
   }
 

@@ -79,41 +79,34 @@ final class ClipboardPanelViewModel {
       notifyVisibleItemsChanged()
     }
   }
-  var searchText: String = "" {
-    didSet {
-      guard oldValue != searchText else { return }
-      guard !isBatchingFilterSelectionChanges else { return }
-      guard searchEngine.normalized(oldValue) != searchEngine.normalized(searchText) else {
-        notifyMain { self.onSearchTextChanged?(self.searchText) }
-        return
-      }
-      selectedItemID = selectedItem?.id
-      recomputeVisibleItems()
-      notifyMain { self.onSearchTextChanged?(self.searchText) }
-    }
+  private var shelfState: ClipboardShelfState
+  var searchText: String {
+    get { shelfState.query }
+    set { applyShelfAction(.search(newValue)) }
   }
   var sortMode: ClipboardSortMode {
-    didSet {
-      guard oldValue != sortMode else { return }
-      guard !isBatchingFilterSelectionChanges else {
-        settings.defaultSortMode = sortMode
-        return
-      }
-      isBatchingFilterSelectionChanges = true
-      selectedCollectionName = nil
-      isBatchingFilterSelectionChanges = false
-      settings.defaultSortMode = sortMode
-      recomputeVisibleItems()
-      onSortModeChanged?(sortMode)
-    }
+    get { shelfState.sortMode }
+    set { applyShelfAction(.sort(newValue)) }
   }
-  private(set) var selectedCollectionName: String? {
-    didSet {
-      guard oldValue != selectedCollectionName else { return }
-      guard !isBatchingFilterSelectionChanges else { return }
+  var selectedCollectionName: String? { shelfState.collectionName }
+
+  private func applyShelfAction(_ action: ClipboardShelfState.Action) {
+    let previous = shelfState
+    shelfState.apply(action)
+    guard previous != shelfState else { return }
+    let searchChanged = previous.query != searchText
+    if searchChanged { selectedItemID = selectedItem?.id }
+    let sortChanged = previous.sortMode != sortMode
+    let collectionChanged = previous.collectionName != selectedCollectionName
+    if sortChanged { settings.defaultSortMode = sortMode }
+    if sortChanged || collectionChanged || previous.contentFilter != contentFilter
+      || searchEngine.normalized(previous.query) != searchEngine.normalized(searchText)
+    {
       recomputeVisibleItems()
-      onCollectionsChanged?()
     }
+    if searchChanged { notifyMain { self.onSearchTextChanged?(self.searchText) } }
+    if sortChanged { onSortModeChanged?(sortMode) }
+    if collectionChanged { onCollectionsChanged?() }
   }
   var selectedIndex: Int = 0 {
     didSet {
@@ -129,7 +122,10 @@ final class ClipboardPanelViewModel {
     }
   }
   private(set) var statusMessage: String = "" { didSet { notifyMain { self.onStatusMessageChanged?(self.statusMessage) } } }
-  var contentFilter: ClipboardSortMode? { didSet { if oldValue != contentFilter { recomputeVisibleItems() } } }
+  var contentFilter: ClipboardSortMode? {
+    get { shelfState.contentFilter }
+    set { applyShelfAction(.content(newValue)) }
+  }
   var sortByUsage: Bool {
     get { settings.sortByUsage }
     set { settings.sortByUsage = newValue }
@@ -176,8 +172,7 @@ final class ClipboardPanelViewModel {
   func clearActionStatus() { statusMessage = "" }
 
   func resetFilters() {
-    contentFilter = nil
-    selectSortMode(.mostRecent)
+    applyShelfAction(.reset)
     recomputeVisibleItems()
   }
 
@@ -194,6 +189,7 @@ final class ClipboardPanelViewModel {
   private let store: ClipboardStore
   private let settings: SettingsModel
   private let cacheService: ClipboardCacheService
+  private let dataCoordinator: ClipboardDataCoordinator
   private let pasteService: PasteActionService
   private let imageTextExtractor: (NSImage) -> String?
   private let thumbnailLoader: (ClipboardItem) -> NSImage?
@@ -216,7 +212,6 @@ final class ClipboardPanelViewModel {
   private var selectedItemID: UUID?
   private var selectionAnchorItemID: UUID?
   private var isRecomputingVisibleItems = false
-  private var isBatchingFilterSelectionChanges = false
   private var isApplyingLocalCollectionMutation = false
   private var isDeferringLocalStoreRecompute = false
   private var pendingDeletionUndo: [ClipboardStoreRemoval] = []
@@ -245,15 +240,17 @@ final class ClipboardPanelViewModel {
   var onCaptureStatusChanged: (() -> Void)?
 
   init(
-    store: ClipboardStore, settings: SettingsModel, cacheService: ClipboardCacheService,
+    pasteboard: NSPasteboard = .general, store: ClipboardStore, settings: SettingsModel, cacheService: ClipboardCacheService,
+    dataCoordinator: ClipboardDataCoordinator = ClipboardDataCoordinator(),
     imageTextExtractor: @escaping (NSImage) -> String? = ImageTextExtractor.recognizedText(in:),
     thumbnailLoader: ((ClipboardItem) -> NSImage?)? = nil, transferFeedback: @escaping (ClipboardSound) -> Void = { _ in }
   ) {
+    self.dataCoordinator = dataCoordinator
     self.store = store
     self.settings = settings
     self.cacheService = cacheService
-    self.sortMode = settings.defaultSortMode
-    self.pasteService = PasteActionService(cacheService: cacheService, feedback: transferFeedback)
+    self.shelfState = ClipboardShelfState(sortMode: settings.defaultSortMode)
+    self.pasteService = PasteActionService(pasteboard: pasteboard, cacheService: cacheService, feedback: transferFeedback)
     self.imageTextExtractor = imageTextExtractor
     self.thumbnailLoader = thumbnailLoader ?? { cacheService.previewThumbnail(for: $0) }
 
@@ -507,7 +504,10 @@ final class ClipboardPanelViewModel {
     }
 
     selectedItemID = item.id
-    store.setCustomTitle(item.id, title: normalizedTitle)
+    guard store.setCustomTitle(item.id, title: normalizedTitle) else {
+      statusMessage = store.savingUnavailableMessage
+      return
+    }
     statusMessage = normalizedTitle == nil ? "Cleared clip title" : "Renamed clip"
   }
 
@@ -517,7 +517,7 @@ final class ClipboardPanelViewModel {
       return false
     }
     guard store.canPersistHistory else {
-      statusMessage = "Cannot save: unlock the login Keychain first. Your draft is still here."
+      statusMessage = "Cannot save: \(store.savingUnavailableMessage) Your draft is still here."
       return false
     }
     let trimmed = text.clipboardTrimmed
@@ -541,7 +541,7 @@ final class ClipboardPanelViewModel {
 
   @discardableResult func createTextClip(_ text: String) -> Bool {
     guard store.canPersistHistory else {
-      statusMessage = "Cannot save: unlock the login Keychain first."
+      statusMessage = "Cannot save: \(store.savingUnavailableMessage)"
       return false
     }
     let display = text.clipboardTrimmed
@@ -555,7 +555,10 @@ final class ClipboardPanelViewModel {
       id: UUID(), kind: CodeSnippetPayload.isLikelyCode(display) ? .code : .text, displayText: display, payload: text,
       payloadHash: store.hashString(text), createdAt: now, lastUsedAt: now, useCount: 0, sourceApp: AppConfiguration.appName,
       imagePath: nil, thumbnailPath: nil, sourceAppBundleId: Bundle.main.bundleIdentifier, collectionName: collection)
-    let saved = store.upsert(item)
+    guard let saved = store.upsert(item) else {
+      statusMessage = store.savingUnavailableMessage
+      return false
+    }
     searchText = ""
     contentFilter = nil
     if collection == nil { selectSortMode(.mostRecent) }
@@ -573,14 +576,16 @@ final class ClipboardPanelViewModel {
     mediaActionQueue.addOperation { [weak self] in
       guard let self else { return }
       let message: String
+      let storageID = UUID()
       if let data = self.cacheService.data(for: imagePath), let image = NSImage(data: data), let rotated = image.rotatedClockwise(),
         let fullData = rotated.pngData(), let thumbnailData = rotated.resized(to: CGSize(width: 320, height: 320)).pngData(),
-        let fullPath = self.cacheService.cacheImageSidecarData(fullData, id: item.id),
-        let thumbnailPath = self.cacheService.cacheImageSidecarData(thumbnailData, id: item.id, fileNamePrefix: "thumb")
+        let fullPath = self.cacheService.cacheImageSidecarData(fullData, id: storageID),
+        let thumbnailPath = self.cacheService.cacheImageSidecarData(thumbnailData, id: storageID, fileNamePrefix: "thumb")
       {
         let didUpdate = DispatchQueue.main.sync {
           self.store.updateImage(item.id, imagePath: fullPath, thumbnailPath: thumbnailPath, payloadHash: self.store.hashData(fullData))
         }
+        if !didUpdate { self.cacheService.removeManagedFiles([fullPath, thumbnailPath]) }
         message = didUpdate ? "Rotated image" : "Could not save rotated image"
       } else {
         message = "Could not rotate image"
@@ -677,13 +682,10 @@ final class ClipboardPanelViewModel {
     let originalVisibleCount = visibleItems.count
     let firstDeletedVisibleIndex = selectedItems.compactMap { item in visibleItems.firstIndex { $0.id == item.id } }.min() ?? selectedIndex
 
-    let removalOrder = selectedItems.sorted { lhs, rhs in
-      let lhsIndex = items.firstIndex { $0.id == lhs.id } ?? -1
-      let rhsIndex = items.firstIndex { $0.id == rhs.id } ?? -1
-      return lhsIndex > rhsIndex
+    guard let removals = store.remove(selectedItems.map(\.id), purgeManagedCache: false) else {
+      statusMessage = store.savingUnavailableMessage
+      return
     }
-    let removals = removalOrder.compactMap { item in store.remove(item.id, purgeManagedCache: false) }
-    guard !removals.isEmpty else { return }
 
     pendingDeletionUndo = removals
 
@@ -712,10 +714,14 @@ final class ClipboardPanelViewModel {
       return
     }
     isDeferringLocalStoreRecompute = true
-    for id in ids { store.remove(id) }
+    let removed = store.remove(ids)
     isDeferringLocalStoreRecompute = false
+    guard let removed else {
+      statusMessage = store.savingUnavailableMessage
+      return
+    }
     recomputeVisibleItems()
-    finishClearHistory(removedCount: ids.count)
+    finishClearHistory(removedCount: removed.count)
   }
 
   func undoLastDelete() {
@@ -725,8 +731,11 @@ final class ClipboardPanelViewModel {
     }
 
     let removals = pendingDeletionUndo
+    guard store.restore(removals) else {
+      statusMessage = store.savingUnavailableMessage
+      return
+    }
     pendingDeletionUndo = []
-    store.restore(removals)
 
     let restoredIDs = removals.sorted(by: { $0.index < $1.index }).map(\.item.id)
     let visibleRestoredIDs = restoredIDs.filter { visibleIndexByID[$0] != nil }
@@ -740,7 +749,10 @@ final class ClipboardPanelViewModel {
 
   func togglePinSelected() {
     guard let item = selectedItem else { return }
-    store.togglePin(item.id)
+    guard store.togglePin(item.id) else {
+      statusMessage = store.savingUnavailableMessage
+      return
+    }
     statusMessage = item.isPinned ? "Unpinned clip" : "Pinned clip"
   }
 
@@ -784,28 +796,9 @@ final class ClipboardPanelViewModel {
     }
   }
 
-  func selectSortMode(_ mode: ClipboardSortMode) {
-    guard selectedCollectionName != nil else {
-      sortMode = mode
-      return
-    }
-    isBatchingFilterSelectionChanges = true
-    selectedCollectionName = nil
-    sortMode = mode
-    isBatchingFilterSelectionChanges = false
-    settings.defaultSortMode = mode
-    recomputeVisibleItems()
-    onSortModeChanged?(mode)
-    onCollectionsChanged?()
-  }
+  func selectSortMode(_ mode: ClipboardSortMode) { applyShelfAction(.sort(mode)) }
 
-  func selectCollection(named name: String) {
-    guard let name = ClipboardCollectionDefaults.normalizedName(name), selectedCollectionName != name else { return }
-    isBatchingFilterSelectionChanges = true
-    selectedCollectionName = name
-    isBatchingFilterSelectionChanges = false
-    recomputeVisibleItems()
-  }
+  func selectCollection(named name: String) { applyShelfAction(.collection(name)) }
 
   func selectAdjacentCollection(delta: Int) {
     guard delta != 0 else { return }
@@ -844,16 +837,12 @@ final class ClipboardPanelViewModel {
   func collectionIcon(named name: String) -> String? { settings.collectionIcon(forCollectionNamed: name) }
 
   func exportCollection(named name: String, to url: URL, completion: @escaping (Result<ClipboardArchiveSummary, Error>) -> Void) {
-    mediaActionQueue.addOperation { [weak self] in
-      guard let self else { return }
-      let result = Result { try self.store.exportCollection(named: name, to: url) }
-      DispatchQueue.main.async { [weak self] in
-        if case .success(let summary) = result, let normalizedName = ClipboardCollectionDefaults.normalizedName(name) {
-          let noun = summary.itemCount == 1 ? "clip" : "clips"
-          self?.statusMessage = "Exported \(normalizedName) Pinboard with \(summary.itemCount) \(noun)"
-        }
-        completion(result)
+    dataCoordinator.perform({ [store] in Result { try store.exportCollection(named: name, to: url) } }) { [weak self] result in
+      if case .success(let summary) = result, let normalizedName = ClipboardCollectionDefaults.normalizedName(name) {
+        let noun = summary.itemCount == 1 ? "clip" : "clips"
+        self?.statusMessage = "Exported \(normalizedName) Pinboard with \(summary.itemCount) \(noun)"
       }
+      completion(result)
     }
   }
 
@@ -862,22 +851,24 @@ final class ClipboardPanelViewModel {
   func updateCollection(named currentName: String, to newName: String, colorHex: String? = nil, icon: String? = nil) {
     guard let normalizedCurrentName = ClipboardCollectionDefaults.normalizedName(currentName) else { return }
 
-    isApplyingLocalCollectionMutation = true
-    let updatedName = settings.updateCollection(named: normalizedCurrentName, to: newName, colorHex: colorHex, icon: icon)
-    isApplyingLocalCollectionMutation = false
-    collectionNamesCache = nil
-    guard let normalizedNewName = updatedName else { return }
-
+    guard let proposedName = ClipboardCollectionDefaults.normalizedName(newName) else { return }
+    let normalizedNewName =
+      settings.customCollectionNames.first {
+        $0.caseInsensitiveCompare(proposedName) == .orderedSame && $0.caseInsensitiveCompare(normalizedCurrentName) != .orderedSame
+      } ?? proposedName
     let selectionChanged = selectedCollectionName?.caseInsensitiveCompare(normalizedCurrentName) == .orderedSame
     isDeferringLocalStoreRecompute = true
-    for item in items where item.collectionName?.caseInsensitiveCompare(normalizedCurrentName) == .orderedSame {
-      store.setCollection(item.id, name: normalizedNewName)
+    let ids = items.filter { $0.collectionName?.caseInsensitiveCompare(normalizedCurrentName) == .orderedSame }.map(\.id)
+    guard store.setCollection(ids, name: normalizedNewName) else {
+      isDeferringLocalStoreRecompute = false
+      statusMessage = store.savingUnavailableMessage
+      return
     }
-    if selectionChanged {
-      isBatchingFilterSelectionChanges = true
-      selectedCollectionName = normalizedNewName
-      isBatchingFilterSelectionChanges = false
-    }
+    isApplyingLocalCollectionMutation = true
+    settings.updateCollection(named: normalizedCurrentName, to: normalizedNewName, colorHex: colorHex, icon: icon)
+    isApplyingLocalCollectionMutation = false
+    collectionNamesCache = nil
+    if selectionChanged { applyShelfAction(.collection(normalizedNewName)) }
     isDeferringLocalStoreRecompute = false
     onCollectionsChanged?()
     recomputeVisibleItems()
@@ -885,20 +876,20 @@ final class ClipboardPanelViewModel {
   }
 
   func deleteCollection(named name: String) {
-    isApplyingLocalCollectionMutation = true
-    let deletedName = settings.deleteCollection(named: name)
-    isApplyingLocalCollectionMutation = false
-    collectionNamesCache = nil
-    guard let normalizedName = deletedName else { return }
+    guard let normalizedName = ClipboardCollectionDefaults.normalizedName(name) else { return }
     let matchingIDs = items.filter { $0.collectionName?.caseInsensitiveCompare(normalizedName) == .orderedSame }.map(\.id)
     let selectionChanged = selectedCollectionName?.caseInsensitiveCompare(normalizedName) == .orderedSame
     isDeferringLocalStoreRecompute = true
-    for id in matchingIDs { store.remove(id) }
-    if selectionChanged {
-      isBatchingFilterSelectionChanges = true
-      selectedCollectionName = nil
-      isBatchingFilterSelectionChanges = false
+    if !matchingIDs.isEmpty, store.remove(matchingIDs) == nil {
+      isDeferringLocalStoreRecompute = false
+      statusMessage = store.savingUnavailableMessage
+      return
     }
+    isApplyingLocalCollectionMutation = true
+    settings.deleteCollection(named: normalizedName)
+    isApplyingLocalCollectionMutation = false
+    collectionNamesCache = nil
+    if selectionChanged { applyShelfAction(.collection(nil)) }
     isDeferringLocalStoreRecompute = false
     onCollectionsChanged?()
     recomputeVisibleItems()
@@ -908,22 +899,7 @@ final class ClipboardPanelViewModel {
   func showSelectedInClipboard() {
     guard canShowSelectedInClipboard, let item = selectedItem else { return }
     selectedItemID = item.id
-    contentFilter = nil
-
-    let searchChanged = !searchText.isEmpty
-    let collectionChanged = selectedCollectionName != nil
-    let sortChanged = sortMode != .mostRecent
-
-    isBatchingFilterSelectionChanges = true
-    if searchChanged { searchText = "" }
-    if collectionChanged { selectedCollectionName = nil }
-    if sortChanged { sortMode = .mostRecent }
-    isBatchingFilterSelectionChanges = false
-
-    recomputeVisibleItems()
-    if searchChanged { notifyMain { self.onSearchTextChanged?(self.searchText) } }
-    if sortChanged { onSortModeChanged?(sortMode) }
-    if collectionChanged { onCollectionsChanged?() }
+    applyShelfAction(.showAll)
 
     if let index = visibleIndexByID[item.id] {
       selectedIndex = index
@@ -1086,7 +1062,7 @@ final class ClipboardPanelViewModel {
 
     if case .pasted = result { willPasteToTarget() } else if case .pastedPlainText = result { willPasteToTarget() }
 
-    for item in items { store.markUsed(item.id) }
+    store.markUsed(items.map(\.id))
 
     selectedItemID = items.first?.id
     statusMessage = transferStatus(result, count: items.count, context: context)
@@ -1222,14 +1198,18 @@ final class ClipboardPanelViewModel {
   private func assign(items: [ClipboardItem], to collectionName: String?) {
     guard !items.isEmpty else { return }
     let normalizedName = ClipboardCollectionDefaults.normalizedName(collectionName)
+    isDeferringLocalStoreRecompute = true
+    let saved = store.setCollection(items.map(\.id), name: normalizedName)
+    isDeferringLocalStoreRecompute = false
+    guard saved else {
+      statusMessage = store.savingUnavailableMessage
+      return
+    }
     if let normalizedName {
       isApplyingLocalCollectionMutation = true
       settings.ensureCollection(named: normalizedName)
       isApplyingLocalCollectionMutation = false
     }
-    isDeferringLocalStoreRecompute = true
-    store.setCollection(items.map(\.id), name: normalizedName)
-    isDeferringLocalStoreRecompute = false
     recomputeVisibleItems()
     onCollectionsChanged?()
     if let normalizedName {

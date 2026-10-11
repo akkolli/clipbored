@@ -1,10 +1,12 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
 import plistlib
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('build_state', Path(__file__).resolve().parents[2] / 'scripts/build-state.py')
 state = importlib.util.module_from_spec(spec)
@@ -87,3 +89,36 @@ class BuildStateTests(unittest.TestCase):
     def test_build_from_another_checkout_is_rejected(self):
         recorded = state.snapshot(self.root)
         with self.assertRaisesRegex(ValueError, 'checkout'): state.verify(self.worktree(), recorded)
+
+    def test_ignored_compiler_inputs_and_build_environment_are_verified(self):
+        (self.root / '.gitignore').write_text('Sources/Goldfish/Local.swift\n')
+        self.commit()
+        recorded = state.snapshot(self.root)
+        (self.root / 'Sources/Goldfish/Local.swift').write_text('compiled despite gitignore')
+        with self.assertRaisesRegex(ValueError, 'Commit'): state.snapshot(self.root)
+        preview = state.snapshot(self.root, allow_dirty=True)
+        self.assertNotEqual(preview['sourceHash'], recorded['sourceHash'])
+        (self.root / 'Sources/Goldfish/Local.swift').write_text('changed ignored source')
+        with self.assertRaisesRegex(ValueError, 'sourceHash'): state.verify(self.root, preview)
+        (self.root / 'Sources/Goldfish/Local.swift').unlink()
+        with patch.dict(os.environ, ARCHITECTURES='x86_64' if recorded['buildEnvironment']['architectures'] != 'x86_64' else 'arm64'):
+            with self.assertRaisesRegex(ValueError, 'buildEnvironment'): state.verify(self.root, recorded)
+        entitlement = Path(self.directory.name) / 'external.plist'
+        entitlement.write_text('first')
+        with patch.dict(os.environ, ENTITLEMENTS_FILE=str(entitlement)):
+            recorded = state.snapshot(self.root)
+            entitlement.write_text('changed')
+            with self.assertRaisesRegex(ValueError, 'buildEnvironment'): state.verify(self.root, recorded)
+
+    def test_process_guard_rejects_running_app_and_inspection_errors(self):
+        directory = Path(self.directory.name) / 'bin'
+        directory.mkdir()
+        pgrep = directory / 'pgrep'
+        script = Path(__file__).resolve().parents[2] / 'scripts/require-app-stopped.sh'
+        for status in (0, 1, 2, 3):
+            with self.subTest(status=status):
+                pgrep.write_text(f'#!/bin/sh\nexit {status}\n')
+                pgrep.chmod(0o755)
+                result = subprocess.run(['/bin/bash', str(script)], capture_output=True,
+                                        env={**os.environ, 'PATH': str(directory)})
+                self.assertEqual(result.returncode == 0, status == 1)

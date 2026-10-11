@@ -11,8 +11,10 @@ final class ClipboardMonitorService {
   }
 
   private let store: ClipboardStore
+  private let pasteboard: NSPasteboard
   private let cacheService: ClipboardCacheService
   private let settings: SettingsModel
+  private let frontmostApp: () -> (name: String?, bundleId: String?)
   private let imageTextExtractor: (NSImage) -> String?
 
   private var timer: DispatchSourceTimer?
@@ -28,14 +30,17 @@ final class ClipboardMonitorService {
   var onCapturedItem: (ClipboardItem) -> Void = { _ in }
 
   init(
-    store: ClipboardStore, cacheService: ClipboardCacheService, settings: SettingsModel,
+    pasteboard: NSPasteboard = .general, store: ClipboardStore, cacheService: ClipboardCacheService, settings: SettingsModel,
+    frontmostApp: @escaping () -> (name: String?, bundleId: String?) = ClipboardMonitorService.currentFrontmostApp,
     imageTextExtractor: @escaping (NSImage) -> String? = ImageTextExtractor.recognizedText(in:)
   ) {
     self.store = store
+    self.pasteboard = pasteboard
     self.cacheService = cacheService
     self.settings = settings
+    self.frontmostApp = frontmostApp
     self.imageTextExtractor = imageTextExtractor
-    self.lastChangeCount = NSPasteboard.general.changeCount
+    self.lastChangeCount = pasteboard.changeCount
     self.configuration = CaptureConfiguration(
       pollProfile: settings.pollProfile, ignoredItemKinds: Set(settings.ignoredItemKindsRaw), ignoredApps: settings.ignoredApps,
       includeImageTextInSearch: settings.includeImageTextInSearch, excludeSensitive: settings.excludeSensitive)
@@ -47,7 +52,7 @@ final class ClipboardMonitorService {
     performOnQueueAndWait {
       // First launch/setup must not backfill clipboard contents copied before
       // the user chose to start capture.
-      self.lastChangeCount = NSPasteboard.general.changeCount
+      self.lastChangeCount = pasteboard.changeCount
       self.isStarted = true
       if self.paused {
         self.reportCaptureStatus("Capture is paused.")
@@ -76,7 +81,7 @@ final class ClipboardMonitorService {
     performOnQueueAndWait {
       if self.paused != paused {
         // Never capture a value copied while capture was paused on resume.
-        self.lastChangeCount = NSPasteboard.general.changeCount
+        self.lastChangeCount = pasteboard.changeCount
       }
       self.paused = paused
       self.lastActiveChange = .distantPast
@@ -132,7 +137,7 @@ final class ClipboardMonitorService {
       return
     }
 
-    let pasteboard = NSPasteboard.general
+    let pasteboard = self.pasteboard
     let changeCount = pasteboard.changeCount
 
     if changeCount == lastChangeCount {
@@ -145,7 +150,7 @@ final class ClipboardMonitorService {
     lastChangeCount = changeCount
     lastActiveChange = Date()
 
-    if ClipboardSelfWriteTracker.consume(changeCount: changeCount) {
+    if ClipboardSelfWriteTracker.consume(changeCount: changeCount, pasteboard: pasteboard) {
       reportReadFailureStatus("Clipboard was updated by Goldfish; skipping capture.")
       return
     }
@@ -155,8 +160,7 @@ final class ClipboardMonitorService {
       reportCaptured(item)
       DispatchQueue.main.async { [weak self] in
         guard let self else { return }
-        let storedItem = self.store.upsert(item)
-        self.onCapturedItem(storedItem)
+        if let storedItem = self.store.upsert(item) { self.onCapturedItem(storedItem) }
       }
     } else if !didReportReadFailure {
       reportCaptureStatus("Clipboard changed, but Goldfish could not read a supported item.")
@@ -177,7 +181,7 @@ final class ClipboardMonitorService {
       return nil
     }
     guard store.canPersistHistory else {
-      reportReadFailureStatus("Error: Capture paused; unlock the login Keychain to restore encrypted storage.")
+      reportReadFailureStatus("Error: Capture paused; \(store.savingUnavailableMessage)")
       return nil
     }
     let source = frontmostApp()
@@ -620,7 +624,7 @@ final class ClipboardMonitorService {
     }
   }
 
-  private func frontmostApp() -> (name: String?, bundleId: String?) {
+  private static func currentFrontmostApp() -> (name: String?, bundleId: String?) {
     guard let app = NSWorkspace.shared.frontmostApplication else { return (nil, nil) }
     return (app.localizedName, app.bundleIdentifier)
   }

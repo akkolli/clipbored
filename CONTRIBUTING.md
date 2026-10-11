@@ -6,7 +6,7 @@ Thanks for working on Goldfish. The project is optimized for a small binary, low
 
 Start with `git worktree list` and compare the current checkout with `main`. The latest Goldfish code is committed on `main`; `codex/legacy-clipbored-refactor` is an archived experiment without the redesign. Do not merge or ship it as current Goldfish.
 
-Quit Goldfish before running tests: the clipboard integration tests use the system pasteboard. This prevents the running app from saving test fixtures into your history.
+Quit Goldfish before running tests: checks require a stopped app and fail if process inspection is unavailable. Capture and transfer tests use private named pasteboards and isolated storage; they do not replace your clipboard.
 
 ```bash
 swift test
@@ -46,3 +46,9 @@ Run the full local check before opening a pull request:
 - Security or privacy behavior is unchanged or documented.
 - User-facing behavior is covered by tests or a manual verification note.
 - Documentation is updated when commands, settings, storage, or permissions change.
+
+## One-developer workflow
+
+Use Python 3.9+ and Xcode command line tools with Swift 5.9+. The [documentation index](docs/README.md) separates current guidance from historical reports. Keep data mutations in `ClipboardStore`, shelf filter transitions in `ClipboardShelfState`, and archive/backup serialization in `ClipboardDataCoordinator`; views present outcomes rather than owning another persistence path. Prefer batch APIs and shared test fixtures. Preserve behavior scenarios and assertions when merging tests.
+
+Before installation or release, run `scripts/check.sh`, commit on a branch that includes current main, and fast-forward a clean main checkout. Publish main and preserve the archive branch on the working remote. GitHub macOS CI runs the same checks. Never force-push production or merge the legacy archive as the baseline. Ignored local `plan/` notes and generated artifacts are not shared project state.

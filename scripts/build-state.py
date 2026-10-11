@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate checkout freshness and record the inputs used to build Goldfish."""
 import datetime
+import functools
 import hashlib
 import json
 import os
@@ -19,6 +20,14 @@ def validate_name(info):
     for key in ('CFBundleDisplayName', 'CFBundleName', 'CFBundleExecutable'):
         if info.get(key) != 'Goldfish':
             raise ValueError(f'{key} must be Goldfish, found {info.get(key)!r}')
+
+
+@functools.lru_cache()
+def toolchain(developer_dir):
+    def output(*args):
+        return subprocess.check_output(args, text=True, stderr=subprocess.STDOUT).strip()
+    return dict(swift=output('xcrun', 'swift', '--version'), sdk=output('xcrun', '--sdk', 'macosx', '--show-sdk-path'),
+                sdkVersion=output('xcrun', '--sdk', 'macosx', '--show-sdk-version'))
 
 
 def snapshot(root, allow_dirty=False):
@@ -46,17 +55,32 @@ def snapshot(root, allow_dirty=False):
     if 'static let appName = "Goldfish"' not in config:
         raise ValueError('AppConfiguration.appName must be Goldfish')
     paths = git(root, 'ls-files', '-z', '--cached', '--others', '--exclude-standard').split('\0')
+    # SwiftPM discovers files independently of Git. Include ignored compiler and
+    # resource inputs too, and require an explicit preview for unpublished inputs.
+    discovered = {str(path.relative_to(root)) for directory in ('Sources', 'Tests')
+                  for path in (root / directory).rglob('*') if path.is_file()
+                  and path.name != '.DS_Store' and '__pycache__' not in path.parts}
+    dirty = dirty or bool(discovered - set(paths))
+    if dirty and not allow_dirty:
+        raise ValueError('Commit all compiler/resource inputs before building; use --allow-dirty for a development preview')
+    paths = set(paths) | discovered
     inputs = {name: hashlib.sha256((root / name).read_bytes()).hexdigest()
-              for name in sorted(set(paths)) if name and (root / name).is_file()}
+              for name in sorted(paths) if name and (root / name).is_file()}
     digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
-    return dict(schemaVersion=1, appName='Goldfish', revision=revision, sourceHash=digest,
+    entitlements = os.environ.get('ENTITLEMENTS_FILE')
+    environment = dict(architectures=os.environ.get('ARCHITECTURES', os.uname().machine),
+                       entitlementsHash=hashlib.sha256(Path(entitlements).read_bytes()).hexdigest() if entitlements else None,
+                       **toolchain(os.environ.get('DEVELOPER_DIR')))
+    return dict(schemaVersion=2, appName='Goldfish', revision=revision, sourceHash=digest, buildEnvironment=environment,
                 checkout=str(root), branch=git(root, 'rev-parse', '--abbrev-ref', 'HEAD'), dirty=dirty,
                 bundleIdentifier=os.environ.get('APP_BUNDLE_IDENTIFIER', info['CFBundleIdentifier']))
 
 
 def verify(root, recorded):
+    if recorded.get('schemaVersion') != 2:
+        raise ValueError('Build provenance uses an old format; rebuild with the current build script')
     current = snapshot(root, allow_dirty=recorded['dirty'])
-    for key in ('revision', 'sourceHash', 'checkout', 'dirty'):
+    for key in ('revision', 'sourceHash', 'checkout', 'dirty', 'buildEnvironment', 'bundleIdentifier'):
         if current[key] != recorded[key]:
             raise ValueError(f'Build no longer matches current source ({key}); rebuild from this checkout')
     return current

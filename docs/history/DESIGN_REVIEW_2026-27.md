@@ -1,10 +1,12 @@
 # ClipBored design review · 21 September 2026
 
+> Historical record. Counts, screenshots, and implementation details describe that pass. Current guidance is in [the documentation index](../README.md); source links refer to current files and have no historical line guarantees.
+
 **Historical assessment:** this records the interface before the fixes. See the [macOS implementation report](DESIGN_UPDATE_2026-27.md) for the subsequent changes and verification. iOS implementation is deferred at the user's request.
 
 **ClipBored has a strong native Mac foundation, but its main shelf does not yet match the clarity, finish, and accessibility assurance of leading 2026–27 Apple-platform apps.** Onboarding and Settings are considerably closer. The most valuable next work is to improve recognition, navigation, feedback, and consistency. A visual refresh alone would leave several important interaction problems unresolved.
 
-This repository contains a macOS AppKit executable targeting macOS 13 and later. It contains no iOS target or iPhone/iPad interface. Accordingly, the Mac assessment below concerns an implemented product; the iOS assessment is a readiness review and proposed direction, not a review of an existing iOS app. See [Package.swift](/Users/proflepton/projects/clipbored/Package.swift:6).
+This repository contains a macOS AppKit executable targeting macOS 13 and later. It contains no iOS target or iPhone/iPad interface. Accordingly, the Mac assessment below concerns an implemented product; the iOS assessment is a readiness review and proposed direction, not a review of an existing iOS app. See [Package.swift](../../Package.swift).
 
 The review covers the current working tree, including existing uncommitted changes. I inspected the source, documentation, app icon, accessibility tree, and a running review build compiled from the current application sources. The review build used isolated preferences and synthetic clips without starting the clipboard monitor. I examined the shelf, search, representative content and attachment fallback cards, onboarding, and all six Settings pages. Light and dark appearances were inspected on macOS 27.0, build 26A428, with the installed Xcode beta/Swift 6.4 toolchain.
 
@@ -45,7 +47,7 @@ Apple's current direction emphasizes readable content, distinct controls/navigat
 
    Keep the current compact introduction, but distinguish dismissal from starting capture. Closing should leave setup incomplete and capture inactive, with an easy route back from the menu bar. Explain the capture behavior immediately next to the start action. The existing statement that Accessibility is optional for copying is good and should remain.
 
-   Evidence: [welcome close behavior](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/OnboardingWindowController.swift:78), [completion path](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/OnboardingWindowController.swift:246), [monitor start](/Users/proflepton/projects/clipbored/Sources/Goldfish/app/AppDelegate.swift:926). This finding is source-confirmed; the review fixture did not run capture.
+   Evidence: [welcome close behavior](../../Sources/Goldfish/views/OnboardingWindowController.swift), [completion path](../../Sources/Goldfish/views/OnboardingWindowController.swift), [monitor start](../../Sources/Goldfish/app/AppDelegate.swift). This finding is source-confirmed; the review fixture did not run capture.
 
 2. **P1 · Important action feedback never reaches the shelf.**
 
@@ -53,7 +55,7 @@ Apple's current direction emphasizes readable content, distinct controls/navigat
 
    Add a compact feedback region with messages such as “Copied — press ⌘V to paste,” “Deleted 3 clips · Undo,” and “Capture paused · Resume.” Expose the current selection count and the intended destination when reliable. Announce consequential outcomes to assistive technology. Ensure copy fallback remains understandable after an attempted paste dismisses the shelf.
 
-   Evidence: [model status](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelViewModel.swift:175), [callbacks](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelViewModel.swift:268), [shelf bindings](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelView.swift:434). This is a concrete implementation gap, not just a visual preference.
+   Evidence: [model status](../../Sources/Goldfish/views/ClipboardPanelViewModel.swift), [callbacks](../../Sources/Goldfish/views/ClipboardPanelViewModel.swift), [shelf bindings](../../Sources/Goldfish/views/ClipboardPanelView.swift). This is a concrete implementation gap, not just a visual preference.
 
 3. **P1 · Navigation is difficult to recognize and changes while searching.**
 
@@ -63,7 +65,7 @@ Apple's current direction emphasizes readable content, distinct controls/navigat
 
    Preserve stable navigation during a query. Show an active destination label and explicit filter summary. Give Pinboards visible names in an expandable rail or named collection picker. Separate the concepts of destination, content filter, and sort order. Command-click unions can remain an expert shortcut alongside a visible filter interface.
 
-   Evidence: [icon-only rail](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelView.swift:580), [Pinboard dots](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelView.swift:599), [query-dependent counts](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelViewModel.swift:401), [category visibility](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelViewModel.swift:435).
+   Evidence: [icon-only rail](../../Sources/Goldfish/views/ClipboardPanelView.swift), [Pinboard dots](../../Sources/Goldfish/views/ClipboardPanelView.swift), [query-dependent counts](../../Sources/Goldfish/views/ClipboardPanelViewModel.swift), [category visibility](../../Sources/Goldfish/views/ClipboardPanelViewModel.swift).
 
 4. **P1 · The card list spends too much visual emphasis on classification and too little on the clip itself.**
 
@@ -73,7 +75,7 @@ Apple's current direction emphasizes readable content, distinct controls/navigat
 
    Give the title and a useful content excerpt more room. Prototype a neutral row surface with a smaller type accent, a modest source icon, and readable metadata. Start around 13–14 pt for Mac primary text and 11–12 pt for secondary text, then validate density and accessibility. Show a code excerpt or identifying first line, the domain for a link, and a recognizable thumbnail for an image when available. Offer a wider shelf or detail view for content that cannot be judged at the compact width.
 
-   Evidence: [shelf dimensions](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelController.swift:62), [card header and fonts](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardItemCardView.swift:886), [title formatting](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardItemCardContentFormatter.swift:4). Neutral rows are a design recommendation, not an Apple rule banning color.
+   Evidence: [shelf dimensions](../../Sources/Goldfish/views/ClipboardPanelController.swift), [card header and fonts](../../Sources/Goldfish/views/ClipboardItemCardView.swift), [title formatting](../../Sources/Goldfish/views/ClipboardItemCardContentFormatter.swift). Neutral rows are a design recommendation, not an Apple rule banning color.
 
 5. **P1 · Make the primary reuse action discoverable.**
 
@@ -81,7 +83,7 @@ Apple's current direction emphasizes readable content, distinct controls/navigat
 
    Show a small selected-item action bar with the effective action and shortcut: for example, “Paste into Notes ↵” when the target and permission are available, or “Copy ↵” when that is the effective behavior. Make plain-text paste and additional actions reachable through a visible, consistently placed menu. Preserve the existing shortcut and contextual-menu paths.
 
-   Evidence: [click behavior](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardItemCardView.swift:430), [contextual actions](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardItemCardView.swift:503), [welcome permission explanation](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/OnboardingWindowController.swift:70).
+   Evidence: [click behavior](../../Sources/Goldfish/views/ClipboardItemCardView.swift), [contextual actions](../../Sources/Goldfish/views/ClipboardItemCardView.swift), [welcome permission explanation](../../Sources/Goldfish/views/OnboardingWindowController.swift).
 
 6. **P1 · Accessibility needs an explicit release standard.**
 
@@ -99,7 +101,7 @@ Apple's current direction emphasizes readable content, distinct controls/navigat
 
    Compare the current interaction with a stable list plus a side preview, or with expansion tied to explicit selection. If hover expansion stays, test deliberate dwell and scroll anchoring with real tasks. Keep the vertical shelf identity while allowing users to inspect content without repeatedly losing their place.
 
-   Evidence: [row and expanded sizes](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelViewSupport.swift:44), [presentation heights](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelViewSupport.swift:280), [expansion coordination](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelView.swift:1769).
+   Evidence: row and expanded sizes (historical source: `Sources/Goldfish/views/ClipboardPanelViewSupport.swift`), presentation heights (historical source: `Sources/Goldfish/views/ClipboardPanelViewSupport.swift`), [expansion coordination](../../Sources/Goldfish/views/ClipboardPanelView.swift).
 
 8. **P2 · Search should advertise its capabilities and make recovery easier.**
 
@@ -107,7 +109,7 @@ Apple's current direction emphasizes readable content, distinct controls/navigat
 
    Prototype a persistent “Search clips…” field with an optional compact mode. Offer filter suggestions or chips for app, content type, date, and Pinboard; retain typed syntax for expert users. Show active filters and result counts, with “Clear search” and “Reset filters” where they resolve an empty result. Keep those controls near the search context on very tall displays.
 
-   Evidence: [search setup](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelView.swift:239), [search guide](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelView.swift:1687), [empty-state copy](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelView.swift:1815).
+   Evidence: [search setup](../../Sources/Goldfish/views/ClipboardPanelView.swift), [search guide](../../Sources/Goldfish/views/ClipboardPanelView.swift), [empty-state copy](../../Sources/Goldfish/views/ClipboardPanelView.swift).
 
 9. **P2 · The custom shelf needs a deliberate current-platform material treatment.**
 
@@ -115,7 +117,7 @@ Apple's current direction emphasizes readable content, distinct controls/navigat
 
    On supported systems, evaluate standard AppKit toolbar/search components or a restrained `NSGlassEffectView` treatment for the control layer. Retain stable, readable content surfaces and an appropriate macOS 13–15 fallback. Review custom backgrounds and corner geometry against the actual current OS, including user material preferences. The objective is coherent structure and legibility, with glass limited to useful navigation/control surfaces. [Apple adoption guidance](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass), [AppKit design session](https://developer.apple.com/videos/play/wwdc2025/310/)
 
-   Evidence: [panel tint](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelView.swift:100), [shelf material](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelView.swift:211), [custom search material](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelView.swift:512).
+   Evidence: [panel tint](../../Sources/Goldfish/views/ClipboardPanelView.swift), [shelf material](../../Sources/Goldfish/views/ClipboardPanelView.swift), [custom search material](../../Sources/Goldfish/views/ClipboardPanelView.swift).
 
 10. **P2 · Bring iconography and the shelf into the onboarding's visual family.**
 
@@ -123,7 +125,7 @@ Apple's current direction emphasizes readable content, distinct controls/navigat
 
     Retain the welcoming tone and translate its restraint into the shelf. Create a recognizable app mark at small sizes, with appropriate contemporary icon appearances and a fallback asset for older systems. Use a separate template symbol for the menu bar so it can respond to system contrast and appearance. Apple's current Icon Composer workflow supports layered artwork and appearance variants; it is a useful production path, not a reason to overdecorate the icon. [Icon Composer](https://developer.apple.com/icon-composer/)
 
-    Evidence: [app icon](design-review-2026-09-21/app-icon.png), [menu-bar image treatment](/Users/proflepton/projects/clipbored/Sources/Goldfish/app/AppDelegate.swift:957), [welcome](design-review-2026-09-21/welcome-light.png).
+    Evidence: [app icon](design-review-2026-09-21/app-icon.png), [menu-bar image treatment](../../Sources/Goldfish/app/AppDelegate.swift), [welcome](design-review-2026-09-21/welcome-light.png).
 
 11. **P2 · Improve a few Settings controls rather than replacing the entire window.**
 
@@ -133,7 +135,7 @@ Apple's current direction emphasizes readable content, distinct controls/navigat
 
     A concrete consistency issue appeared in the live accessibility tree: the cache slider reported 129.5 while the visible label said 120 MB. The slider is restricted to evenly spaced ticks while the label reflects the stored setting. Align the allowed values, stored value, and accessible value. Also validate translations: the fixed label widths, horizontal six-part selector, and non-resizable welcome layout currently have no localization evidence.
 
-    Evidence: [shortcut editor](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/SettingsWindowController.swift:652), [ignored-app editor](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/SettingsWindowController.swift:360), [cache ticks](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/SettingsWindowController.swift:449), [cache displayed value](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/SettingsWindowController.swift:968).
+    Evidence: [shortcut editor](../../Sources/Goldfish/views/SettingsWindowController.swift), [ignored-app editor](../../Sources/Goldfish/views/SettingsWindowController.swift), [cache ticks](../../Sources/Goldfish/views/SettingsWindowController.swift), [cache displayed value](../../Sources/Goldfish/views/SettingsWindowController.swift).
 
 12. **P2 · Make editing, empty states, and data operations feel like parts of one workflow.**
 
@@ -141,7 +143,7 @@ Apple's current direction emphasizes readable content, distinct controls/navigat
 
     Empty-state copy is usefully specific to search, Pinboards, Stack, and content types. Add the relevant action: new text clip, reset filters, resume capture, or guidance for adding to a Pinboard. For destructive operations, keep clear scope and a reachable undo where supported. Archive export/import already has explicit encryption limitations and confirmation/progress handling; preserve that honesty while simplifying technical language.
 
-    Evidence: [edit/new-clip flow](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelView.swift:1645), [empty states](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/ClipboardPanelView.swift:1815), [data controls](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/SettingsWindowController.swift:474).
+    Evidence: [edit/new-clip flow](../../Sources/Goldfish/views/ClipboardPanelView.swift), [empty states](../../Sources/Goldfish/views/ClipboardPanelView.swift), [data controls](../../Sources/Goldfish/views/SettingsWindowController.swift).
 
 **For iPhone and iPad, the work is a product design project of its own.** The current Mac implementation cannot be evaluated as an iOS interface, and a narrow Mac shelf should not be treated as an already-completed phone design.
 
@@ -157,7 +159,7 @@ Apple's current direction emphasizes readable content, distinct controls/navigat
 
 The capture model is a material difference. Apple documents the foreground/background suspension lifecycle and user-intent requirements around pasteboard access; `UIPasteControl` supplies a system-mediated paste action. Design around explicit capture and sharing rather than promising the Mac's continuous polling behavior on a phone. Paste's own iPhone guide describes this limitation and its extension-based workflow. [Apple background lifecycle](https://developer.apple.com/documentation/uikit/preparing-your-ui-to-run-in-the-background), [UIPasteControl](https://developer.apple.com/documentation/uikit/uipastecontrol), [Paste's iPhone workflow](https://pasteapp.io/help/paste-on-iphone)
 
-ClipBored currently offers optional whole-history iCloud backup/restore and correctly labels it as such. A synchronized history across devices needs additional product decisions: identity and merge behavior, per-item changes, attachment transfer, offline progress, conflicts, deletion propagation, and what data is protected. Do not present the existing backup toggle as a completed sync experience. See [data screen](/Users/proflepton/projects/clipbored/Sources/Goldfish/views/SettingsWindowController.swift:474) and [roadmap](/Users/proflepton/projects/clipbored/docs/ROADMAP.md).
+ClipBored currently offers optional whole-history iCloud backup/restore and correctly labels it as such. A synchronized history across devices needs additional product decisions: identity and merge behavior, per-item changes, attachment transfer, offline progress, conflicts, deletion propagation, and what data is protected. Do not present the existing backup toggle as a completed sync experience. See [data screen](../../Sources/Goldfish/views/SettingsWindowController.swift) and [roadmap](../../docs/ROADMAP.md).
 
 **A focused implementation sequence would be:**
 

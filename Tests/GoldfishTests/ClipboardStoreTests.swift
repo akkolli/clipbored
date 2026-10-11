@@ -276,6 +276,8 @@ final class ClipboardStoreTests: XCTestCase {
     let archive = baseURL.appendingPathComponent("backup.clipboredarchive")
     try writer.exportArchive(to: archive)
     let reader = makeStore(settings: settings, encryptionService: fixedEncryptionService(byte: 9))
+    XCTAssertThrowsError(try reader.exportArchive(to: archive))
+    XCTAssertThrowsError(try reader.exportCollection(named: "Private", to: archive))
     XCTAssertThrowsError(try reader.importArchive(from: archive)) { error in
       guard case ClipboardStoreArchiveError.unreadableHistory = error else {
         return XCTFail("Expected a recoverable-history protection error")

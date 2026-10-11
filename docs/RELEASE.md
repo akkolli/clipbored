@@ -110,3 +110,9 @@ spctl --assess --type execute --verbose=4 build/Goldfish.app
 Release and default builds require committed sources that include current `main`. The check command permits an explicitly marked development preview; the installer rejects it. Goldfish bundles include `Contents/Resources/BuildInfo.json` with the source commit, hash, checkout and build time. A source change during packaging fails the build.
 
 After committing and quitting Goldfish, run `./scripts/install-macos-app.sh`. It rebuilds current `main`, validates the app name, source provenance and signature, preserves the previous app, installs to `/Applications/Goldfish.app`, and launches the installed copy. An optional absolute destination ending in `Goldfish.app` supports a user Applications folder.
+
+## Release identity
+
+Before a release, increment `CFBundleShortVersionString` and `CFBundleVersion` in `Sources/Goldfish/resources/Info.plist`. Run `scripts/check.sh`, commit and publish clean main, then tag that verified commit (for example `v0.1.1`). Build through the release script from that checkout and retain its `BuildInfo.json` with the binary and matching source. Settings displays the version and short source revision; dirty previews are labeled. Public distribution still requires the documented signing, notarization, and manual smoke checks.
+
+Provenance includes every compiler/resource input even when ignored by Git, toolchain and SDK identity, architecture selection, and external entitlement contents. Unpublished target inputs require an explicit development preview. Process inspection failure prevents checks and installation.

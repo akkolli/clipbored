@@ -95,13 +95,15 @@ final class ClipboardPanelController: NSObject, NSWindowDelegate {
   private let viewModel: ClipboardPanelViewModel
 
   init(
-    store: ClipboardStore, settings: SettingsModel, cacheService: ClipboardCacheService,
-    preferredScreen: @escaping () -> NSScreen? = { nil }, pollClipboardNow: @escaping () -> Void = {},
-    openSettings: @escaping () -> Void = {}, transferFeedback: @escaping (ClipboardSound) -> Void = { _ in }
+    pasteboard: NSPasteboard = .general, store: ClipboardStore, settings: SettingsModel, cacheService: ClipboardCacheService,
+    dataCoordinator: ClipboardDataCoordinator = ClipboardDataCoordinator(), preferredScreen: @escaping () -> NSScreen? = { nil },
+    pollClipboardNow: @escaping () -> Void = {}, openSettings: @escaping () -> Void = {},
+    transferFeedback: @escaping (ClipboardSound) -> Void = { _ in }
   ) {
     self.settings = settings
     self.viewModel = ClipboardPanelViewModel(
-      store: store, settings: settings, cacheService: cacheService, transferFeedback: transferFeedback)
+      pasteboard: pasteboard, store: store, settings: settings, cacheService: cacheService, dataCoordinator: dataCoordinator,
+      transferFeedback: transferFeedback)
     self.pollClipboardNow = pollClipboardNow
     self.openSettings = openSettings
     self.preferredScreenProvider = preferredScreen

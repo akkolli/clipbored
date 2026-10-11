@@ -1,20 +1,22 @@
-import Foundation
+import AppKit
 
 enum ClipboardSelfWriteTracker {
   private static let queue = DispatchQueue(label: "clipboard.self-write-tracker")
-  private static var changeCounts: [Int] = []
+  private static var changeCounts: [String: [Int]] = [:]
 
-  static func mark(changeCount: Int) {
+  static func mark(changeCount: Int, pasteboard: NSPasteboard = .general) {
     queue.sync {
-      changeCounts.append(changeCount)
-      if changeCounts.count > 16 { changeCounts.removeFirst(changeCounts.count - 16) }
+      let key = pasteboard.name.rawValue
+      changeCounts[key] = Array(((changeCounts[key] ?? []) + [changeCount]).suffix(16))
     }
   }
 
-  static func consume(changeCount: Int) -> Bool {
+  static func consume(changeCount: Int, pasteboard: NSPasteboard = .general) -> Bool {
     queue.sync {
-      guard let index = changeCounts.firstIndex(of: changeCount) else { return false }
-      changeCounts.remove(at: index)
+      let key = pasteboard.name.rawValue
+      guard let index = changeCounts[key]?.firstIndex(of: changeCount) else { return false }
+      changeCounts[key]?.remove(at: index)
+      if changeCounts[key]?.isEmpty == true { changeCounts.removeValue(forKey: key) }
       return true
     }
   }

@@ -1,11 +1,12 @@
 import AppKit
 import CryptoKit
 import XCTest
+
 @testable import Goldfish
 
 /// Exercises the shipping clipboard, storage, search, transfer, and shelf paths
-/// together. Each workflow owns an isolated history and restores the pasteboard.
-final class GoldfishWorkflowTests: XCTestCase {
+/// together. Each workflow owns an isolated history and owns a private pasteboard.
+final class GoldfishWorkflowTests: ClipboardTestCase {
   private var suite = ""
   private var directory: URL!
   private var defaults: UserDefaults!
@@ -13,7 +14,6 @@ final class GoldfishWorkflowTests: XCTestCase {
   private var encryption: ClipboardEncryptionService!
   private var cache: ClipboardCacheService!
   private var store: ClipboardStore!
-  private var originalPasteboard: [[String: Data]] = []
 
   override func setUpWithError() throws {
     _ = NSApplication.shared
@@ -23,16 +23,10 @@ final class GoldfishWorkflowTests: XCTestCase {
     directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite, isDirectory: true)
     settings = SettingsModel(defaults: defaults)
     settings.historyRetention = .forever
-    encryption = ClipboardEncryptionService(keyProvider: {
-      SymmetricKey(data: Data(repeating: 0x47, count: 32))
-    })
+    encryption = ClipboardEncryptionService(keyProvider: { SymmetricKey(data: Data(repeating: 0x47, count: 32)) })
     cache = ClipboardCacheService(baseURL: directory, encryptionService: encryption)
     store = ClipboardStore(settings: settings, cacheService: cache, baseURL: directory, encryptionService: encryption)
-    originalPasteboard = (NSPasteboard.general.pasteboardItems ?? []).map { item in
-      Dictionary(uniqueKeysWithValues: item.types.compactMap { type in
-        item.data(forType: type).map { (type.rawValue, $0) }
-      })
-    }
+
   }
 
   override func tearDownWithError() throws {
@@ -44,32 +38,26 @@ final class GoldfishWorkflowTests: XCTestCase {
     encryption = nil
     defaults.removePersistentDomain(forName: suite)
     try? FileManager.default.removeItem(at: directory)
-    let items = originalPasteboard.map { data -> NSPasteboardItem in
-      let item = NSPasteboardItem()
-      for (type, value) in data { item.setData(value, forType: NSPasteboard.PasteboardType(type)) }
-      return item
-    }
-    NSPasteboard.general.clearContents()
-    if !items.isEmpty { NSPasteboard.general.writeObjects(items) }
     try super.tearDownWithError()
   }
 
   func testCopyCaptureSearchTransferAndEncryptedRelaunch() throws {
-    let monitor = ClipboardMonitorService(store: store, cacheService: cache, settings: settings)
+    let monitor = ClipboardMonitorService(
+      pasteboard: pasteboard, store: store, cacheService: cache, settings: settings, frontmostApp: { (nil, nil) })
     defer { monitor.stop() }
     let text = "Goldfish quartz workflow \(UUID().uuidString)"
-    NSPasteboard.general.clearContents()
-    XCTAssertTrue(NSPasteboard.general.setString(text, forType: .string))
+    pasteboard.clearContents()
+    XCTAssertTrue(pasteboard.setString(text, forType: .string))
     monitor.pollNowAndWait()
     waitUntil { self.store.items.count == 1 }
     XCTAssertEqual(store.items.first?.payload, text)
 
-    let panel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cache)
+    let panel = ClipboardPanelViewModel(pasteboard: pasteboard, store: store, settings: settings, cacheService: cache)
     panel.searchText = "quartz"
     waitUntil { panel.visibleItems.count == 1 }
     XCTAssertEqual(panel.selectedItem?.payload, text)
     panel.copySelected()
-    XCTAssertEqual(NSPasteboard.general.string(forType: .string), text)
+    XCTAssertEqual(pasteboard.string(forType: .string), text)
     XCTAssertEqual(panel.statusMessage, "Copied")
     monitor.pollNowAndWait()
     settle()
@@ -78,15 +66,14 @@ final class GoldfishWorkflowTests: XCTestCase {
     store.flushPersistenceForTesting()
     let database = try Data(contentsOf: directory.appendingPathComponent("history.sqlite"))
     XCTAssertNil(database.range(of: Data(text.utf8)), "Saved clipboard text must stay encrypted")
-    let restored = ClipboardStore(settings: settings, cacheService: cache, baseURL: directory,
-      encryptionService: encryption)
+    let restored = ClipboardStore(settings: settings, cacheService: cache, baseURL: directory, encryptionService: encryption)
     XCTAssertEqual(restored.items.map(\.payload), [text])
   }
 
   func testPinboardHistoryUndoArchiveAndRestore() throws {
-    let keep = store.upsert(item("Reusable client note"))
+    let keep = try XCTUnwrap(store.upsert(item("Reusable client note")))
     store.upsert(item("Disposable note"))
-    let panel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cache)
+    let panel = ClipboardPanelViewModel(pasteboard: pasteboard, store: store, settings: settings, cacheService: cache)
     panel.createCollection(named: "Client Work", colorHex: "#FF9900", icon: "star.fill", selectAfterCreate: false)
     panel.assignItem(withID: keep.id, to: "Client Work")
     panel.selectCollection(named: "Client Work")
@@ -105,18 +92,18 @@ final class GoldfishWorkflowTests: XCTestCase {
     XCTAssertEqual(summary.itemCount, 1)
     let restoredDirectory = directory.appendingPathComponent("restored", isDirectory: true)
     let restoredCache = ClipboardCacheService(baseURL: restoredDirectory, encryptionService: encryption)
-    let restored = ClipboardStore(settings: settings, cacheService: restoredCache,
-      baseURL: restoredDirectory, encryptionService: encryption)
+    let restored = ClipboardStore(
+      settings: settings, cacheService: restoredCache, baseURL: restoredDirectory, encryptionService: encryption)
     try restored.importArchive(from: archive)
     restored.flushPersistenceForTesting()
     XCTAssertEqual(restored.items.first?.payload, "Reusable client note")
     XCTAssertEqual(restored.items.first?.collectionName, "Client Work")
   }
 
-  func testStructuredSearchPinboardsAndPreferencesAcrossRelaunch() {
-    let link = store.upsert(item("https://example.com/review", kind: .url, sourceApp: "Brave Browser"))
+  func testStructuredSearchPinboardsAndPreferencesAcrossRelaunch() throws {
+    let link = try XCTUnwrap(store.upsert(item("https://example.com/review", kind: .url, sourceApp: "Brave Browser")))
     store.upsert(item("Review the release notes", sourceApp: "Ghostty"))
-    let panel = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cache)
+    let panel = ClipboardPanelViewModel(pasteboard: pasteboard, store: store, settings: settings, cacheService: cache)
     panel.createCollection(named: "Research", selectAfterCreate: false)
     panel.assignItem(withID: link.id, to: "Research")
     panel.searchText = "review app:\"Brave Browser\" type:link"
@@ -144,7 +131,8 @@ final class GoldfishWorkflowTests: XCTestCase {
   }
 
   func testIgnoredPausedAndResumedCapture() {
-    let monitor = ClipboardMonitorService(store: store, cacheService: cache, settings: settings)
+    let monitor = ClipboardMonitorService(
+      pasteboard: pasteboard, store: store, cacheService: cache, settings: settings, frontmostApp: { (nil, nil) })
     defer { monitor.stop() }
     settings.ignoredItemKindsRaw = [ClipboardItemKind.text.rawValue]
     monitor.refreshCaptureConfiguration()
@@ -175,9 +163,12 @@ final class GoldfishWorkflowTests: XCTestCase {
     for layout in [ClipboardShelfLayout.sidebar, .cards] {
       settings.shelfLayout = layout
       let existing = Set(NSApp.windows.map(ObjectIdentifier.init))
-      let controller = ClipboardPanelController(store: store, settings: settings, cacheService: cache)
+      let controller = ClipboardPanelController(pasteboard: pasteboard, store: store, settings: settings, cacheService: cache)
       let window = try XCTUnwrap(NSApp.windows.first { !existing.contains(ObjectIdentifier($0)) && $0 is NSPanel })
-      defer { controller.hide(immediate: true); window.close() }
+      defer {
+        controller.hide(immediate: true)
+        window.close()
+      }
       controller.show()
       settle(0.32)
       let panel = try XCTUnwrap(window.contentView as? ClipboardPanelView)
@@ -203,10 +194,10 @@ final class GoldfishWorkflowTests: XCTestCase {
 
   func testSearchClearAndPointerHoverWithVirtualCards() throws {
     for index in 0..<40 { store.upsert(item("Workflow clip \(index)")) }
-    let model = ClipboardPanelViewModel(store: store, settings: settings, cacheService: cache)
+    let model = ClipboardPanelViewModel(pasteboard: pasteboard, store: store, settings: settings, cacheService: cache)
     let panel = ClipboardPanelView(viewModel: model, onClose: {})
-    let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 460, height: 760),
-      styleMask: [.titled], backing: .buffered, defer: false)
+    let window = NSWindow(
+      contentRect: NSRect(x: 100, y: 100, width: 460, height: 760), styleMask: [.titled], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.contentView = panel
     defer { window.close() }
@@ -224,13 +215,14 @@ final class GoldfishWorkflowTests: XCTestCase {
 
     let rendered = descendants(panel).compactMap { $0 as? ClipboardItemCardView }
     XCTAssertLessThan(rendered.count, 40, "History browsing should render only the nearby cards")
-    let hovered = try XCTUnwrap(rendered.first { card in
-      guard card.representedIndex != model.selectedIndex,
-        let clip = sequence(first: card.superview, next: { $0?.superview }).compactMap({ $0 as? NSClipView }).first
-      else { return false }
-      let center = card.convert(NSPoint(x: card.bounds.midX, y: card.bounds.midY), to: clip)
-      return clip.bounds.contains(center)
-    })
+    let hovered = try XCTUnwrap(
+      rendered.first { card in
+        guard card.representedIndex != model.selectedIndex,
+          let clip = sequence(first: card.superview, next: { $0?.superview }).compactMap({ $0 as? NSClipView }).first
+        else { return false }
+        let center = card.convert(NSPoint(x: card.bounds.midX, y: card.bounds.midY), to: clip)
+        return clip.bounds.contains(center)
+      })
     let point = hovered.convert(NSPoint(x: hovered.bounds.midX, y: hovered.bounds.midY), to: nil)
     panel.updateHoverForPointer(atWindowLocation: point)
     XCTAssertEqual(model.selectedIndex, hovered.representedIndex)
@@ -241,14 +233,13 @@ final class GoldfishWorkflowTests: XCTestCase {
   func testSettingsWindowNavigationChangesPersistentCaptureAndAppearancePreferences() throws {
     let existing = Set(NSApp.windows.map(ObjectIdentifier.init))
     let controller = SettingsWindowController(settings: settings, store: store, cacheService: cache)
-    let window = try XCTUnwrap(NSApp.windows.first { !existing.contains(ObjectIdentifier($0)) && $0.title == "Goldfish Settings" })
+    let window = try XCTUnwrap(NSApp.windows.first { !existing.contains(ObjectIdentifier($0)) && $0.title == "Goldfish Settings — " + AppConfiguration.buildDescription })
     defer { window.close() }
     controller.show()
     XCTAssertTrue(window.isVisible)
 
     func click(_ title: String) throws {
-      let control = try XCTUnwrap(descendants(try XCTUnwrap(window.contentView))
-        .compactMap { $0 as? NSButton }.first { $0.title == title })
+      let control = try XCTUnwrap(descendants(try XCTUnwrap(window.contentView)).compactMap { $0 as? NSButton }.first { $0.title == title })
       control.performClick(nil)
       settle()
     }
@@ -268,17 +259,16 @@ final class GoldfishWorkflowTests: XCTestCase {
     XCTAssertTrue(reopened.hideFromScreenCapture)
   }
 
-  private func item(_ text: String, kind: ClipboardItemKind = .text,
-    sourceApp: String = "Workflow Tests") -> ClipboardItem {
+  private func item(_ text: String, kind: ClipboardItemKind = .text, sourceApp: String = "Workflow Tests") -> ClipboardItem {
     let now = Date()
-    return ClipboardItem(id: UUID(), kind: kind, displayText: text, payload: text,
-      payloadHash: UUID().uuidString, createdAt: now, lastUsedAt: now,
+    return ClipboardItem(
+      id: UUID(), kind: kind, displayText: text, payload: text, payloadHash: UUID().uuidString, createdAt: now, lastUsedAt: now,
       useCount: 0, sourceApp: sourceApp, imagePath: nil, thumbnailPath: nil)
   }
 
   private func copy(_ text: String) {
-    NSPasteboard.general.clearContents()
-    XCTAssertTrue(NSPasteboard.general.setString(text, forType: .string))
+    pasteboard.clearContents()
+    XCTAssertTrue(pasteboard.setString(text, forType: .string))
   }
 
   private func waitUntil(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) {
@@ -287,13 +277,9 @@ final class GoldfishWorkflowTests: XCTestCase {
     XCTAssertTrue(condition(), "Workflow did not reach its expected state", file: file, line: line)
   }
 
-  private func settle(_ seconds: TimeInterval = 0.04) {
-    RunLoop.main.run(until: Date().addingTimeInterval(seconds))
-  }
+  private func settle(_ seconds: TimeInterval = 0.04) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 
-  private func descendants(_ view: NSView) -> [NSView] {
-    [view] + view.subviews.flatMap(descendants)
-  }
+  private func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
 
   private func button(_ toolTip: String, in view: NSView) throws -> NSButton {
     try XCTUnwrap(descendants(view).compactMap { $0 as? NSButton }.first { $0.toolTip == toolTip })

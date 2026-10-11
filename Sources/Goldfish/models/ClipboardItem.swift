@@ -103,10 +103,6 @@ enum ClipboardSortMode: Int {
 }
 
 enum ClipboardCollectionDefaults {
-  // Names shipped by earlier versions. Used only to migrate those preset
-  // pinboards away without deleting the clips they contain.
-  static let legacyNames = ["Useful Links", "Important Notes", "Code Snippets", "Read Later"]
-
   static func normalizedName(_ value: String?) -> String? {
     guard let value else { return nil }
     let name = value.split { $0.isWhitespace }.joined(separator: " ").clipboardTrimmed
@@ -190,7 +186,7 @@ struct ClipboardItem: Equatable {
     self.payloadHash = payloadHash
     self.createdAt = createdAt
     self.lastUsedAt = lastUsedAt
-    self.useCount = useCount
+    self.useCount = min(Int(Int32.max), max(0, useCount))
     self.sourceApp = sourceApp
     self.imagePath = imagePath
     self.thumbnailPath = thumbnailPath

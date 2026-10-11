@@ -15,7 +15,7 @@ This roadmap keeps future work aligned with the project's constraints: small exe
 
 ## Product Polish
 
-- Keep keyboard focus, VoiceOver descriptions, Command-click category unions, and context-menu parity covered as the side-rail shelf evolves.
+- Keep keyboard focus, VoiceOver descriptions, independent destination and content-type filters, and context-menu parity covered as the side-rail shelf evolves.
 - Validate motion, cross-display placement, and card expansion on each supported macOS release, including the system Reduce Motion path.
 - Consider optional password-protected archive exports if migration needs outgrow owner-only local archive files.
 - Design true multi-device sync and shared Pinboard collaboration separately from private iCloud archive backup.

@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 
 final class PasteActionService {
+  private let pasteboard: NSPasteboard
   private let cacheService: ClipboardCacheService
   private let accessibilityPermissionProvider: () -> Bool
   private let targetActivator: (NSRunningApplication) -> Bool
@@ -11,7 +12,7 @@ final class PasteActionService {
   private let keyboardPastePoster: () -> Bool
 
   init(
-    cacheService: ClipboardCacheService = ClipboardCacheService(),
+    pasteboard: NSPasteboard = .general, cacheService: ClipboardCacheService = ClipboardCacheService(),
     accessibilityPermissionProvider: @escaping () -> Bool = { AccessibilityPermissionService.isTrusted },
     targetActivator: @escaping (NSRunningApplication) -> Bool = PasteActionService.activateForAutomaticPaste,
     keyboardPasteScheduler: @escaping (@escaping () -> Void) -> Void = { action in
@@ -20,6 +21,7 @@ final class PasteActionService {
     frontmostPID: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier },
     keyboardPastePoster: @escaping () -> Bool = PasteActionService.pasteViaKeyboard
   ) {
+    self.pasteboard = pasteboard
     self.cacheService = cacheService
     self.accessibilityPermissionProvider = accessibilityPermissionProvider
     self.targetActivator = targetActivator
@@ -177,7 +179,7 @@ final class PasteActionService {
   }
 
   @discardableResult func writeToPasteboard(_ item: ClipboardItem) -> Bool {
-    let board = NSPasteboard.general
+    let board = pasteboard
     let didWrite: Bool
     switch item.kind {
     case .image:
@@ -230,7 +232,7 @@ final class PasteActionService {
       didWrite = board.setString(item.payload, forType: .string)
     }
 
-    if didWrite { ClipboardSelfWriteTracker.mark(changeCount: board.changeCount) }
+    if didWrite { ClipboardSelfWriteTracker.mark(changeCount: board.changeCount, pasteboard: board) }
     return didWrite
   }
 
@@ -244,10 +246,10 @@ final class PasteActionService {
     }
     guard !writers.isEmpty else { return false }
 
-    let board = NSPasteboard.general
+    let board = pasteboard
     board.clearContents()
     let didWrite = board.writeObjects(writers)
-    if didWrite { ClipboardSelfWriteTracker.mark(changeCount: board.changeCount) }
+    if didWrite { ClipboardSelfWriteTracker.mark(changeCount: board.changeCount, pasteboard: board) }
     return didWrite
   }
 
@@ -271,20 +273,20 @@ final class PasteActionService {
 
   @discardableResult private func writePlainTextToPasteboard(_ text: String) -> Bool {
     guard !text.clipboardTrimmed.isEmpty else { return false }
-    let board = NSPasteboard.general
+    let board = pasteboard
     board.clearContents()
     let didWrite = board.setString(text, forType: .string)
-    if didWrite { ClipboardSelfWriteTracker.mark(changeCount: board.changeCount) }
+    if didWrite { ClipboardSelfWriteTracker.mark(changeCount: board.changeCount, pasteboard: board) }
     return didWrite
   }
 
   private func schedulePaste(into targetApp: NSRunningApplication) {
-    let changeCount = NSPasteboard.general.changeCount
+    let changeCount = pasteboard.changeCount
     keyboardPasteScheduler { [weak self] in
       guard let self, !targetApp.isTerminated,
         Self.shouldDeliverPaste(
           targetPID: targetApp.processIdentifier, frontmostPID: self.frontmostPID(), expectedChangeCount: changeCount,
-          actualChangeCount: NSPasteboard.general.changeCount)
+          actualChangeCount: self.pasteboard.changeCount)
       else { return }
       if self.keyboardPastePoster() { self.feedback(.paste) }
     }

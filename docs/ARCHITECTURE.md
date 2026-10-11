@@ -1,6 +1,6 @@
 # Architecture
 
-Goldfish is a single-process AppKit utility built with Swift Package Manager. UI, capture, persistence, preview generation, and paste orchestration stay in-process. Capture persistence, card-thumbnail loading, archive and sync operations, image rotation, and OCR use bounded background queues; their UI state and completion feedback return to the main thread.
+Goldfish is a single-process AppKit utility built with Swift Package Manager. UI, capture, persistence, preview generation, and paste orchestration stay in-process. SQLite commits run on a serial storage queue and publish state only after success. Thumbnail loading, archive operations, image rotation, and OCR use bounded background queues; UI state and completion feedback return to the main thread.
 
 ## Runtime Shape
 
@@ -9,6 +9,8 @@ Goldfish is a single-process AppKit utility built with Swift Package Manager. UI
 - `ClipboardMonitorService` watches `NSPasteboard.changeCount` on a utility queue with adaptive active/idle polling intervals selected by the Performance setting.
 - `ClipboardStore` owns the main-thread in-memory item list and serializes all SQLite work on one persistence queue. Background archive operations take main-thread snapshots or apply imports on the main thread.
 - `ClipboardCacheService` stores durable encrypted full images separately from disposable encrypted thumbnails and maintains a small in-memory cache.
+- `ClipboardDataCoordinator` serializes local export/import and automatic/manual backup work. Disabling backup invalidates queued work and authorizes publication under a lock immediately before the atomic archive write.
+- `ClipboardShelfState` owns atomic search, destination, and content-filter transitions; its actions preserve legacy preference raw values.
 - `ClipboardCloudSyncService` resolves the private iCloud ubiquity container and pushes or restores one portable backup archive only when backup is enabled.
 - `ShortcutManager` registers the configured system-wide shelf hotkey. The Settings binding is handled by the shelf's local key monitor and is never registered globally.
 - `ClipboardPanelController` owns shelf lifecycle, current-screen placement, left/right frame planning, target-app tracking, and show/hide/reflow animation.
@@ -29,7 +31,7 @@ Goldfish is a single-process AppKit utility built with Swift Package Manager. UI
 1. The monitor notices a pasteboard change.
 2. Capture rules check paused state, ignored frontmost apps, allowed content kinds, and likely-sensitive text/URL exclusion. Managed payloads above 64 MB are rejected.
 3. Pasteboard content is normalized into a `ClipboardItem`; local Vision OCR runs when image-label search is enabled.
-4. The store deduplicates, preserves pinned and Pinboard-assigned items, enforces retention/length limits, and persists the mutation.
+4. The store deduplicates, preserves pinned and Pinboard-assigned items, enforces retention/length limits, and commits the mutation before publishing it. File cleanup follows a successful transaction; failures leave the prior state and attachments intact.
 5. The search engine parses and matches the query while caching normalized item documents. The view model maintains destination/Pinboard indexes and caches result ordering. The current UI has one destination at a time; the retired collection-chip union mode has been removed.
 6. An independent content-type filter and selected ordering apply within the destination. The view materializes only nearby cards: an adaptive two-column grid with wide cards in the vertical shelf, or a single horizontal rail.
 7. Selection dictionaries are built once after filtering and sorting. Type counts are cached by result revision; hover checks that revision in constant time and changes emphasis without rerunning card layout.
@@ -90,3 +92,9 @@ Keep capture and persistence out of views. Keep shared geometry and colors in th
 Run `./scripts/check.sh` for tests, a release build, signature verification, and size gates. Run `python3 scripts/project-metrics.py` for comparable line and byte counts (`--json` for scripts). Physical line counts include comments and blanks; app and test Swift are reported separately. The project total excludes Git, Swift caches, and generated app bundles. Design reference screenshots remain in `docs/`; they are not shipped.
 
 Build artifacts in `.build/` and `build/` are disposable. After validation, `swift package clean` removes package intermediates while leaving `build/Goldfish.app` available. A cold rebuild recreates the cache. Keep the legacy storage and security identifiers above; they are compatibility boundaries, not naming debt.
+
+## Data mutation contract
+
+The store is the sole owner of durable history mutations. Callers propose changes on the main thread; one transaction writes changed rows and deletes removed rows before notifying observers. Failure returns an unsuccessful result and a visible storage warning. Bulk rename, assignment, deletion, and usage updates commit once. Imported attachments use fresh local storage IDs, never archive paths or live filenames; failed imports remove only their new files and leave collection preferences untouched. Existing Pinboards, including old default names, remain retained.
+
+Tests inject named pasteboards and isolated cache/history directories. No automated test needs to replace the general clipboard. Compatibility identities remain `com.local.clipbored`, the ClipBored storage and Keychain names, the existing encryption marker, `.clipboredarchive`, and the existing cloud backup path.

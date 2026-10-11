@@ -10,16 +10,22 @@ struct ClipboardCloudSyncStatus: Equatable {
 protocol ClipboardCloudSyncServicing {
   func syncArchiveURL() throws -> URL
   func status() -> ClipboardCloudSyncStatus
-  @discardableResult func push(store: ClipboardStore) throws -> ClipboardArchiveSummary
+  @discardableResult func push(store: ClipboardStore, write: ArchiveWrite) throws -> ClipboardArchiveSummary
   @discardableResult func pull(store: ClipboardStore) throws -> ClipboardArchiveSummary
+}
+
+extension ClipboardCloudSyncServicing {
+  @discardableResult func push(store: ClipboardStore) throws -> ClipboardArchiveSummary { try push(store: store, write: { try $0() }) }
 }
 
 enum ClipboardCloudSyncError: LocalizedError, Equatable {
   case unavailable
+  case cancelled
   case noRemoteArchive(URL)
 
   var errorDescription: String? {
     switch self {
+    case .cancelled: return "iCloud Backup was cancelled because its settings changed."
     case .unavailable:
       return "iCloud Backup is unavailable. Sign Goldfish with an iCloud container entitlement and make sure iCloud Drive is enabled."
     case .noRemoteArchive: return "No Goldfish iCloud archive has been created yet."
@@ -64,9 +70,9 @@ final class ClipboardCloudSyncService: ClipboardCloudSyncServicing {
     }
   }
 
-  @discardableResult func push(store: ClipboardStore) throws -> ClipboardArchiveSummary {
+  @discardableResult func push(store: ClipboardStore, write: ArchiveWrite) throws -> ClipboardArchiveSummary {
     let url = try syncArchiveURL()
-    return try store.exportArchive(to: url)
+    return try store.exportArchive(to: url, write: write)
   }
 
   @discardableResult func pull(store: ClipboardStore) throws -> ClipboardArchiveSummary {

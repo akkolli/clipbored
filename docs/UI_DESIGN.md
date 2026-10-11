@@ -1,6 +1,6 @@
 # Goldfish interface design
 
-Goldfish uses a vertical shelf, a vertical destination menu, and adaptive rows of colorful cards. Notification Center informs the material, density, and motion while Goldfish keeps its vivid content-type headers and recognizable source icons. [Earlier reference study and implementation record](GOLDFISH_DESIGN_REBUILD.md).
+Goldfish uses a vertical shelf, symbol navigation for destinations, and adaptive rows of colorful cards. Notification Center informs the material, density, and motion while Goldfish keeps its vivid content-type headers and recognizable source icons. [Earlier reference study and implementation record](history/GOLDFISH_DESIGN_REBUILD.md).
 
 ## Hierarchy and geometry
 
@@ -23,9 +23,9 @@ Goldfish uses a vertical shelf, a vertical destination menu, and adaptive rows o
 - Up/Down follows the visual rows and retains the preferred column across full-width clips. Left/Right follows chronological order, and Shift extends the selection. Hover proximity follows neighboring rows and columns. Initial rendering fills tall two-column viewports while history remains virtualized.
 - Native wheel/trackpad scrolling supports a long virtualized history. Reuse unchanged cards and thumbnails. A new copy must not blink the shelf or pull a scrolled viewport away from the content being read.
 - The scrollbar has no contrasting track. Its 4 pt rounded thumb widens on interaction and is centered between the card edge and the shelf's right wall, clear of the cards even during hover. Its 12 pt hit area remains inside that gutter. The card column keeps equal visual margins in overlay and legacy scroller styles; native dragging, accessibility, overlay fading, and the system Always Show Scroll Bars preference remain intact.
-- Search scope changes reveal the matching result. Down/Up from search enters the selected result without skipping it; Space can then preview. The focus ring follows the whole search capsule. The destination menu and filters remain available during empty results.
+- Search scope changes reveal the matching result. Down/Up from search enters the selected result without skipping it; Space can then preview. The focus ring follows the whole search capsule. Destination controls and filters remain available during empty results.
 - Opening combines a 280 ms shelf transition with a brief card reveal stagger capped at 48 ms; closing takes 200 ms. Card entrance motion is separate from hover transforms and respects left/right placement. Scroll edges use an alpha mask on the content, revealing the live material instead of painting an opaque strip. Reduce Motion removes the transitions; Reduce Transparency and Increase Contrast disable edge fading.
-- All actions remain discoverable through labeled native context menus and keyboard equivalents. The destination menu supports Pinboard creation/edit/export/delete; card menus support assignment.
+- All actions remain discoverable through labeled native context menus and keyboard equivalents. Pinboard context menus support creation/edit/export/delete; card menus support assignment.
 - The shelf has no persistent footer. Copies hidden by the current scope get an explicit Show new recovery action. Undo and capture controls remain available through keyboard shortcuts and application menus.
 - Empty states explain the current scope and offer one relevant action. Error, paused, no-results, and no-history states must not imply capture is running when it is not.
 
