@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-  name: "ClipBored",
+  name: "Goldfish",
   platforms: [
     .macOS(.v13)
   ],
   products: [
-    .executable(name: "ClipBored", targets: ["ClipBored"])
+    .executable(name: "Goldfish", targets: ["ClipBored"])
   ],
   targets: [
     .executableTarget(

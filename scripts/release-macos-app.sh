@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_NAME="ClipBored"
+APP_NAME="Goldfish"
 APP_BUNDLE="$REPO_ROOT/build/${APP_NAME}.app"
 ZIP_PATH="$REPO_ROOT/build/${APP_NAME}.zip"
 
@@ -11,9 +11,9 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/release-macos-app.sh
 
-Builds build/ClipBored.app, optionally re-signs it with a Developer ID
+Builds build/Goldfish.app, optionally re-signs it with a Developer ID
 Application certificate, optionally notarizes it, staples the ticket, and
-creates build/ClipBored.zip.
+creates build/Goldfish.zip.
 
 Optional environment:
   DEVELOPER_ID_APPLICATION        codesign identity, e.g. "Developer ID Application: Example, Inc. (TEAMID)"
@@ -50,7 +50,7 @@ fi
 
 cd "$REPO_ROOT"
 
-"$SCRIPT_DIR/build-macos-app.sh"
+"$SCRIPT_DIR/dev.sh" build
 
 if [[ -n "${DEVELOPER_ID_APPLICATION:-}" ]]; then
   echo "Signing with Developer ID identity: $DEVELOPER_ID_APPLICATION"
